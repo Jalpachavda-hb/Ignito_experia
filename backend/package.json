@@ -1,0 +1,26 @@
+{
+  "name": "vlab-backend",
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "lambda:local": "node -e \"import('./lambda.js').then(m => console.log('Lambda router OK'))\""
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1052.0",
+    "@aws-sdk/client-ec2": "^3.1038.0",
+    "@aws-sdk/client-ecs": "^3.1059.0",
+    "@aws-sdk/lib-dynamodb": "^3.1052.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.2",
+    "http-proxy-middleware": "^3.0.5",
+    "jsonwebtoken": "^9.0.3",
+    "node-pty": "^1.1.0",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
