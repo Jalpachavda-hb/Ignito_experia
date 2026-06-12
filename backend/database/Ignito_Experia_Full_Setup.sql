@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS `Labs` (
     `Title` VARCHAR(200) NOT NULL,
     `Subtitle` VARCHAR(300),
     `Semester` VARCHAR(100),
-    `LogoUrl` TEXT,
+    `Logo` VARCHAR(255) COMMENT 'Stores the file path/name of the uploaded photo',
     `Rating` DECIMAL(3,2) DEFAULT 0,
     `DurationMinutes` INT DEFAULT 0,
     `Credits` INT DEFAULT 0,
@@ -122,7 +122,7 @@ CREATE PROCEDURE `sp_Lab_Insert` (
     IN p_Title VARCHAR(200),
     IN p_Subtitle VARCHAR(300),
     IN p_Semester VARCHAR(100),
-    IN p_LogoUrl TEXT,
+    IN p_Logo VARCHAR(255),
     IN p_Rating DECIMAL(3,2),
     IN p_DurationMinutes INT,
     IN p_Credits INT,
@@ -154,11 +154,11 @@ BEGIN
     START TRANSACTION;
 
     INSERT INTO `Labs` (
-        `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `LogoUrl`, `Rating`, `DurationMinutes`, `Credits`,
+        `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `Logo`, `Rating`, `DurationMinutes`, `Credits`,
         `Complexity`, `Category`, `Description`, `Status`, `TaskDefinition`, `RuntimeType`, `RuntimePort`,
         `RuntimePath`, `ContainerApiEnabled`, `ContainerApiPort`, `CreatedBy`
     ) VALUES (
-        p_TenantId, p_LabCode, p_Title, p_Subtitle, p_Semester, p_LogoUrl, p_Rating, p_DurationMinutes, p_Credits,
+        p_TenantId, p_LabCode, p_Title, p_Subtitle, p_Semester, p_Logo, p_Rating, p_DurationMinutes, p_Credits,
         p_Complexity, p_Category, p_Description, IFNULL(p_Status, 'ready'), p_TaskDefinition, p_RuntimeType, p_RuntimePort,
         p_RuntimePath, IFNULL(p_ContainerApiEnabled, 0), p_ContainerApiPort, p_CreatedBy
     );
@@ -183,7 +183,7 @@ CREATE PROCEDURE `sp_Lab_Update` (
     IN p_Title VARCHAR(200),
     IN p_Subtitle VARCHAR(300),
     IN p_Semester VARCHAR(100),
-    IN p_LogoUrl TEXT,
+    IN p_Logo VARCHAR(255),
     IN p_Rating DECIMAL(3,2),
     IN p_DurationMinutes INT,
     IN p_Credits INT,
@@ -221,7 +221,7 @@ BEGIN
         `Title` = p_Title,
         `Subtitle` = p_Subtitle,
         `Semester` = p_Semester,
-        `LogoUrl` = p_LogoUrl,
+        `Logo` = p_Logo,
         `Rating` = p_Rating,
         `DurationMinutes` = p_DurationMinutes,
         `Credits` = p_Credits,
@@ -315,7 +315,7 @@ BEGIN
     END;
 
     SELECT 
-        `LabId`, `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `LogoUrl`, 
+        `LabId`, `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `Logo`, 
         `Rating`, `DurationMinutes`, `Credits`, `Complexity`, `Category`, `Description`, 
         `Status`, `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `IsActive`, `CreatedBy`, `UpdatedBy`, 
@@ -349,7 +349,7 @@ BEGIN
     END;
 
     SELECT 
-        `LabId`, `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `LogoUrl`, 
+        `LabId`, `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `Logo`, 
         `Rating`, `DurationMinutes`, `Credits`, `Complexity`, `Category`, `Description`, 
         `Status`, `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `IsActive`, `CreatedBy`, `UpdatedBy`, 
@@ -371,7 +371,7 @@ INSERT IGNORE INTO `Labs` (
     `Title`, 
     `Subtitle`, 
     `Semester`, 
-    `LogoUrl`, 
+    `Logo`, 
     `Rating`, 
     `DurationMinutes`, 
     `Credits`, 
@@ -390,7 +390,7 @@ INSERT IGNORE INTO `Labs` (
     'Linux Administration Lab',
     'Bash Scripting & SysAdmin',
     'Semester 2',
-    'https://raw.githubusercontent.com/github/explore/80688e429a7d4ef2fca1e82350fe8e3517d3494d/topics/linux/linux.png',
+    'default_linux_logo.png',
     4.8,
     60,
     25,

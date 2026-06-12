@@ -7,8 +7,8 @@ const joinUrl = (base, path = "/") => {
   return `${base}${normalizedPath === "/" ? "" : normalizedPath}`;
 };
 
-export const getLabRuntime = (labId) => {
-  const lab = getLabById(labId);
+export const getLabRuntime = async (labId) => {
+  const lab = await getLabById(labId);
   return lab?.runtime || { type: "web", port: LAB_PORTS.WEB_LAB, path: "/" };
 };
 
@@ -21,26 +21,26 @@ export const getContainerHost = (session) => {
   return session.publicIp || session.taskPrivateIp;
 };
 
-export const getContainerPort = (labId) => {
-  const runtime = getLabRuntime(labId);
+export const getContainerPort = async (labId) => {
+  const runtime = await getLabRuntime(labId);
   if (runtime.containerApi?.port) return runtime.containerApi.port;
   return runtime.port;
 };
 
-export const getSessionApiBaseUrl = (session) => {
+export const getSessionApiBaseUrl = async (session) => {
   const host = getContainerHost(session);
 
   if (!host || session.status !== "running") {
     return null;
   }
 
-  const runtime = getLabRuntime(session.labId);
+  const runtime = await getLabRuntime(session.labId);
 
   if (runtime.containerApi?.enabled === false) {
     return null;
   }
 
-  const port = getContainerPort(session.labId);
+  const port = await getContainerPort(session.labId);
 
   const baseUrl = `http://${host}:${port}`;
 
@@ -49,11 +49,11 @@ export const getSessionApiBaseUrl = (session) => {
   return baseUrl;
 };
 
-export const buildJupyterProxyUrl = (session) => {
+export const buildJupyterProxyUrl = async (session) => {
   if (!session?.sessionId || !session?.userId || session.status !== "running") {
     return null;
   }
-  const runtime = getLabRuntime(session.labId);
+  const runtime = await getLabRuntime(session.labId);
   if (runtime.type !== "jupyter") return null;
 
   const token = signJupyterEmbedToken(session.sessionId, session.userId);
@@ -82,8 +82,8 @@ export const buildCodeServerProxyUrl = (session) => {
   return `${base}/lab-sessions/${session.sessionId}/vscode/`;
 };
 
-export const buildMainToolUrl = ({ labId, session }) => {
-  const runtime = getLabRuntime(labId);
+export const buildMainToolUrl = async ({ labId, session }) => {
+  const runtime = await getLabRuntime(labId);
   const host = getContainerHost(session);
 
   if (!host || session.status !== "running") {
@@ -91,7 +91,8 @@ export const buildMainToolUrl = ({ labId, session }) => {
   }
 
   if (runtime.type === "jupyter") {
-    return buildJupyterProxyUrl(session) || joinUrl(`http://${host}:${runtime.port}`, runtime.path);
+    const jupyterUrl = await buildJupyterProxyUrl(session);
+    return jupyterUrl || joinUrl(`http://${host}:${runtime.port}`, runtime.path);
   }
 
   // Route code-server labs through the backend proxy (strips X-Frame-Options, avoids direct exposure)
@@ -102,10 +103,10 @@ export const buildMainToolUrl = ({ labId, session }) => {
   return joinUrl(`http://${host}:${runtime.port}`, runtime.path);
 };
 
-export const buildSessionTools = (session) => {
-  const runtime = getLabRuntime(session.labId);
-  const apiBaseUrl = getSessionApiBaseUrl(session);
-  const mainUrl = buildMainToolUrl({ labId: session.labId, session });
+export const buildSessionTools = async (session) => {
+  const runtime = await getLabRuntime(session.labId);
+  const apiBaseUrl = await getSessionApiBaseUrl(session);
+  const mainUrl = await buildMainToolUrl({ labId: session.labId, session });
 
   return {
     main: {
@@ -128,11 +129,11 @@ export const buildSessionTools = (session) => {
   };
 };
 
-export const enrichSession = (session) => {
+export const enrichSession = async (session) => {
   if (!session) return session;
-  session.tools = buildSessionTools(session);
-  session.apiBaseUrl = getSessionApiBaseUrl(session);
-  session.containerPort = getContainerPort(session.labId);
+  session.tools = await buildSessionTools(session);
+  session.apiBaseUrl = await getSessionApiBaseUrl(session);
+  session.containerPort = await getContainerPort(session.labId);
   if (session.startTime) {
     const duration = session.durationMinutes || ENV.defaultSessionMinutes || 30;
     const startMs = new Date(session.startTime).getTime();

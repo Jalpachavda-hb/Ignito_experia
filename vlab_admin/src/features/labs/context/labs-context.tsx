@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState } from 'react'
 import { type Lab } from '../data/schema'
 
-type DialogType = 'view' | 'create' | 'edit' | 'clone' | 'delete' | null
+type DialogType = 'view' | 'create' | 'edit' | 'delete' | null
 
 interface LabsContextType {
   dialogOpen: DialogType

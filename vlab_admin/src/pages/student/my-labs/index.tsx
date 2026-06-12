@@ -68,7 +68,7 @@ export default function MyLabs() {
 
   // Derived state for active labs
   const activeLabs = useMemo(() => {
-    return labs.filter(lab => lab.status === 'In Progress' || lab.status === 'active' || activeSession?.labId === lab.id);
+    return labs.filter(lab => activeSession?.labId === lab.id);
   }, [labs, activeSession]);
 
   // Filtering and sorting logic
@@ -97,10 +97,13 @@ export default function MyLabs() {
         
         // Status Filter
         if (statusFilter !== 'All Labs') {
-          const labStatus = lab.status || 'Not Started';
-          if (statusFilter === 'In Progress' && labStatus !== 'In Progress' && labStatus !== 'active') return false;
-          if (statusFilter === 'Completed' && labStatus !== 'Completed') return false;
-          if (statusFilter === 'Not Started' && labStatus !== 'Not Started' && labStatus !== undefined) return false;
+          const isRunning = activeSession?.labId === lab.id;
+          const displayStatus = lab.status === 'active' ? 'Available' : (lab.status || 'Not Started');
+          const currentStatus = isRunning ? 'In Progress' : displayStatus;
+
+          if (statusFilter === 'In Progress' && currentStatus !== 'In Progress') return false;
+          if (statusFilter === 'Completed' && currentStatus !== 'Completed') return false;
+          if (statusFilter === 'Not Started' && currentStatus !== 'Not Started' && currentStatus !== 'Available') return false;
         }
 
         return true;

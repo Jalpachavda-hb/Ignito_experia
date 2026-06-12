@@ -6,7 +6,8 @@ import { getFile, upsertFile } from "../services/fileRepository.js";
 import { executeInContainer, saveToContainer } from "../services/containerClient.js";
 import { executeLocally } from "../services/localExecutor.js";
 import { resolveLabType } from "../lib/labTypeMapper.js";
-import { getContainerHost, getContainerPort } from "../services/labTools.js";
+import { getContainerHost, getContainerPort } from "../lib/labTools.js";
+
 
 export const runsCreateHandler = async ({ body, auth }) => {
   const sessionId = body?.sessionId || body?.session_id;
@@ -105,9 +106,9 @@ except Exception as e:
 
   let result;
 
-const host = getContainerHost(session);
-const port = getContainerPort(session.labId) || session.containerPort || 8080;
-const baseUrl = host ? `http://${host}:${port}` : null;
+  const host = getContainerHost(session);
+  const port = (await getContainerPort(session.labId)) || session.containerPort || 8080;
+  const baseUrl = host ? `http://${host}:${port}` : null;
 
 console.log("\n========== SESSION DEBUG ==========");
 console.log(JSON.stringify(session, null, 2));

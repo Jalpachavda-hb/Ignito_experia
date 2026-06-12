@@ -17,10 +17,10 @@ export const createSessionToken = () => crypto.randomBytes(16).toString("hex");
 export const getSession = async (sessionId) => {
   if (useDynamoDb()) {
     const item = await ddbGet(ENV.sessionsTable, { sessionId });
-    return item ? enrichSession({ ...item }) : null;
+    return item ? await enrichSession({ ...item }) : null;
   }
   const item = memorySessions.get(sessionId);
-  return item ? enrichSession({ ...item }) : null;
+  return item ? await enrichSession({ ...item }) : null;
 };
 
 export const findActiveSessionForUser = async (userId, labId) => {
@@ -41,7 +41,7 @@ export const findActiveSessionForUser = async (userId, labId) => {
     const items = (res.Items || []).filter(
       (s) => !labId || s.labId === labId,
     );
-    return items[0] ? enrichSession(items[0]) : null;
+    return items[0] ? await enrichSession(items[0]) : null;
   }
 
   for (const session of memorySessions.values()) {
@@ -50,14 +50,14 @@ export const findActiveSessionForUser = async (userId, labId) => {
       ["starting", "running"].includes(session.status) &&
       (!labId || session.labId === labId)
     ) {
-      return enrichSession(session);
+      return await enrichSession(session);
     }
   }
   return null;
 };
 
 export const saveSession = async (session) => {
-  const record = enrichSession({ ...session });
+  const record = await enrichSession({ ...session });
   if (useDynamoDb()) {
     await ddbPut(ENV.sessionsTable, record);
   } else {
@@ -69,11 +69,11 @@ export const saveSession = async (session) => {
 export const updateSession = async (sessionId, updates) => {
   if (useDynamoDb()) {
     const updated = await ddbUpdate(ENV.sessionsTable, { sessionId }, updates);
-    return enrichSession(updated);
+    return await enrichSession(updated);
   }
   const existing = memorySessions.get(sessionId);
   if (!existing) return null;
-  const merged = enrichSession({ ...existing, ...updates });
+  const merged = await enrichSession({ ...existing, ...updates });
   memorySessions.set(sessionId, merged);
   return merged;
 };
@@ -124,7 +124,7 @@ export const getAllActiveSessions = async () => {
           },
         }),
       );
-      return (res.Items || []).map((s) => enrichSession(s));
+      return await Promise.all((res.Items || []).map((s) => enrichSession(s)));
     } catch (err) {
       console.error("[getAllActiveSessions] Scan Error:", err);
       return [];
@@ -133,7 +133,7 @@ export const getAllActiveSessions = async () => {
   const active = [];
   for (const session of memorySessions.values()) {
     if (["starting", "running"].includes(session.status)) {
-      active.push(enrichSession(session));
+      active.push(await enrichSession(session));
     }
   }
   return active;

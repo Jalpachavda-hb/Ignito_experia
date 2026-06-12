@@ -24,7 +24,7 @@ const buildHeaders = (session) => {
 };
 
 export const saveToContainer = async (session, { path, content }) => {
-  const baseUrl = getSessionApiBaseUrl(session);
+  const baseUrl = await getSessionApiBaseUrl(session);
   if (!baseUrl) return { proxied: false };
 
   // Fast reachability check (5s) to avoid 35s connection timeouts in local dev
@@ -58,7 +58,7 @@ export const saveToContainer = async (session, { path, content }) => {
 };
 
 export const executeInContainer = async (session, payload) => {
-  const baseUrl = getSessionApiBaseUrl(session);
+  const baseUrl = await getSessionApiBaseUrl(session);
 
   if (!baseUrl) {
     console.log("[Container] No base URL available");

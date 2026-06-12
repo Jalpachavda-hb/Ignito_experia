@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import multer from "multer";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { ENV } from "./config/env.js";
@@ -9,9 +10,13 @@ import { setupTerminal } from "./terminalHandler.js";
 import { setupJupyterProxy, attachJupyterProxyUpgrade } from "./jupyterProxy.js";
 import { setupCodeServerProxy, attachCodeServerProxyUpgrade } from "./codeServerProxy.js";
 import { cleanupExpiredSessions } from "./services/sessionCleanup.js";
+import { verifyDbConnection } from "./lib/mysql.js";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Verify DB on startup
+verifyDbConnection();
 
 const io = new Server(httpServer, {
   cors: {
@@ -22,6 +27,10 @@ const io = new Server(httpServer, {
 
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true, limit: "2mb" }));
+
+const upload = multer({ dest: "uploads/" });
+app.use(upload.any());
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);

@@ -19,7 +19,7 @@ interface LabsRowActionsProps {
 export function LabsRowActions({ row }: LabsRowActionsProps) {
   const { setDialogOpen, setCurrentRow } = useLabs()
 
-  const handleAction = (action: 'view' | 'edit' | 'clone' | 'delete') => {
+  const handleAction = (action: 'view' | 'edit' | 'delete') => {
     setCurrentRow(row.original)
     setDialogOpen(action)
   }
@@ -42,9 +42,7 @@ export function LabsRowActions({ row }: LabsRowActionsProps) {
         <DropdownMenuItem onClick={() => handleAction('edit')}>
           Edit Lab
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleAction('clone')}>
-          Clone Lab
-        </DropdownMenuItem>
+
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => handleAction('delete')}

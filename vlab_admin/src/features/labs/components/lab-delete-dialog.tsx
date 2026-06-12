@@ -2,10 +2,10 @@
 
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
-import { sleep } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { type Lab } from '../data/schema'
+import { useDeleteLabMutation } from '../data/api'
 
 type LabDeleteDialogProps = {
   currentRow?: Lab
@@ -18,17 +18,18 @@ export function LabDeleteDialog({
   open,
   onOpenChange,
 }: LabDeleteDialogProps) {
+  const deleteMutation = useDeleteLabMutation()
+
   if (!currentRow) return null
 
-  const handleDelete = () => {
-    onOpenChange(false)
-    toast.promise(sleep(1000), {
-      loading: 'Deleting lab...',
-      success: () => {
-        return `Lab "${currentRow.name}" successfully deleted.`
-      },
-      error: 'Failed to delete lab.',
-    })
+  const handleDelete = async () => {
+    try {
+      await deleteMutation.mutateAsync(currentRow.id)
+      toast.success(`Lab "${currentRow.title}" successfully deleted.`)
+      onOpenChange(false)
+    } catch (err) {
+      toast.error('Failed to delete lab.')
+    }
   }
 
   return (
@@ -55,19 +56,19 @@ export function LabDeleteDialog({
           className='space-y-4 pt-4'
         >
           <p className='mb-2'>
-            Are you sure you want to delete <strong>{currentRow.name}</strong>?
+            Are you sure you want to delete <strong>{currentRow.title}</strong>?
             This will immediately disconnect any active sessions.
           </p>
 
           <Alert variant='destructive'>
             <AlertTitle>Warning!</AlertTitle>
             <AlertDescription>
-              This operation cannot be rolled back.
+              This lab will be moved to the Deleted Labs tab, where it can be restored if needed.
             </AlertDescription>
           </Alert>
         </form>
       }
-      confirmText='Delete Lab'
+      confirmText={deleteMutation.isPending ? 'Deleting...' : 'Delete Lab'}
       destructive
     />
   )

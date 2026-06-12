@@ -122,7 +122,7 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
 
   const taskPrivateIp = getEniPrivateIp(task);
   const publicIp = await getTaskPublicIp(taskArn);
-  const port = getContainerPort(labId);
+  const port = await getContainerPort(labId);
 
   if (!publicIp) {
     return { status: "starting" };
@@ -151,7 +151,7 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
 };
 
 export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
-  const lab = getLabById(labId);
+  const lab = await getLabById(labId);
   const labType = canonicalLabType(labId);
   const taskDefinition = lab?.taskDefinition;
 
@@ -159,7 +159,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
     throw new Error(`No ECS task definition for lab: ${labId}`);
   }
 
-  const port = getContainerPort(labId);
+  const port = await getContainerPort(labId);
   const apiPrefix = process.env.API_PREFIX || "/api";
   const environment = [
     { name: "SESSION_ID", value: sessionId },

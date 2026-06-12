@@ -37,8 +37,10 @@ const getTheme = (idOrName: string) => {
 };
 
 export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onDetails, activeSession, elapsedTime, isStarting, isStopping, userCredits }: LabCardProps) {
-  const isRunning = activeSession?.status === 'running' || lab.status === 'active';
-  const labStatus = isStarting ? 'Starting...' : isStopping ? 'Stopping...' : isRunning ? 'Running' : lab.status || 'Not Started';
+  const isRunning = activeSession?.status === 'running';
+  // Map 'active' to 'Available' for display purposes, so it doesn't look weird
+  const displayStatus = lab.status === 'active' ? 'Available' : (lab.status || 'Not Started');
+  const labStatus = isStarting ? 'Starting...' : isStopping ? 'Stopping...' : isRunning ? 'Running' : displayStatus;
   const progress = labStatus === 'Completed' ? 100 : (isRunning || labStatus === 'In Progress') ? 35 : 0;
   
   const name = lab.title || lab.name || 'Unnamed Lab';

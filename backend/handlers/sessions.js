@@ -26,7 +26,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
   const durationMinutes = Number(body?.duration || ENV.defaultSessionMinutes);
 
   if (!labId) throw badRequest("labId is required");
-  const lab = getLabById(labId);
+  const lab = await getLabById(labId);
   if (!lab) throw notFound("Lab not found");
 
   const existing = await findActiveSessionForUser(userId);

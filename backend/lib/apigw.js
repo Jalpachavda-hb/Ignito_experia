@@ -73,6 +73,8 @@ export const createHandler = (fn, { auth = false } = {}) => {
 };
 
 export const ok = (data, statusCode = 200) => ({ statusCode, body: { success: true, ...data } });
+export const serverError = (data, statusCode = 500) => ({ statusCode, body: { success: false, ...data } });
+export const notFound = (message = "Not found") => ({ statusCode: 404, body: { success: false, message } });
 
 export const expressRoute = (app, route, apiPrefix) => {
   const fullPath = `${apiPrefix}${route.path}`;

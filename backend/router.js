@@ -1,7 +1,17 @@
 import { createHandler } from "./lib/apigw.js";
-import { healthHandler } from "./handlers/health.js";
+import { healthHandler, databaseHealthHandler } from "./handlers/health.js";
 import { authLoginHandler } from "./handlers/authLogin.js";
-import { labsListHandler, labsGetHandler, subLabsHandler } from "./handlers/labs.js";
+import {
+  labsListHandler,
+  labsGetHandler,
+  subLabsHandler,
+  labsAdminListHandler,
+  createLabHandler,
+  updateLabHandler,
+  updateLabStatusHandler,
+  deleteLabHandler,
+  restoreLabHandler,
+} from "./handlers/labs.js";
 import {
   sessionsStartHandler,
   sessionsGetHandler,
@@ -22,6 +32,7 @@ import {
   usersCreateHandler,
   usersUpdateStatusHandler,
 } from "./handlers/users.js";
+import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
 
 /**
  * Route table — paths match AWS API Gateway (no /api prefix).
@@ -30,6 +41,7 @@ import {
  */
 export const ROUTES = [
   { method: "GET", path: "/health", handler: healthHandler, auth: false },
+  { method: "GET", path: "/health/database", handler: databaseHealthHandler, auth: false },
 
   { method: "POST", path: "/auth/login", handler: authLoginHandler, auth: false },
 
@@ -37,9 +49,34 @@ export const ROUTES = [
   { method: "POST", path: "/users", handler: usersCreateHandler, auth: true },
   { method: "PATCH", path: "/users/:userId/status", handler: usersUpdateStatusHandler, auth: true },
 
+
+
+
+
+
+
+
+  // Labs 
+  
+  { method: "GET", path: "/admin/labs", handler: labsAdminListHandler, auth: true },
+  { method: "POST", path: "/admin/labs", handler: createLabHandler, auth: true },
+  { method: "GET", path: "/admin/labs/:labId", handler: labsGetHandler, auth: true },
+  { method: "PUT", path: "/admin/labs/:labId", handler: updateLabHandler, auth: true },
+  { method: "PATCH", path: "/admin/labs/:labId/status", handler: updateLabStatusHandler, auth: true },
+  { method: "DELETE", path: "/admin/labs/:labId", handler: deleteLabHandler, auth: true },
+  { method: "POST", path: "/admin/labs/:labId/restore", handler: restoreLabHandler, auth: true },
+  
+
+
+
+
+
+
   { method: "GET", path: "/labs", handler: labsListHandler, auth: true },
   { method: "GET", path: "/labs/:labId", handler: labsGetHandler, auth: true },
   { method: "GET", path: "/sub-labs", handler: subLabsHandler, auth: true },
+  
+  { method: "GET", path: "/admin/runtime-types", handler: runtimeTypesListHandler, auth: true },
 
   { method: "POST", path: "/lab-sessions", handler: sessionsStartHandler, auth: true },
   {
