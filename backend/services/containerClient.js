@@ -1,5 +1,10 @@
 import { getSessionApiBaseUrl } from "../lib/labTools.js";
 import { resolveLabType } from "../lib/labTypeMapper.js";
+import { exec } from "child_process";
+import util from "util";
+import os from "os";
+
+const execAsync = util.promisify(exec);
 
 const CONTAINER_TIMEOUT_MS = 35000;
 
@@ -39,7 +44,34 @@ export const saveToContainer = async (session, { path, content }) => {
       throw new Error(`health check failed (${response.status})`);
     }
   } catch (err) {
-    console.warn("[saveToContainer] Container unreachable, skipping proxy:", err.message);
+    console.warn("[saveToContainer] HTTP unreachable, attempting AWS SSM fallback:", err.message);
+    
+    if (session.TaskId && session.ClusterName) {
+      try {
+        const b64 = Buffer.from(content).toString('base64');
+        const region = process.env.AWS_REGION || 'ap-south-1';
+        let execCmd = `aws ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${path}\\"'" --region ${region} < NUL`;
+        
+        // Use local Session Manager plugin if needed on Windows
+        const localPipAwsPath = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\aws.exe';
+        const fs = await import('fs');
+        if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
+           execCmd = `"${localPipAwsPath}" ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${path}\\"'" --region ${region} < NUL`;
+        }
+
+        const env = { ...process.env };
+        if (os.platform() === 'win32') {
+          env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;${env.PATH || ''}`;
+        }
+        
+        await execAsync(execCmd, { env });
+        console.log(`[saveToContainer] SSM fallback sync successful for ${path}`);
+        return { proxied: true, method: 'ssm' };
+      } catch (ssmErr) {
+        console.warn("[saveToContainer] SSM fallback failed:", ssmErr.message);
+      }
+    }
+    
     return { proxied: false };
   } finally {
     clearTimeout(timer);
@@ -138,8 +170,8 @@ export const executeInContainer = async (session, payload) => {
         payload.labType === "big-data"
           ? 120000
           : payload.language === "java"
-          ? 60000
-          : 15000
+            ? 60000
+            : 15000
       );
       console.log("=================================");
 
@@ -153,8 +185,8 @@ export const executeInContainer = async (session, payload) => {
             payload.labType === "big-data"
               ? 120000
               : payload.language === "java"
-              ? 60000
-              : 15000,
+                ? 60000
+                : 15000,
         }
       );
 
@@ -215,13 +247,13 @@ export const executeInContainer = async (session, payload) => {
 
 export const deleteFromContainer = async (session, filePath) => {
   if (!filePath || !filePath.startsWith('/workspace/')) return;
-  
+
   const payload = {
     path: "/workspace/.delete_script.py",
     language: "python",
     content: `import os\ntarget = "${filePath}"\nif os.path.exists(target):\n    if os.path.isdir(target):\n        import shutil\n        shutil.rmtree(target)\n    else:\n        os.remove(target)\n    print("Deleted")\nelse:\n    print("Not found")\nif os.path.exists(__file__):\n    os.remove(__file__)`
   };
-  
+
   try {
     await executeInContainer(session, payload);
   } catch (err) {

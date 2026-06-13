@@ -94,7 +94,7 @@ except Exception as e:
       content: wrapperContent,
       labType: "big-data"
     };
-  }  console.log("\n=========================================");
+  } console.log("\n=========================================");
   console.log("             RUN CODE REQUEST            ");
   console.log("=========================================");
   console.log(`Session ID:  ${sessionId}`);
@@ -110,57 +110,57 @@ except Exception as e:
   const port = (await getContainerPort(session.labId)) || session.containerPort || 8080;
   const baseUrl = host ? `http://${host}:${port}` : null;
 
-console.log("\n========== SESSION DEBUG ==========");
-console.log(JSON.stringify(session, null, 2));
-console.log("Host:", host);
-console.log("Port:", port);
-console.log("Base URL:", baseUrl);
-console.log("===================================\n");
+  console.log("\n========== SESSION DEBUG ==========");
+  console.log(JSON.stringify(session, null, 2));
+  console.log("Host:", host);
+  console.log("Port:", port);
+  console.log("Base URL:", baseUrl);
+  console.log("===================================\n");
 
-let isReachable = false;
+  let isReachable = false;
 
-if (session.status === "running" && baseUrl) {
-  if (process.env.FORCE_CONTAINER_EXECUTION === "true") {
-    console.log(
-      "[Reachability Check] FORCE_CONTAINER_EXECUTION=true"
-    );
-    isReachable = true;
-  } else {
-    console.log(
-      `[Reachability Check] Checking ${baseUrl}/health`
-    );
+  if (session.status === "running" && baseUrl) {
+    if (process.env.FORCE_CONTAINER_EXECUTION === "true") {
+      console.log(
+        "[Reachability Check] FORCE_CONTAINER_EXECUTION=true"
+      );
+      isReachable = true;
+    } else {
+      console.log(
+        `[Reachability Check] Checking ${baseUrl}/health`
+      );
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
 
-    try {
-      const response = await fetch(
-        `${baseUrl}/health`,
-        {
-          method: "GET",
-          signal: controller.signal,
+      try {
+        const response = await fetch(
+          `${baseUrl}/health`,
+          {
+            method: "GET",
+            signal: controller.signal,
+          }
+        );
+
+        console.log(
+          `[Reachability Check] Status ${response.status}`
+        );
+
+        if (
+          response.ok ||
+          response.status === 404
+        ) {
+          isReachable = true;
         }
-      );
-
-      console.log(
-        `[Reachability Check] Status ${response.status}`
-      );
-
-      if (
-        response.ok ||
-        response.status === 404
-      ) {
-        isReachable = true;
+      } catch (err) {
+        console.log(
+          `[Reachability Check] Failed: ${err.message}`
+        );
+      } finally {
+        clearTimeout(timer);
       }
-    } catch (err) {
-      console.log(
-        `[Reachability Check] Failed: ${err.message}`
-      );
-    } finally {
-      clearTimeout(timer);
     }
   }
-}
 
   let didContainerFail = false;
   if (session.status === "running" && host && isReachable) {
