@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { io } from 'socket.io-client';
@@ -9,7 +9,7 @@ const APP_ENV = {
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || ''
 };
 
-const TerminalInstance = ({ session, isActive }: { session: any, isActive: boolean }) => {
+const TerminalInstance = forwardRef(({ session, isActive }: { session: any, isActive: boolean }, ref) => {
   const [terminalState, setTerminalState] = useState('initializing');
   const [statusMessage, setStatusMessage] = useState('Starting Lab Environment...');
 
@@ -17,6 +17,18 @@ const TerminalInstance = ({ session, isActive }: { session: any, isActive: boole
   const xtermRef = useRef<any>(null);
   const socketRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
+
+  useImperativeHandle(ref, () => ({
+    runFile: (file: any) => {
+      if (socketRef.current && terminalState === 'ready') {
+        socketRef.current.emit('terminal-run-file', {
+          path: file.path,
+          content: file.content,
+          language: file.language
+        });
+      }
+    }
+  }));
 
   const initConnection = () => {
     setTerminalState('initializing');
@@ -195,13 +207,22 @@ const TerminalInstance = ({ session, isActive }: { session: any, isActive: boole
       </div>
     </div>
   );
-};
+});
 
-const Terminal = ({ session, hideHeader, onStopLab, onBack }: any) => {
+const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose }: any, ref) => {
   const [tabs, setTabs] = useState([
     { id: 'default', name: 'bash' }
   ]);
   const [activeTabId, setActiveTabId] = useState('default');
+  const activeInstanceRef = useRef<any>(null);
+
+  useImperativeHandle(ref, () => ({
+    runFile: (file: any) => {
+      if (activeInstanceRef.current) {
+        activeInstanceRef.current.runFile(file);
+      }
+    }
+  }));
 
   const addNewTab = () => {
     const newId = Date.now().toString();
@@ -285,11 +306,12 @@ const Terminal = ({ session, hideHeader, onStopLab, onBack }: any) => {
             key={tab.id}
             session={session}
             isActive={activeTabId === tab.id}
+            ref={activeTabId === tab.id ? activeInstanceRef : null}
           />
         ))}
       </div>
     </div>
   );
-};
+});
 
 export default Terminal;

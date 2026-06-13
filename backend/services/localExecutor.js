@@ -16,7 +16,7 @@ const runPython = (content) =>
       if (index >= commands.length) {
         try {
           fs.unlinkSync(tempFile);
-        } catch {}
+        } catch { }
         return resolve({
           success: true,
           output: "",
@@ -37,7 +37,7 @@ const runPython = (content) =>
 
         try {
           if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        } catch {}
+        } catch { }
 
         resolve({
           success: true,
@@ -65,7 +65,7 @@ const runJava = (content) =>
       (error, stdout, stderr) => {
         try {
           fs.rmSync(tempDir, { recursive: true, force: true });
-        } catch {}
+        } catch { }
 
         resolve({
           success: true,
@@ -79,7 +79,7 @@ const runJava = (content) =>
 const runJavascript = (content) =>
   new Promise((resolve) => {
     const tempFile = path.join(os.tmpdir(), `vlab_${Date.now()}.js`);
-    
+
     // Inject mock browser globals so that scripts using window/navigator/document do not crash in Node.js
     const browserMocks = `
 // --- Mock Browser Globals for Agile Lab ---
@@ -114,7 +114,7 @@ if (typeof global !== 'undefined') {
     exec(`node "${tempFile}"`, { timeout: 15000 }, (error, stdout, stderr) => {
       try {
         if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-      } catch {}
+      } catch { }
       resolve({
         success: true,
         output: stdout,
@@ -153,7 +153,7 @@ const runIpynb = (content) => {
 
 export const executeLocally = async ({ language, content, path: filePath }) => {
   const ext = filePath?.split('.').pop().toLowerCase() || language;
-  
+
   if (ext === "py" || ext === "python") return runPython(content);
   if (ext === "java") return runJava(content);
   if (ext === "js" || ext === "javascript" || ext === "jsx") return runJavascript(content);

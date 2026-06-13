@@ -292,6 +292,40 @@ export const setupTerminal = (io) => {
     });
 
     // =====================================
+    // TERMINAL RUN FILE
+    // =====================================
+    socket.on('terminal-run-file', ({ path, content, language }) => {
+      if (ptyProcess) {
+        try {
+          const b64 = Buffer.from(content).toString('base64');
+          let syncCmd;
+          if (isContainer) {
+             syncCmd = `echo "${b64}" | base64 -d > "${path}"`;
+          } else {
+             // local machine fallback
+             const fs = require('fs');
+             const nodePath = require('path');
+             const localPath = nodePath.join(process.cwd(), path.replace('/workspace/', ''));
+             try { fs.writeFileSync(localPath, content); } catch(e){}
+             syncCmd = `echo "Local file synced"`;
+          }
+
+          let runCmd = '';
+          if (language === 'python') runCmd = `python3 "${path}"`;
+          else if (language === 'java') runCmd = `javac "${path}" && java Main`;
+          else if (language === 'javascript') runCmd = `node "${path}"`;
+          else runCmd = `echo "Language ${language} not supported for direct run"`;
+
+          // Adding a small sleep to ensure the prompt is ready if needed, 
+          // but sending the clear and commands directly should work.
+          ptyProcess.write(`\nclear || cls\n${syncCmd} > /dev/null 2>&1\n${runCmd}\n`);
+        } catch (err) {
+          console.error('[PTY RUN FILE ERROR]', err.message);
+        }
+      }
+    });
+
+    // =====================================
     // TERMINAL RESIZE
     // =====================================
     socket.on('terminal-resize', ({ cols, rows }) => {

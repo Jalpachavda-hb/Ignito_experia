@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
 import { useLocation } from '@tanstack/react-router';
 import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile } from '../../services/ideService';
-import { 
-  File, Code2, Plus, Upload, Play, Save, AlignLeft, 
-  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database
+import {
+  File, Code2, Plus, Upload, Play, Save, AlignLeft,
+  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon
 } from 'lucide-react';
+import Terminal from './Terminal';
 
 const getFileIcon = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -48,7 +49,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const isJavaLab = () => labId.includes('java');
   const isAgileLab = () => labId.includes('agile');
   const isBigDataLab = () => labId.includes('big-data') || labId.includes('bigdata') || labId.includes('analytics');
-  const isNoAutoSaveLab = () => isPythonLab() || isJavaLab() || isBigDataLab();
+  const isNoAutoSaveLab = () => false;
 
   const [loadedPaths, setLoadedPaths] = useState(new Set<string>());
   const [isSaving, setIsSaving] = useState(false);
@@ -61,6 +62,30 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [cliInput, setCliInput] = useState('');
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(250);
+  const terminalRef = useRef<any>(null);
+
+  const handleTerminalResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = terminalHeight;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = startY - moveEvent.clientY;
+      const newHeight = Math.max(100, Math.min(window.innerHeight * 0.8, startHeight + deltaY));
+      setTerminalHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
 
   useEffect(() => {
     // @ts-ignore
@@ -197,6 +222,18 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const handleRun = async () => {
     if (!activeFile || !sessionId) return;
     setIsRunning(true);
+
+    if (isPythonLab() || isJavaLab() || isBigDataLab()) {
+      if (!isTerminalOpen) setIsTerminalOpen(true);
+      setTimeout(() => {
+        if (terminalRef.current) {
+          terminalRef.current.runFile(activeFile);
+        }
+        setIsRunning(false);
+      }, 500);
+      return;
+    }
+
     setWebPreviewCode(`
       <html>
         <body style="background:#fff;color:#333;font-family:monospace;padding:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;">
@@ -257,7 +294,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     if (!fileName) return;
 
     const ext = fileName.split('.').pop()?.toLowerCase();
-    
+
     if (isPythonLab() && ext !== 'py') {
       setRestrictionMsg('This is a Python lab environment. You can only create or add .py files.');
       setShowRestrictionModal(true);
@@ -277,7 +314,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       }
     }
     if (isBigDataLab()) {
-      const allowed = ['java','py','csv','json','xml','log','txt','parquet','avro','orc'];
+      const allowed = ['java', 'py', 'csv', 'json', 'xml', 'log', 'txt', 'parquet', 'avro', 'orc'];
       if (!allowed.includes(ext as string)) {
         setRestrictionMsg(`This is a Big Data Analytics lab. You can only create or add these extensions: ${allowed.join(', ')}`);
         setShowRestrictionModal(true);
@@ -307,7 +344,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
 
     const filePath = `/workspace/${file.name}`;
     const exists = files.some(f => f.path === filePath);
-    
+
     if (!exists && files.length >= 5) {
       setRestrictionMsg('Workspace Limit Reached: You can have a maximum of 5 files in the workspace.');
       setShowRestrictionModal(true);
@@ -426,7 +463,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
 
   return (
     <div className="h-full w-full flex bg-[#1e1e1e] overflow-hidden select-none font-sans">
-      
+
       {/* Sidebar Explorer */}
       {isSidebarOpen && (
         <div className="w-[260px] bg-[#252526] border-r border-[#1f1f1f] flex flex-col shrink-0">
@@ -442,7 +479,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
             </div>
           </div>
-          
+
           <div className="px-4 py-3 border-b border-[#1f1f1f]">
             <span className="text-[10px] text-white/40 uppercase font-bold tracking-widest">Workspace</span>
           </div>
@@ -462,9 +499,8 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                   }
                   setActiveFileIndex(i);
                 }}
-                className={`group flex items-center gap-2 px-4 py-1.5 cursor-pointer border-l-2 transition-all ${
-                  activeFileIndex === i ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
-                }`}
+                className={`group flex items-center gap-2 px-4 py-1.5 cursor-pointer border-l-2 transition-all ${activeFileIndex === i ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
+                  }`}
               >
                 {getFileIcon(file.name)}
                 <span className={`text-[12px] truncate flex-1 ${activeFileIndex === i ? 'text-white font-medium' : 'text-slate-400'}`}>
@@ -477,11 +513,11 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                     if (!sessionId) return;
                     try {
                       await deleteFile(file.path, sessionId);
-                      
+
                       const newFiles = [...files];
                       newFiles.splice(i, 1);
                       setFiles(newFiles);
-                      
+
                       setOpenFilePaths(prev => {
                         const next = prev.filter(p => p !== file.path);
                         if (activeFileIndex === i) {
@@ -516,14 +552,14 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e]">
-        
+
         {/* Top Header Bar */}
         <div className="h-12 bg-[#252526] border-b border-[#1f1f1f] flex items-center justify-between pl-2 pr-4 shrink-0">
           <div className="flex items-center gap-2">
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-white/60 hover:text-white rounded transition-colors">
               <Menu size={18} />
             </button>
-            
+
             {/* File Tabs */}
             <div className="flex bg-[#252526] h-full items-center ml-2 space-x-1">
               {openFilePaths.map((path) => {
@@ -535,13 +571,12 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                   <div
                     key={path}
                     onClick={() => setActiveFileIndex(idx)}
-                    className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[100px] max-w-[180px] transition-colors ${
-                      isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
-                    }`}
+                    className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[100px] max-w-[180px] transition-colors ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
+                      }`}
                   >
                     {getFileIcon(file.name)}
                     <span className="text-[11px] truncate flex-1 font-medium">{file.name}</span>
-                    <button 
+                    <button
                       onClick={(e) => handleCloseFile(e, path)}
                       className={`p-0.5 rounded-full hover:bg-white/10 ${isActive ? 'text-white/60 hover:text-white' : 'text-transparent group-hover:text-white/40'}`}
                     >
@@ -555,31 +590,37 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
 
           {/* Right Toolbar */}
           <div className="flex items-center gap-3">
-            <button 
-              onClick={handleDownload} 
+            <button
+              onClick={handleDownload}
               className="text-[#3b82f6] hover:text-blue-400 transition-colors p-1"
               title="Download File"
             >
               <Download size={18} />
             </button>
-            <button 
+            <button
+              onClick={() => setIsTerminalOpen(!isTerminalOpen)}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white text-[11px] font-black uppercase tracking-wider transition-colors border border-white/10 shadow-xl"
+            >
+              <TerminalIcon size={14} className="text-slate-300" />
+              Terminal
+            </button>
+            <button
               onClick={handleRun}
               disabled={isRunning || !activeFile}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${
-                isRunning || !activeFile ? 'bg-red-900/50 text-white/50 cursor-not-allowed' : 'bg-[#dc2626] hover:bg-red-600 shadow-lg shadow-red-600/20'
-              }`}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isRunning || !activeFile ? 'bg-red-900/50 text-white/50 cursor-not-allowed' : 'bg-[#dc2626] hover:bg-red-600 shadow-lg shadow-red-600/20'
+                }`}
             >
               <Play size={12} className="fill-current" />
               {isRunning ? 'RUNNING...' : 'RUN'}
             </button>
-            <button 
+            <button
               onClick={onBack}
               className="text-red-500 hover:text-red-400 transition-colors p-1 ml-2"
               title="Back"
             >
               <ArrowLeft size={16} />
             </button>
-            <button 
+            <button
               onClick={onStopLab}
               className="text-red-500 hover:text-red-400 transition-colors p-1"
               title="Stop Lab"
@@ -589,19 +630,20 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
           </div>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
-          {activeFileIndex !== -1 && activeFile ? (
-            <div className="flex-1 flex flex-col relative border-r border-[#1f1f1f]">
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex overflow-hidden">
+            {activeFileIndex !== -1 && activeFile ? (
+              <div className="flex-1 flex flex-col relative border-r border-[#1f1f1f]">
               <div className="absolute top-4 right-6 z-10 flex gap-2">
-                <button 
-                  onClick={handleFormat} 
+                <button
+                  onClick={handleFormat}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
                 >
                   <AlignLeft size={12} /> Format
                 </button>
-                <button 
-                  onClick={() => handleSave(true)} 
-                  disabled={isSaving} 
+                <button
+                  onClick={() => handleSave(true)}
+                  disabled={isSaving}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
                 >
                   <Save size={12} /> {isSaving ? 'Saving...' : (saveSuccess ? 'Saved!' : 'Save')}
@@ -632,7 +674,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               <h2 className="text-white/40 text-[11px] font-bold tracking-widest uppercase mb-4">
                 Select a file to begin coding
               </h2>
-              <button 
+              <button
                 onClick={handleAddFile}
                 className="flex items-center gap-2 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 text-white/60 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-all hover:bg-white/5"
               >
@@ -648,7 +690,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
             </div>
             <div className="flex-1 w-full bg-white relative">
-              <iframe 
+              <iframe
                 srcDoc={webPreviewCode}
                 className="absolute inset-0 w-full h-full border-0"
                 title="Preview"
@@ -656,9 +698,32 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               />
             </div>
           </div>
+          </div>
+
+          {/* Terminal Panel */}
+          {isTerminalOpen && (
+            <>
+              {/* Resize Handle */}
+              <div
+                className="h-1.5 bg-[#1f1f1f] hover:bg-[#dc2626] cursor-row-resize transition-colors flex-shrink-0 z-10"
+                onMouseDown={handleTerminalResizeStart}
+              />
+              <div
+                style={{ height: terminalHeight }}
+                className="w-full shrink-0 flex flex-col border-t border-[#1f1f1f] bg-[#0c0c0c] relative"
+              >
+                <Terminal 
+                  ref={terminalRef}
+                  session={propSession || { sessionId, labId }} 
+                  hideHeader={false} 
+                  onClose={() => setIsTerminalOpen(false)}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
-      
+
       {showRestrictionModal && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
           <div className="bg-[#252526] p-6 rounded-2xl max-w-sm w-full border border-white/10 text-center shadow-2xl">
@@ -666,8 +731,8 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               <X className="w-5 h-5" /> Workspace Restriction
             </h2>
             <p className="text-slate-300 text-sm mb-6 leading-relaxed">{restrictionMsg}</p>
-            <button 
-              onClick={() => setShowRestrictionModal(false)} 
+            <button
+              onClick={() => setShowRestrictionModal(false)}
               className="w-full bg-[#dc2626] hover:bg-red-700 text-white py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors"
             >
               Understood
