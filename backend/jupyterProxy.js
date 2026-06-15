@@ -1,4 +1,4 @@
-import { createProxyMiddleware } from "http-proxy-middleware";
+import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { gunzipSync, brotliDecompressSync, inflateSync } from "zlib";
 import { getBearerToken, verifyAccessToken, verifyJupyterEmbedToken } from "./lib/jwt.js";
 import { getSession } from "./services/sessionRepository.js";
@@ -172,6 +172,7 @@ export const setupJupyterProxy = (app, apiPrefix) => {
       return path.startsWith(prefix) ? path : `${prefix}${path}`;
     },
     on: {
+      proxyReq: fixRequestBody,
       error(err, req, res) {
         console.error("[jupyterProxy]", err.message, "target=", req.jupyterTarget);
         if (res.writeHead) {

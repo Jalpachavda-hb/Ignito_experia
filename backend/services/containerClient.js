@@ -20,6 +20,15 @@ const containerFetch = async (url, options = {}) => {
   }
 };
 
+const getContainerFilePath = (filePath) => {
+  if (!filePath) return "";
+  if (filePath.startsWith("/workspace/") || filePath.startsWith("/tmp/workspace/workspace/")) {
+    return filePath;
+  }
+  const cleanPath = filePath.replace(/^\/+/, "");
+  return `/workspace/${cleanPath}`;
+};
+
 const buildHeaders = (session) => {
   const headers = { "Content-Type": "application/json" };
   if (session?.sessionToken) {
@@ -29,6 +38,7 @@ const buildHeaders = (session) => {
 };
 
 export const saveToContainer = async (session, { path, content }) => {
+  const containerPath = getContainerFilePath(path);
   const baseUrl = await getSessionApiBaseUrl(session);
   if (!baseUrl) return { proxied: false };
 
@@ -50,13 +60,13 @@ export const saveToContainer = async (session, { path, content }) => {
       try {
         const b64 = Buffer.from(content).toString('base64');
         const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${path}\\"'" --region ${region} < NUL`;
+        let execCmd = `aws ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
         
         // Use local Session Manager plugin if needed on Windows
         const localPipAwsPath = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\aws.exe';
         const fs = await import('fs');
         if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
-           execCmd = `"${localPipAwsPath}" ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${path}\\"'" --region ${region} < NUL`;
+           execCmd = `"${localPipAwsPath}" ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
         }
 
         const env = { ...process.env };
@@ -65,7 +75,7 @@ export const saveToContainer = async (session, { path, content }) => {
         }
         
         await execAsync(execCmd, { env });
-        console.log(`[saveToContainer] SSM fallback sync successful for ${path}`);
+        console.log(`[saveToContainer] SSM fallback sync successful for ${containerPath}`);
         return { proxied: true, method: 'ssm' };
       } catch (ssmErr) {
         console.warn("[saveToContainer] SSM fallback failed:", ssmErr.message);
@@ -80,7 +90,7 @@ export const saveToContainer = async (session, { path, content }) => {
   const response = await containerFetch(`${baseUrl}/api/save`, {
     method: "POST",
     headers: buildHeaders(session),
-    body: JSON.stringify({ path, content, sessionId: session.sessionId }),
+    body: JSON.stringify({ path: containerPath, content, sessionId: session.sessionId }),
   });
 
   if (!response.ok) {
@@ -246,7 +256,8 @@ export const executeInContainer = async (session, payload) => {
 };
 
 export const deleteFromContainer = async (session, filePath) => {
-  if (!filePath || !filePath.startsWith('/workspace/')) return;
+  const containerPath = getContainerFilePath(filePath);
+  if (!containerPath) return;
 
   // Since container maps paths starting with /workspace/ to /tmp/workspace/workspace/,
   // we check all potential mapped paths inside the container to ensure cleanup.
@@ -257,9 +268,9 @@ export const deleteFromContainer = async (session, filePath) => {
 import shutil
 
 targets = [
-    "${filePath}",
-    "${filePath}".replace('/workspace/', '/tmp/workspace/workspace/'),
-    os.path.join(os.getcwd(), "${filePath}".split('/')[-1])
+    "${containerPath}",
+    "${containerPath}".replace('/workspace/', '/tmp/workspace/workspace/'),
+    os.path.join(os.getcwd(), "${containerPath}".split('/')[-1])
 ]
 
 deleted_any = False

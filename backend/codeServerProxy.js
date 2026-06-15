@@ -1,4 +1,4 @@
-import { createProxyMiddleware } from "http-proxy-middleware";
+import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { getSession } from "./services/sessionRepository.js";
 import { getLabRuntime, getContainerHost } from "./lib/labTools.js";
 import { ENV } from "./config/env.js";
@@ -102,6 +102,7 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
     router: (req) => req.codeServerTarget || "http://127.0.0.1:8080",
     pathRewrite: stripProxyPrefix,
     on: {
+      proxyReq: fixRequestBody,
       error(err, req, res) {
         const logMsg = `[${new Date().toISOString()}] ProxyError: ${err.message}, target: ${req?.codeServerTarget}, url: ${req?.url}\n`;
         try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', logMsg); } catch(e){}
