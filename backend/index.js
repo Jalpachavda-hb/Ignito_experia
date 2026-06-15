@@ -18,6 +18,8 @@ const httpServer = createServer(app);
 // Verify DB on startup
 verifyDbConnection();
 
+
+
 const io = new Server(httpServer, {
   cors: {
     origin: process.env.CORS_ORIGIN || "*",

@@ -1,0 +1,136 @@
+{
+  "ContainerName": "lab-runtime",
+  "TaskId": "e62622f2d2454fe2877b0a7205b95235",
+  "TaskDefinitionFamily": "vlab-dev-android-task",
+  "TaskDefinitionRevision": "1",
+  "ClusterName": "vlab-dev-cluster",
+  "Image": "465443875617.dkr.ecr.ap-south-1.amazonaws.com/vlab-dev-android:latest",
+  "ContainerKnownStatus": "RUNNING",
+  "LaunchType": "FARGATE",
+  "Timestamp": 1781524865758,
+  "CpuUtilized": 7.14842921119754,
+  "CpuReserved": 512,
+  "MemoryUtilized": 8,
+  "TaskDetails": {
+    "attachments": [
+      {
+        "id": "ba37f5e4-c1a5-47de-8a2c-e2b801868451",
+        "type": "ElasticNetworkInterface",
+        "status": "ATTACHED",
+        "details": [
+          {
+            "name": "subnetId",
+            "value": "subnet-0ae9f5296e79e25db"
+          },
+          {
+            "name": "networkInterfaceId",
+            "value": "eni-0e95a0518e22fb077"
+          },
+          {
+            "name": "macAddress",
+            "value": "0a:a1:5d:c3:dd:67"
+          },
+          {
+            "name": "privateDnsName",
+            "value": "ip-10-40-0-41.ap-south-1.compute.internal"
+          },
+          {
+            "name": "privateIPv4Address",
+            "value": "10.40.0.41"
+          }
+        ]
+      }
+    ],
+    "attributes": [
+      {
+        "name": "ecs.cpu-architecture",
+        "value": "x86_64"
+      }
+    ],
+    "availabilityZone": "ap-south-1b",
+    "clusterArn": "arn:aws:ecs:ap-south-1:465443875617:cluster/vlab-dev-cluster",
+    "connectivity": "CONNECTED",
+    "connectivityAt": "2026-06-15T12:01:10.215Z",
+    "containers": [
+      {
+        "containerArn": "arn:aws:ecs:ap-south-1:465443875617:container/vlab-dev-cluster/e62622f2d2454fe2877b0a7205b95235/df2d5f42-3e86-47b4-b634-be9db9f2987b",
+        "taskArn": "arn:aws:ecs:ap-south-1:465443875617:task/vlab-dev-cluster/e62622f2d2454fe2877b0a7205b95235",
+        "name": "lab-runtime",
+        "image": "465443875617.dkr.ecr.ap-south-1.amazonaws.com/vlab-dev-android:latest",
+        "imageDigest": "sha256:4c1f7cd5255a787f3bb3fb5eafce4681d9dd3702d428a136423426fa7ddbc73d",
+        "runtimeId": "e62622f2d2454fe2877b0a7205b95235-4031908829",
+        "lastStatus": "RUNNING",
+        "networkBindings": [],
+        "networkInterfaces": [
+          {
+            "attachmentId": "ba37f5e4-c1a5-47de-8a2c-e2b801868451",
+            "privateIpv4Address": "10.40.0.41"
+          }
+        ],
+        "healthStatus": "UNKNOWN",
+        "managedAgents": [
+          {
+            "lastStartedAt": "2026-06-15T12:05:57.980Z",
+            "name": "ExecuteCommandAgent",
+            "lastStatus": "RUNNING"
+          }
+        ],
+        "cpu": "0"
+      }
+    ],
+    "cpu": "512",
+    "createdAt": "2026-06-15T12:01:05.758Z",
+    "desiredStatus": "RUNNING",
+    "enableExecuteCommand": true,
+    "group": "family:vlab-dev-android-task",
+    "healthStatus": "UNKNOWN",
+    "lastStatus": "RUNNING",
+    "launchType": "FARGATE",
+    "memory": "1024",
+    "overrides": {
+      "containerOverrides": [
+        {
+          "name": "lab-runtime",
+          "environment": [
+            {
+              "name": "SESSION_ID",
+              "value": "sess_1c4bc52a"
+            },
+            {
+              "name": "SESSION_TOKEN",
+              "value": "ab2a9a0b3c79c00ba4a810f8cc0f616c"
+            },
+            {
+              "name": "LAB_TYPE",
+              "value": "android"
+            },
+            {
+              "name": "LAB_SERVER_PORT",
+              "value": "8080"
+            },
+            {
+              "name": "LAB_WORKSPACE",
+              "value": "/tmp/workspace"
+            }
+          ]
+        }
+      ],
+      "inferenceAcceleratorOverrides": []
+    },
+    "platformVersion": "1.4.0",
+    "platformFamily": "Linux",
+    "pullStartedAt": "2026-06-15T12:01:33.457Z",
+    "pullStoppedAt": "2026-06-15T12:05:46.625Z",
+    "startedAt": "2026-06-15T12:05:47.339Z",
+    "tags": [],
+    "taskArn": "arn:aws:ecs:ap-south-1:465443875617:task/vlab-dev-cluster/e62622f2d2454fe2877b0a7205b95235",
+    "taskDefinitionArn": "arn:aws:ecs:ap-south-1:465443875617:task-definition/vlab-dev-android-task:1",
+    "version": 4,
+    "ephemeralStorage": {
+      "sizeInGiB": 30
+    },
+    "fargateEphemeralStorage": {
+      "sizeInGiB": 30
+    }
+  }
+}

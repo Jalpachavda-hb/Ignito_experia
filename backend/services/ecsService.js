@@ -12,6 +12,7 @@ import { ENV } from "../config/env.js";
 import { getLabById } from "../config/labs.js";
 import { canonicalLabType } from "../lib/labTypeMapper.js";
 import { getContainerPort } from "../lib/labTools.js";
+import fs from "fs";
 
 
 
@@ -93,7 +94,8 @@ export const logFargateTaskMetadata = (task) => {
       Timestamp: timestamp,
       CpuUtilized: parseFloat(cpuUtilized.toFixed(14)),
       CpuReserved: cpuReserved,
-      MemoryUtilized: memoryUtilized
+      MemoryUtilized: memoryUtilized,
+      TaskDetails: task // Include the full task details for complete visibility
     };
 
     console.log(JSON.stringify(metadataLog, null, 2));

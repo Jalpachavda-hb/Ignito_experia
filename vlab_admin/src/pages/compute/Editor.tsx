@@ -4,7 +4,8 @@ import { useLocation } from '@tanstack/react-router';
 import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile } from '../../services/ideService';
 import {
   File, Code2, Plus, Upload, Play, Save, AlignLeft,
-  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon
+  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
+  Folder, FolderOpen
 } from 'lucide-react';
 import Terminal from './Terminal';
 import { useLabStore } from '@/stores/labStore';
@@ -20,6 +21,9 @@ const getFileIcon = (fileName: string) => {
     case 'json': return <FileJson className="text-amber-500 w-4 h-4 shrink-0" />;
     case 'md': case 'csv': case 'txt': case 'log': return <FileText className="text-emerald-500 w-4 h-4 shrink-0" />;
     case 'xml': return <Code2 className="text-orange-400 w-4 h-4 shrink-0" />;
+    case 'gradle': return <Code2 className="text-[#8F56E3] w-4 h-4 shrink-0" />;
+    case 'properties': return <FileText className="text-sky-500 w-4 h-4 shrink-0" />;
+    case 'sh': return <TerminalIcon className="text-emerald-500 w-4 h-4 shrink-0" />;
     case 'parquet': case 'avro': case 'orc': return <Database className="text-emerald-700 w-4 h-4 shrink-0" />;
     default: return <File className="text-slate-400 w-4 h-4 shrink-0" />;
   }
@@ -35,6 +39,10 @@ const detectLanguage = (fileName: string) => {
   if (ext === 'json') return 'json';
   if (ext === 'md') return 'markdown';
   if (ext === 'ipynb') return 'python';
+  if (ext === 'gradle') return 'groovy';
+  if (ext === 'properties') return 'properties';
+  if (ext === 'sh') return 'shell';
+  if (ext === 'xml') return 'xml';
   return 'text';
 };
 
@@ -61,10 +69,10 @@ const getLabExtensionRules = (labName: string, labId: string) => {
       extensions: ['py', 'java', 'csv', 'txt', 'jar', 'xml', 'sh', 'json', 'log', 'parquet', 'avro', 'orc']
     };
   }
-  if (name.includes('mobile') || id.includes('mobile')) {
+  if (name.includes('mobile') || id.includes('mobile') || id.includes('android')) {
     return {
       courseName: 'Fundamental of Mobile',
-      extensions: ['py', 'java', 'jar', 'xml', 'sh', 'txt', 'csv', 'json', 'log', 'parquet', 'avro', 'orc']
+      extensions: ['java', 'xml', 'gradle', 'properties', 'sh']
     };
   }
   if (name.includes('java development') || id.includes('java-development')) {
@@ -85,6 +93,59 @@ const getLabExtensionRules = (labName: string, labId: string) => {
   };
 };
 
+interface TreeNode {
+  name: string;
+  path: string;
+  type: 'file' | 'folder';
+  children?: TreeNode[];
+  fileIndex?: number;
+}
+
+const buildFileTree = (filesList: any[]) => {
+  const root: TreeNode = { name: 'Root', path: '', type: 'folder', children: [] };
+
+  filesList.forEach((file, index) => {
+    const cleanPath = file.path.replace(/^\/+/, '');
+    const parts = cleanPath.split('/');
+    
+    let current = root;
+    parts.forEach((part, partIdx) => {
+      if (partIdx === 0 && part === 'workspace') return;
+      
+      const isLast = partIdx === parts.length - 1;
+      let child = current.children?.find(c => c.name === part);
+      
+      if (!child) {
+        child = {
+          name: part,
+          path: '/' + parts.slice(0, partIdx + 1).join('/'),
+          type: isLast ? 'file' : 'folder',
+          children: isLast ? undefined : [],
+          fileIndex: isLast ? index : undefined
+        };
+        current.children?.push(child);
+      }
+      if (!isLast) {
+        current = child;
+      }
+    });
+  });
+
+  const sortTree = (node: TreeNode) => {
+    if (node.children) {
+      node.children.sort((a, b) => {
+        if (a.type !== b.type) {
+          return a.type === 'folder' ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+      node.children.forEach(sortTree);
+    }
+  };
+  sortTree(root);
+  return root.children || [];
+};
+
 const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: any) => {
   const location = useLocation();
   const editorRef = useRef<any>(null);
@@ -92,6 +153,134 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const [files, setFiles] = useState<any[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(-1);
   const [labId, setLabId] = useState('');
+
+  const labType = propSession?.labType || '';
+  const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+  // Auto-expand all folders when files load for Android
+  useEffect(() => {
+    if (isAndroid && files.length > 0) {
+      const folders = new Set<string>();
+      files.forEach(f => {
+        const parts = f.path.split('/');
+        let currentPath = '';
+        for (let i = 1; i < parts.length - 1; i++) {
+          currentPath += '/' + parts[i];
+          folders.add(currentPath);
+        }
+      });
+      setExpandedFolders(folders);
+    }
+  }, [files, isAndroid]);
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  const renderTreeNode = (node: any, depth: number) => {
+    const isExpanded = expandedFolders.has(node.path);
+    if (node.type === 'folder') {
+      return (
+        <div key={node.path}>
+          <div
+            onClick={() => toggleFolder(node.path)}
+            className="flex items-center gap-1.5 px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer transition-colors"
+            style={{ paddingLeft: `${depth * 12 + 16}px` }}
+          >
+            <ChevronRight
+              size={14}
+              className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+            />
+            {isExpanded ? (
+              <FolderOpen size={14} className="text-amber-400 shrink-0" />
+            ) : (
+              <Folder size={14} className="text-amber-500 shrink-0" />
+            )}
+            <span className="text-slate-300 text-[12px] font-medium truncate">{node.name}</span>
+          </div>
+          {isExpanded && node.children?.map((child: any) => renderTreeNode(child, depth + 1))}
+        </div>
+      );
+    } else {
+      const i = node.fileIndex;
+      const file = files[i];
+      if (!file) return null;
+      const isActive = activeFileIndex === i;
+      return (
+        <div
+          key={node.path}
+          onClick={() => {
+            if (!openFilePaths.includes(file.path)) {
+              if (openFilePaths.length >= 8) {
+                setRestrictionMsg('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
+                setShowRestrictionModal(true);
+                return;
+              }
+              setOpenFilePaths(prev => [...prev, file.path]);
+            }
+            setActiveFileIndex(i);
+          }}
+          className={`group flex items-center gap-2 py-1 cursor-pointer border-l-2 transition-all ${
+            isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
+          }`}
+          style={{ paddingLeft: `${depth * 12 + 30}px`, paddingRight: '16px' }}
+        >
+          {getFileIcon(file.name)}
+          <span className={`text-[12px] truncate flex-1 ${isActive ? 'text-white font-medium' : 'text-slate-400'}`}>
+            {file.name}
+          </span>
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (!window.confirm(`Are you sure you want to delete ${file.name}?`)) return;
+              if (!sessionId) return;
+              try {
+                await deleteFile(file.path, sessionId);
+
+                const newFiles = [...files];
+                newFiles.splice(i, 1);
+                setFiles(newFiles);
+
+                setOpenFilePaths(prev => {
+                  const next = prev.filter(p => p !== file.path);
+                  if (activeFileIndex === i) {
+                    if (next.length > 0) {
+                      const newActivePath = next[next.length - 1];
+                      const newActiveIdx = newFiles.findIndex(f => f.path === newActivePath);
+                      setActiveFileIndex(newActiveIdx);
+                    } else {
+                      setActiveFileIndex(-1);
+                    }
+                  } else if (activeFileIndex > i) {
+                    setActiveFileIndex(activeFileIndex - 1);
+                  }
+                  return next;
+                });
+              } catch (err: any) {
+                console.error('Delete error:', err);
+                setRestrictionMsg(`Failed to delete file: ${err.message || 'Unknown error'}`);
+                setShowRestrictionModal(true);
+              }
+            }}
+            className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
+            title="Delete file"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      );
+    }
+  };
 
   const { labs, loadLabs } = useLabStore();
 
@@ -238,10 +427,19 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   };
 
   const handleRun = async () => {
-    if (!activeFile || !sessionId) return;
+    if (!sessionId || (!isAndroid && !activeFile)) return;
     setIsRunning(true);
 
-    if (activeFile.language === 'html') {
+    // Auto-save the active file first if it exists
+    if (activeFile) {
+      try {
+        await saveFile(activeFile, sessionId);
+      } catch (err) {
+        console.error('Failed to save file before run:', err);
+      }
+    }
+
+    if (!isAndroid && activeFile && activeFile.language === 'html') {
       setWebPreviewCode(activeFile.content || '');
       setIsRunning(false);
       return;
@@ -287,19 +485,16 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
           </head>
           <body>
             <div class="spinner"></div>
-            <div class="text">Executing program...</div>
+            <div class="text">${isAndroid ? 'Building Android Project...' : 'Executing program...'}</div>
           </body>
         </html>
       `);
 
-      const response = await runFile(
-        {
-          path: activeFile.path,
-          language: activeFile.language,
-          content: activeFile.content,
-        },
-        sessionId
-      );
+      const runPayload = isAndroid
+        ? { path: '/workspace/build.sh', language: 'shell', content: '', labType: 'android' }
+        : { path: activeFile.path, language: activeFile.language, content: activeFile.content };
+
+      const response = await runFile(runPayload, sessionId);
 
       if (response) {
         const runSuccess = response.success || response.status === 'COMPLETED';
@@ -576,67 +771,71 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
           </div>
 
           <div className="flex-1 overflow-y-auto py-2">
-            {files.map((file, i) => (
-              <div
-                key={file.path}
-                onClick={() => {
-                  if (!openFilePaths.includes(file.path)) {
-                    if (openFilePaths.length >= 8) {
-                      setRestrictionMsg('Maximum of 8 files can be open in the tabs at the same time.');
-                      setShowRestrictionModal(true);
-                      return;
+            {isAndroid ? (
+              buildFileTree(files).map(node => renderTreeNode(node, 0))
+            ) : (
+              files.map((file, i) => (
+                <div
+                  key={file.path}
+                  onClick={() => {
+                    if (!openFilePaths.includes(file.path)) {
+                      if (openFilePaths.length >= 8) {
+                        setRestrictionMsg('Maximum of 8 files can be open in the tabs at the same time.');
+                        setShowRestrictionModal(true);
+                        return;
+                      }
+                      setOpenFilePaths(prev => [...prev, file.path]);
                     }
-                    setOpenFilePaths(prev => [...prev, file.path]);
-                  }
-                  setActiveFileIndex(i);
-                }}
-                className={`group flex items-center gap-2 px-4 py-1.5 cursor-pointer border-l-2 transition-all ${activeFileIndex === i ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
-                  }`}
-              >
-                {getFileIcon(file.name)}
-                <span className={`text-[12px] truncate flex-1 ${activeFileIndex === i ? 'text-white font-medium' : 'text-slate-400'}`}>
-                  {file.name}
-                </span>
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (!window.confirm(`Are you sure you want to delete ${file.name}?`)) return;
-                    if (!sessionId) return;
-                    try {
-                      await deleteFile(file.path, sessionId);
-
-                      const newFiles = [...files];
-                      newFiles.splice(i, 1);
-                      setFiles(newFiles);
-
-                      setOpenFilePaths(prev => {
-                        const next = prev.filter(p => p !== file.path);
-                        if (activeFileIndex === i) {
-                          if (next.length > 0) {
-                            const newActivePath = next[next.length - 1];
-                            const newActiveIdx = newFiles.findIndex(f => f.path === newActivePath);
-                            setActiveFileIndex(newActiveIdx);
-                          } else {
-                            setActiveFileIndex(-1);
-                          }
-                        } else if (activeFileIndex > i) {
-                          setActiveFileIndex(activeFileIndex - 1);
-                        }
-                        return next;
-                      });
-                    } catch (err: any) {
-                      console.error('Delete error:', err);
-                      setRestrictionMsg(`Failed to delete file: ${err.message || 'Unknown error'}`);
-                      setShowRestrictionModal(true);
-                    }
+                    setActiveFileIndex(i);
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
-                  title="Delete file"
+                  className={`group flex items-center gap-2 px-4 py-1.5 cursor-pointer border-l-2 transition-all ${activeFileIndex === i ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
+                    }`}
                 >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
+                  {getFileIcon(file.name)}
+                  <span className={`text-[12px] truncate flex-1 ${activeFileIndex === i ? 'text-white font-medium' : 'text-slate-400'}`}>
+                    {file.name}
+                  </span>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!window.confirm(`Are you sure you want to delete ${file.name}?`)) return;
+                      if (!sessionId) return;
+                      try {
+                        await deleteFile(file.path, sessionId);
+
+                        const newFiles = [...files];
+                        newFiles.splice(i, 1);
+                        setFiles(newFiles);
+
+                        setOpenFilePaths(prev => {
+                          const next = prev.filter(p => p !== file.path);
+                          if (activeFileIndex === i) {
+                            if (next.length > 0) {
+                              const newActivePath = next[next.length - 1];
+                              const newActiveIdx = newFiles.findIndex(f => f.path === newActivePath);
+                              setActiveFileIndex(newActiveIdx);
+                            } else {
+                              setActiveFileIndex(-1);
+                            }
+                          } else if (activeFileIndex > i) {
+                            setActiveFileIndex(activeFileIndex - 1);
+                          }
+                          return next;
+                        });
+                      } catch (err: any) {
+                        console.error('Delete error:', err);
+                        setRestrictionMsg(`Failed to delete file: ${err.message || 'Unknown error'}`);
+                        setShowRestrictionModal(true);
+                      }
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
+                    title="Delete file"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}

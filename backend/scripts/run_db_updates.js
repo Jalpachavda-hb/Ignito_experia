@@ -80,6 +80,34 @@ async function runUpdates() {
       END
     `);
 
+        console.log("Seeding mobile-app-lab...");
+        const activeField = hasIsDeleted ? 'IsDeleted' : 'IsActive';
+        const activeVal = hasIsDeleted ? 0 : 1;
+        await pool.query(`INSERT IGNORE INTO Labs (
+            LabCode, Title, Subtitle, Semester, Logo, DurationMinutes, Credits,
+            Complexity, Category, Description, Status, TaskDefinition, RuntimeType, RuntimePort,
+            RuntimePath, ContainerApiEnabled, ContainerApiPort, ${activeField}
+        ) VALUES (
+            'mobile-app-lab',
+            'Mobile Application Development Lab',
+            'Android Development with Gradle',
+            'Semester 4',
+            'default_android_logo.png',
+            60,
+            30,
+            'Intermediate',
+            'Mobile Development',
+            'Build and test Android applications using Gradle, SDK tools, and Java without needing a heavy GUI editor or emulator.',
+            'active',
+            'vlab-dev-android-task',
+            'ide',
+            8080,
+            '/',
+            1,
+            8080,
+            ${activeVal}
+        );`);
+
         console.log("Database updates completed successfully!");
         process.exit(0);
     } catch (error) {

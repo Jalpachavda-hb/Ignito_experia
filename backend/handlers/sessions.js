@@ -18,6 +18,7 @@ import {
   resolveTaskNetworking,
 } from "../services/ecsService.js";
 import { clearSessionFiles } from "../services/fileRepository.js";
+import { saveToContainer } from "../services/containerClient.js";
 
 export const sessionsStartHandler = async ({ body, auth }) => {
   const labId = body?.labId;
@@ -89,6 +90,19 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     const net = await resolveTaskNetworking(session.taskArn, session.labId);
     if (net.status !== "starting") {
       session = await updateSession(sessionId, net);
+      if (session.status === "running" && session.files && session.files.length > 0) {
+        // Run container file sync in background so as not to block sessionsGetHandler
+        (async () => {
+          console.log(`[Sync] Syncing ${session.files.length} seeded files to container ${session.sessionId}...`);
+          for (const file of session.files) {
+            try {
+              await saveToContainer(session, { path: file.path, content: file.content });
+            } catch (err) {
+              console.warn(`[Sync] Failed to sync ${file.path} to container:`, err.message);
+            }
+          }
+        })();
+      }
     }
   }
 

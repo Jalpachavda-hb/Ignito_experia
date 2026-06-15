@@ -62,7 +62,7 @@ export async function waitForLabSessionReady(
   sessionId: string,
   options: { maxAttempts?: number; intervalMs?: number } = {}
 ): Promise<LabSession> {
-  const { maxAttempts = 90, intervalMs = 2000 } = options;
+  const { maxAttempts = 300, intervalMs = 2000 } = options;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const session = await fetchLabSessionStatus(sessionId);

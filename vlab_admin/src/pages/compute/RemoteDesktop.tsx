@@ -279,7 +279,11 @@ export const RemoteDesktop = () => {
           }
         }
         if (!activeSession?.sessionId) throw new Error('No lab session available');
-        const readySession = await waitForLabSessionReady(activeSession.sessionId, { maxAttempts: 90, intervalMs: 2000 });
+        const isAndroid = labId === 'mobile-app-lab' || labId === 'android';
+        const readySession = await waitForLabSessionReady(activeSession.sessionId, { 
+          maxAttempts: isAndroid ? 300 : 90, 
+          intervalMs: 2000 
+        });
         setSession(readySession);
         setConnecting(false);
       } catch (err: any) {
@@ -340,10 +344,16 @@ export const RemoteDesktop = () => {
   );
 
   if (connecting) {
+    const isAndroid = labId === 'mobile-app-lab' || labId === 'android';
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0c0c0c] text-white">
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0c0c0c] text-white px-6 text-center">
         <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4" />
         <p className="text-lg font-bold tracking-widest uppercase text-slate-300">Initializing Workspace</p>
+        {isAndroid && (
+          <p className="text-xs text-slate-400 mt-2 max-w-md leading-relaxed">
+            Note: The first launch of the Mobile Application Development Lab can take 3–8 minutes as the large Android SDK & Gradle runtime container image is downloaded. Please keep this tab open.
+          </p>
+        )}
         {error && <p className="text-red-500 mt-4">{error}</p>}
       </div>
     );
