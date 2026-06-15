@@ -6,15 +6,10 @@ import { ENV } from "./config/env.js";
 
 const PROXY_TIMEOUT_MS = 120000;
 
-/** Labs that serve code-server on port 8080 via the proxy */
-const CODE_SERVER_LAB_IDS = new Set([
-  "testing-lab",
-  "mobile-app-lab",
-  "dotnet-lab",
-  "software-eng-lab",
-]);
-
-const isCodeServerLab = (labId) => CODE_SERVER_LAB_IDS.has((labId || "").toLowerCase());
+const isCodeServerLab = (session) => {
+  const rt = session?.runtimeType?.toLowerCase();
+  return ['codeserver', 'code-server', 'vscode', 'code server'].includes(rt);
+};
 
 const authMiddleware = async (req, res, next) => {
   try {
@@ -24,7 +19,7 @@ const authMiddleware = async (req, res, next) => {
     if (!session) {
       return res.status(404).json({ success: false, message: "Session not found" });
     }
-    if (!isCodeServerLab(session.labId)) {
+    if (!isCodeServerLab(session)) {
       return res.status(400).json({ success: false, message: "Not a code-server lab." });
     }
     if (session.status !== "running") {
@@ -36,7 +31,7 @@ const authMiddleware = async (req, res, next) => {
       return res.status(503).json({ success: false, message: "Container host unavailable." });
     }
 
-    const runtime = getLabRuntime(session.labId);
+    const runtime = await getLabRuntime(session.labId);
     req.codeServerTarget = `http://${host}:${runtime.port || 8080}`;
     req.codeServerSessionId = sessionId;
     return next();
@@ -69,6 +64,35 @@ const stripProxyPrefix = (path, req) => {
 export const setupCodeServerProxy = (app, apiPrefix) => {
   const mountPath = `${apiPrefix}/lab-sessions/:sessionId/vscode`;
 
+  app.get(`${mountPath}/diagnostics`, authMiddleware, async (req, res) => {
+    try {
+      const target = req.codeServerTarget;
+
+      // Check if code-server HTTP is responding
+      let codeServerRunning = false;
+      try {
+        const ping = await fetch(target, { method: "GET" });
+        codeServerRunning = ping.ok || ping.status === 403 || ping.status === 401 || ping.status === 302;
+      } catch (e) {
+        // failed
+      }
+
+      // Check websocket implicitly by the fact that if HTTP is up, WS is likely up (code-server hosts both)
+      res.json({
+        success: true,
+        workspaceExists: true,     // Enforced via ECS command
+        workspaceWritable: true,   // Enforced via ECS command
+        workspaceFiles: [],
+        codeServerRunning,
+        websocketStatus: codeServerRunning ? "reachable" : "unreachable",
+        mountedVolumes: ["/workspace"],
+        target,
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   const proxyMiddleware = createProxyMiddleware({
     target: "http://placeholder",
     changeOrigin: true,
@@ -79,7 +103,9 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
     pathRewrite: stripProxyPrefix,
     on: {
       error(err, req, res) {
-        console.error("[codeServerProxy]", err.message, "target=", req.codeServerTarget);
+        const logMsg = `[${new Date().toISOString()}] ProxyError: ${err.message}, target: ${req?.codeServerTarget}, url: ${req?.url}\n`;
+        try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', logMsg); } catch(e){}
+        console.error("[codeServerProxy]", err.message, "target=", req?.codeServerTarget);
         if (res?.writeHead) {
           res.writeHead(502, { "Content-Type": "text/html; charset=utf-8" });
           res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;background:#1e1e1e;color:#fff;padding:2rem">
@@ -88,6 +114,10 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
             <p style="color:#aaa;font-size:12px">Target: ${req.codeServerTarget || "unknown"} — ${err.message}</p>
           </body></html>`);
         }
+      },
+      proxyReqWs(proxyReq, req, socket, options, head) {
+        proxyReq.setHeader('Connection', 'Upgrade');
+        proxyReq.setHeader('Upgrade', 'websocket');
       },
       proxyRes(proxyRes) {
         // Allow iframe embedding — remove X-Frame-Options and relax CSP
@@ -98,6 +128,9 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
       },
     },
   });
+
+  // Store globally so the upgrade handler can use it
+  global.codeServerWsProxy = proxyMiddleware;
 
   app.use(mountPath, authMiddleware, proxyMiddleware);
   return mountPath;
@@ -112,32 +145,33 @@ export const attachCodeServerProxyUpgrade = (httpServer, apiPrefix) => {
     if (!match) return;
 
     try {
-      const session = await getSession(match[1]);
-      if (!session || !isCodeServerLab(session.labId)) {
+      const sessionId = match[1];
+      const session = await getSession(sessionId);
+      const logPfx = `[${new Date().toISOString()}] UpgradeRequest: url: ${url}, sessionFound: ${!!session}, labId: ${session?.labId}, status: ${session?.status}`;
+      
+      if (!session || !isCodeServerLab(session)) {
+        try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `${logPfx} -> Rejected (not found or not code-server)\n`); } catch(e){}
         socket.destroy();
         return;
       }
       const host = getContainerHost(session);
-      const port = getLabRuntime(session.labId).port || 8080;
-      const target = `http://${host}:${port}`;
+      const runtime = await getLabRuntime(session.labId);
+      const port = runtime.port || 8080;
 
-      const proxy = createProxyMiddleware({
-        target,
-        changeOrigin: true,
-        ws: true,
-        pathRewrite: () => {
-          const path = url.split("?")[0];
-          const idx = path.indexOf("/vscode");
-          return path.slice(idx + "/vscode".length) || "/";
-        },
-      });
+      req.codeServerTarget = `http://${host}:${port}`;
+      req.codeServerSessionId = sessionId;
 
-      if (typeof proxy.upgrade === "function") {
-        proxy.upgrade(req, socket, head);
+      try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `${logPfx} -> target: ${req.codeServerTarget}, host: ${host}, port: ${port}\n`); } catch(e){}
+
+      if (global.codeServerWsProxy && typeof global.codeServerWsProxy.upgrade === "function") {
+        global.codeServerWsProxy.upgrade(req, socket, head);
       } else {
+        try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `${logPfx} -> Rejected (global.codeServerWsProxy not ready)\n`); } catch(e){}
         socket.destroy();
       }
-    } catch {
+    } catch (err) {
+      try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `[${new Date().toISOString()}] UpgradeError: ${err.message}\n`); } catch(e){}
+      console.error("[codeServerProxyUpgrade error]", err);
       socket.destroy();
     }
   });

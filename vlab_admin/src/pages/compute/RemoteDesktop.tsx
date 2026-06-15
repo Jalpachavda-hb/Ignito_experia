@@ -52,31 +52,7 @@ const getLabToolUrl = (session: any) => {
   return null;
 };
 
-const isDataScienceLab = (labId: string, session: any) =>
-  labId === 'data-science-lab' || session?.tools?.main?.type === 'jupyter';
 
-const shouldUseCodeServer = (session: any, labId: string) => {
-  const lid = (session?.labId || labId || '').toLowerCase();
-  return (
-    lid.includes('testing') ||
-    lid.includes('dotnet') ||
-    lid.includes('mobile') ||
-    lid.includes('software')
-  );
-};
-
-const shouldUseBuiltInEditor = (session: any, labId: string) => {
-  const lid = (session?.labId || labId || '').toLowerCase();
-  if (shouldUseCodeServer(session, labId)) return false;
-  return (
-    session?.tools?.main?.type === 'ide' ||
-    ['python-lab', 'java-lab'].includes(lid) ||
-    lid.includes('big-data') ||
-    lid.includes('bigdata') ||
-    lid.includes('analytics') ||
-    lid.includes('agile')
-  );
-};
 
 
 
@@ -183,7 +159,7 @@ const IframeTool = ({ url, title, onStopLab, onBack, isJupyter, sessionId }: Ifr
         }
         if (cancelled) return;
         if (!reachable) {
-          setLoadError(lastErrorMsg || 'Cannot reach Jupyter. Open inbound TCP 8080 on the ECS security group.');
+          setLoadError(lastErrorMsg || 'Cannot reach Jupyter. Open inbound TCP 8888 on the ECS security group.');
           setIsLoading(false);
           return;
         }
@@ -343,8 +319,11 @@ export const RemoteDesktop = () => {
   };
 
   const labToolUrl = getLabToolUrl(session);
-  const resolvedLabId = (session?.labId || labId || '').toLowerCase();
-  const isJupyterSession = isDataScienceLab(resolvedLabId, session) || session?.tools?.main?.type === 'jupyter';
+  const rt = session?.runtimeType?.toLowerCase() || '';
+  const isJupyterSession = rt === 'jupyter';
+  const isTerminalSession = rt === 'terminal';
+  const isCodeServerSession = ['codeserver', 'code-server', 'vscode', 'code server'].includes(rt);
+  const isBuiltInEditorSession = rt === 'ide' || rt === 'custom ide';
 
   const stopLabDialog = showStopModal && (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
@@ -370,7 +349,7 @@ export const RemoteDesktop = () => {
     );
   }
 
-  const isTerminalSession = resolvedLabId.includes('linux') || resolvedLabId.includes('dbms') || resolvedLabId.includes('sql');
+
 
   if (session && isTerminalSession) {
     return (
@@ -382,7 +361,7 @@ export const RemoteDesktop = () => {
     );
   }
 
-  if (session && shouldUseBuiltInEditor(session, resolvedLabId)) {
+  if (session && isBuiltInEditorSession) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <CloudEditor session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
@@ -392,7 +371,7 @@ export const RemoteDesktop = () => {
     );
   }
 
-  if (session && shouldUseCodeServer(session, resolvedLabId) && labToolUrl?.startsWith('http')) {
+  if (session && isCodeServerSession && labToolUrl?.startsWith('http')) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <IframeTool url={labToolUrl} title="VS Code (code-server)" isJupyter={false} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />

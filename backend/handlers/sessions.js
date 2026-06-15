@@ -43,7 +43,13 @@ export const sessionsStartHandler = async ({ body, auth }) => {
   }
 
   const labType = canonicalLabType(labId);
-  let session = createSessionRecord({ userId, labId, labType, durationMinutes });
+  const session = createSessionRecord({
+    userId,
+    labId,
+    labType,
+    runtimeType: lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide",
+    durationMinutes,
+  });
 
   if (!isEcsEnabled()) {
     session.status = "running";

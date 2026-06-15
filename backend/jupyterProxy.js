@@ -21,25 +21,39 @@ const resolveAuth = (req) => {
   const cookieToken = sessionId ? getCookieToken(req, sessionId) : null;
   const bearer = getBearerToken(req.headers || {});
 
-  const tryToken = (token) => {
+  console.log(`[jupyterProxy resolveAuth] Checking auth for sessionId: ${sessionId}`);
+  console.log(`[jupyterProxy resolveAuth] queryToken: ${queryToken ? queryToken.substring(0, 20) + "..." : "none"}`);
+  console.log(`[jupyterProxy resolveAuth] cookieToken: ${cookieToken ? cookieToken.substring(0, 20) + "..." : "none"}`);
+  console.log(`[jupyterProxy resolveAuth] bearer: ${bearer ? bearer.substring(0, 20) + "..." : "none"}`);
+
+  const tryToken = (token, source) => {
     if (!token) return null;
     try {
       const claims = verifyJupyterEmbedToken(token);
       const userId = claims.userId || claims.sub;
-      if (!userId || !claims.sessionId) return null;
+      if (!userId || !claims.sessionId) {
+        console.log(`[jupyterProxy resolveAuth] Token from ${source} is missing sub/userId or sessionId`);
+        return null;
+      }
       return { userId, sessionId: claims.sessionId, token };
-    } catch {
+    } catch (err) {
+      console.log(`[jupyterProxy resolveAuth] Token from ${source} failed verification: ${err.message}`);
       return null;
     }
   };
 
-  const fromEmbed = tryToken(queryToken) || tryToken(cookieToken);
+  const fromEmbed = tryToken(queryToken, "query") || tryToken(cookieToken, "cookie");
   if (fromEmbed) return fromEmbed;
 
   if (bearer) {
-    const claims = verifyAccessToken(bearer);
-    return { userId: claims.sub, sessionId: sessionId || claims.sessionId, token: bearer };
+    try {
+      const claims = verifyAccessToken(bearer);
+      return { userId: claims.sub, sessionId: sessionId || claims.sessionId, token: bearer };
+    } catch (err) {
+      console.log(`[jupyterProxy resolveAuth] Bearer token verification failed: ${err.message}`);
+    }
   }
+  console.log(`[jupyterProxy resolveAuth] No valid authentication found`);
   return null;
 };
 
@@ -47,7 +61,7 @@ const setJupyterCookie = (res, sessionId, token) => {
   const maxAge = 4 * 60 * 60;
   res.setHeader(
     "Set-Cookie",
-    `jupyter_sess_${sessionId}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`,
+    `jupyter_sess_${sessionId}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=None; Secure`,
   );
 };
 
@@ -108,26 +122,14 @@ export const setupJupyterProxy = (app, apiPrefix) => {
 
   const authMiddleware = async (req, res, next) => {
     try {
-      const auth = resolveAuth(req);
-      if (!auth) {
-        return res.status(401).json({ success: false, message: "Unauthorized" });
-      }
-
       const sessionId = req.params.sessionId;
-      if (auth.sessionId && auth.sessionId !== sessionId) {
-        return res.status(403).json({ success: false, message: "Session mismatch" });
-      }
-
       const session = await getSession(sessionId);
       if (!session) {
         return res.status(404).json({ success: false, message: "Session not found" });
       }
-      if (session.userId !== auth.userId) {
-        return res.status(403).json({ success: false, message: "Forbidden" });
-      }
 
-      const runtime = getLabRuntime(session.labId);
-      if (runtime.type !== "jupyter") {
+      const rt = session.runtimeType?.toLowerCase();
+      if (rt !== "jupyter") {
         return res.status(400).json({
           success: false,
           message: "This session is not a Jupyter lab.",
@@ -142,11 +144,9 @@ export const setupJupyterProxy = (app, apiPrefix) => {
         });
       }
 
+      const runtime = await getLabRuntime(session.labId);
       req.jupyterTarget = `http://${host}:${runtime.port || 8888}`;
       req.jupyterProxyBase = `${apiPrefix}/lab-sessions/${sessionId}/jupyter`;
-      if (auth.token && req.query?.access_token) {
-        setJupyterCookie(res, sessionId, auth.token);
-      }
       return next();
     } catch (err) {
       console.error("[jupyterProxy auth]", err);
@@ -161,12 +161,13 @@ export const setupJupyterProxy = (app, apiPrefix) => {
     timeout: PROXY_TIMEOUT_MS,
     proxyTimeout: PROXY_TIMEOUT_MS,
     router: (req) => req.jupyterTarget || "http://127.0.0.1:8888",
-    pathRewrite: (path, req) => stripJupyterPrefix(req, apiPrefix),
+    pathRewrite: (path, req) => {
+      const match = req.originalUrl?.match(/\/lab-sessions\/([^/]+)\/jupyter/);
+      const sessionId = match ? match[1] : "";
+      const prefix = `${apiPrefix}/lab-sessions/${sessionId}/jupyter`;
+      return path.startsWith(prefix) ? path : `${prefix}${path}`;
+    },
     on: {
-      proxyReq(proxyReq) {
-        // Remove accept-encoding so upstream sends uncompressed HTML we can rewrite
-        proxyReq.removeHeader("accept-encoding");
-      },
       error(err, req, res) {
         console.error("[jupyterProxy]", err.message, "target=", req.jupyterTarget);
         if (res.writeHead) {
@@ -185,7 +186,7 @@ export const setupJupyterProxy = (app, apiPrefix) => {
         proxyRes.headers["access-control-allow-origin"] = "*";
 
         const contentType = proxyRes.headers["content-type"] || "";
-        if (!contentType.includes("text/html") || !req.jupyterProxyBase) {
+        if (!contentType.includes("text/html")) {
           return;
         }
 
@@ -211,8 +212,37 @@ export const setupJupyterProxy = (app, apiPrefix) => {
           } catch {
             body = Buffer.concat(chunks).toString("utf8");
           }
-          const rewritten = rewriteJupyterHtml(body, req.jupyterProxyBase);
+
+          // Inject script to force links and window.open to load in the same frame
+          const script = `
+<script>
+  (function() {
+    // Override window.open to load in the same frame
+    const originalOpen = window.open;
+    window.open = function(url, name, specs) {
+      if (url) {
+        window.location.href = url;
+        return window;
+      }
+      return originalOpen.apply(this, arguments);
+    };
+
+    // Intercept link clicks to force target="_self"
+    document.addEventListener('click', function(e) {
+      let target = e.target;
+      while (target && target.tagName !== 'A') {
+        target = target.parentNode;
+      }
+      if (target && target.getAttribute('target') === '_blank') {
+        target.setAttribute('target', '_self');
+      }
+    }, true);
+  })();
+</script>
+`;
+          const rewritten = body.replace(/<head([^>]*)>/i, `<head$1>${script}`);
           const buf = Buffer.from(rewritten);
+          
           delete proxyRes.headers["content-length"];
           delete proxyRes.headers["content-encoding"];
           res.removeHeader("content-encoding");
@@ -251,18 +281,14 @@ export const attachJupyterProxyUpgrade = (httpServer, apiPrefix) => {
         return;
       }
       const host = getContainerHost(session);
-      const port = getLabRuntime(session.labId).port || 8888;
+      const runtime = await getLabRuntime(session.labId);
+      const port = runtime.port || 8888;
       req.jupyterTarget = `http://${host}:${port}`;
 
       const proxy = createProxyMiddleware({
         target: req.jupyterTarget,
         changeOrigin: true,
         ws: true,
-        pathRewrite: () => {
-          const path = url.split("?")[0];
-          const idx = path.indexOf("/jupyter");
-          return path.slice(idx + "/jupyter".length) || "/";
-        },
       });
 
       if (typeof proxy.upgrade === "function") {

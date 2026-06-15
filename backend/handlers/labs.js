@@ -60,10 +60,6 @@ const validateLabPayload = (body) => {
   if (!title) return "title is required";
   if (!runtimeType) return "runtimeType is required";
 
-  const validRuntimes = ["ide", "terminal", "jupyter", "codeserver"];
-  if (!validRuntimes.includes(runtimeType)) {
-    return "invalid runtimeType. Must be ide, terminal, jupyter, or codeserver";
-  }
   return null;
 };
 

@@ -78,7 +78,7 @@ export default function MyLabs() {
         // Semester Filter from URL
         if (semesterFilterQuery) {
           // Fallback matching if lab.semester doesn't exist but we want to simulate filtering
-          const labSemester = lab.semester || (lab.id && parseInt(lab.id.replace(/\D/g, '')) % 2 === 0 ? '2' : '1'); 
+          const labSemester = lab.semester || (lab.id && parseInt(lab.id.replace(/\D/g, '')) % 2 === 0 ? '2' : '1');
           if (!labSemester.toLowerCase().includes(String(semesterFilterQuery).toLowerCase()) && labSemester !== String(semesterFilterQuery)) {
             return false;
           }
@@ -94,7 +94,7 @@ export default function MyLabs() {
             return false;
           }
         }
-        
+
         // Status Filter
         if (statusFilter !== 'All Labs') {
           const isRunning = activeSession?.labId === lab.id;
@@ -208,7 +208,7 @@ export default function MyLabs() {
 
       <Main className="bg-[#f8fafc] dark:bg-background min-h-[calc(100vh-4rem)]">
         <div className="w-full px-4 md:px-6 xl:px-10 py-8 space-y-6 max-w-[1600px] mx-auto">
-          
+
           {semesterFilterQuery ? (
             <div className="mb-8">
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
@@ -251,7 +251,7 @@ export default function MyLabs() {
               )}
 
               <div className="mt-8">
-                <LabFilters 
+                <LabFilters
                   searchQuery={searchQuery}
                   setSearchQuery={setSearchQuery}
                   statusFilter={statusFilter}
@@ -270,14 +270,14 @@ export default function MyLabs() {
                   </div>
                 ) : (
                   <div className={
-                    viewMode === 'grid' 
+                    viewMode === 'grid'
                       ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6"
                       : "flex flex-col gap-4"
                   }>
                     {filteredLabs.map(lab => (
-                      <LabCard 
-                        key={lab.id} 
-                        lab={lab} 
+                      <LabCard
+                        key={lab.id}
+                        lab={lab}
                         viewMode={viewMode}
                         onStart={handleStartLab}
                         onResume={handleResumeLab}
@@ -336,8 +336,8 @@ export default function MyLabs() {
       />
 
       {/* Timeout Modal */}
-      <SessionTimeoutModal 
-        session={activeSession} 
+      <SessionTimeoutModal
+        session={activeSession}
       />
     </>
   );

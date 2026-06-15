@@ -90,6 +90,7 @@ export const createSessionRecord = ({
   userId,
   labId,
   labType,
+  runtimeType,
   durationMinutes = ENV.defaultSessionMinutes,
 }) => {
   const sessionId = createSessionId();
@@ -99,6 +100,7 @@ export const createSessionRecord = ({
     userId,
     labId,
     labType,
+    runtimeType,
     status: "starting",
     sessionToken,
     startTime: new Date().toISOString(),

@@ -13,6 +13,8 @@ import { getLabById } from "../config/labs.js";
 import { canonicalLabType } from "../lib/labTypeMapper.js";
 import { getContainerPort } from "../lib/labTools.js";
 
+
+
 const ecsClient = new ECSClient({ region: ENV.awsRegion });
 const ec2Client = new EC2Client({ region: ENV.awsRegion });
 
@@ -153,7 +155,9 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
 export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   const lab = await getLabById(labId);
   const labType = canonicalLabType(labId);
-  const taskDefinition = lab?.taskDefinition;
+  const taskDefinition = lab?.taskDefinition?.trim();
+
+  console.log("== DEBUG TASK_DEF == [", taskDefinition, "]");
 
   if (!taskDefinition) {
     throw new Error(`No ECS task definition for lab: ${labId}`);
@@ -166,14 +170,27 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
     { name: "SESSION_TOKEN", value: sessionToken },
     { name: "LAB_TYPE", value: labType },
     { name: "LAB_SERVER_PORT", value: String(port) },
-    { name: "LAB_WORKSPACE", value: "/workspace" },
+    { name: "LAB_WORKSPACE", value: "/tmp/workspace" },
   ];
 
-  if (labType === "datascience") {
+  const rt = (lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide").toLowerCase();
+  if (rt === "jupyter" || rt === "datascience") {
     environment.push({
       name: "JUPYTER_BASE_URL",
       value: `${apiPrefix}/lab-sessions/${sessionId}/jupyter`,
     });
+  }
+
+  const containerOverride = {
+    name: "lab-runtime",
+    environment,
+  };
+
+  if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) {
+    containerOverride.command = [
+      "sh", "-c",
+      "mkdir -p $LAB_WORKSPACE/.vscode && echo '{\"security.workspace.trust.enabled\": false}' > $LAB_WORKSPACE/.vscode/settings.json && code-server --auth none --bind-addr 0.0.0.0:8080 $LAB_WORKSPACE"
+    ];
   }
 
   const response = await ecsClient.send(
@@ -191,10 +208,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
       },
       overrides: {
         containerOverrides: [
-          {
-            name: "lab-runtime",
-            environment,
-          },
+          containerOverride,
         ],
       },
     }),

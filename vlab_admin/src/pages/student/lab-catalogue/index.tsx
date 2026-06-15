@@ -131,13 +131,13 @@ export default function LabCatalogue() {
 
       <Main className="bg-[#f8fafc] dark:bg-background min-h-[calc(100vh-4rem)]">
         <div className="w-full px-4 md:px-8 xl:px-12 py-8 space-y-12 max-w-[1600px] mx-auto">
-          
+
           {/* Hero Section */}
           <div className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-[24px] border border-slate-100 shadow-sm">
             {/* Background Decorations */}
             <div className="absolute top-0 right-0 bottom-0 w-[60%] bg-gradient-to-l from-red-50/80 to-transparent pointer-events-none" />
             <div className="absolute -top-24 -right-24 w-96 h-96 bg-red-100/50 rounded-full blur-3xl pointer-events-none" />
-            
+
             <div className="relative z-10 p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8">
               <div className="max-w-xl">
                 <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">
@@ -206,11 +206,11 @@ export default function LabCatalogue() {
                     {categoryLabs.map((lab, index) => {
                       // Determine if popular (for mock purposes, say top 2 of programming or specific labs)
                       const isPopular = category === 'Programming Labs' && index < 2;
-                      
+
                       return (
-                        <CatalogueLabCard 
-                          key={lab.id} 
-                          lab={lab} 
+                        <CatalogueLabCard
+                          key={lab.id}
+                          lab={lab}
                           isPopular={isPopular}
                           onStart={handleStartLab}
                           onDetails={handleViewDetails}

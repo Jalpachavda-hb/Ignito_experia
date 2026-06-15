@@ -73,7 +73,7 @@ export async function waitForLabSessionReady(
 
     const toolUrl = session.tools?.jupyter?.url || session.tools?.main?.url || null;
     const isJupyter = session.tools?.main?.type === 'jupyter' || session.tools?.jupyter?.enabled;
-    
+
     const ready =
       session.status === 'running' &&
       (session.publicIp || (toolUrl && toolUrl.startsWith('http')) || (isJupyter && toolUrl?.includes('/jupyter')));

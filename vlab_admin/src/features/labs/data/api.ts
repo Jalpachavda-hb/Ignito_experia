@@ -81,12 +81,7 @@ export function useRuntimeTypesQuery() {
         return []
       } catch (e) {
         console.error("Failed to fetch runtime types", e)
-        return [
-          { value: 'ide', label: 'IDE' },
-          { value: 'terminal', label: 'Terminal' },
-          { value: 'jupyter', label: 'Jupyter Notebook' },
-          { value: 'codeserver', label: 'Code Server (VSCode)' },
-        ]
+        return []
       }
     }
   })

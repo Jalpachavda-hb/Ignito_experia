@@ -1,4 +1,4 @@
-import { LAB_PORTS, getLabById } from "../config/labs.js";
+  import { LAB_PORTS, getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { signJupyterEmbedToken } from "./jwt.js";
 
@@ -9,7 +9,16 @@ const joinUrl = (base, path = "/") => {
 
 export const getLabRuntime = async (labId) => {
   const lab = await getLabById(labId);
-  return lab?.runtime || { type: "web", port: LAB_PORTS.WEB_LAB, path: "/" };
+  if (!lab) return { type: "ide", port: 8080, path: "/" };
+  return {
+    type: (lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide").toLowerCase(),
+    port: lab.runtime?.port || lab.RuntimePort || lab.runtimePort || 8080,
+    path: lab.runtime?.path || lab.RuntimePath || lab.runtimePath || "/",
+    containerApi: {
+      enabled: lab.runtime?.containerApi?.enabled || lab.ContainerApiEnabled || lab.containerApiEnabled || false,
+      port: lab.runtime?.containerApi?.port || lab.ContainerApiPort || lab.containerApiPort || 8080,
+    }
+  };
 };
 
 /** Container host: public IP for browser; private IP for Lambda in VPC */
@@ -64,20 +73,19 @@ export const buildJupyterProxyUrl = async (session) => {
   const prefix = isLocalhost
     ? `${ENV.apiPrefix}/lab-sessions/${session.sessionId}/jupyter`
     : `${base}/lab-sessions/${session.sessionId}/jupyter`;
-  return `${prefix}${runtime.path || "/lab"}?access_token=${encodeURIComponent(token)}`;
-};
 
-/** Labs that serve VS Code (code-server) via the /vscode proxy */
-const CODE_SERVER_LAB_IDS = new Set([
-  "testing-lab",
-  "mobile-app-lab",
-  "dotnet-lab",
-  "software-eng-lab",
-]);
+  let targetPath = runtime.path || "";
+  if (!targetPath || targetPath === "/" || targetPath === "/lab") {
+    targetPath = "/notebooks/lab.ipynb";
+  }
+
+  return `${prefix}${targetPath}?access_token=${encodeURIComponent(token)}`;
+};
 
 export const buildCodeServerProxyUrl = (session) => {
   if (!session?.sessionId || session.status !== "running") return null;
-  if (!CODE_SERVER_LAB_IDS.has((session.labId || "").toLowerCase())) return null;
+  const rt = session.runtimeType?.toLowerCase();
+  if (!['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) return null;
   const base = ENV.apiPublicUrl.replace(/\/+$/, "");
   return `${base}/lab-sessions/${session.sessionId}/vscode/`;
 };
@@ -96,7 +104,8 @@ export const buildMainToolUrl = async ({ labId, session }) => {
   }
 
   // Route code-server labs through the backend proxy (strips X-Frame-Options, avoids direct exposure)
-  if (CODE_SERVER_LAB_IDS.has((labId || "").toLowerCase())) {
+  const rt = session?.runtimeType?.toLowerCase() || runtime.type;
+  if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) {
     return buildCodeServerProxyUrl(session) || joinUrl(`http://${host}:${runtime.port}`, runtime.path);
   }
 
@@ -131,6 +140,10 @@ export const buildSessionTools = async (session) => {
 
 export const enrichSession = async (session) => {
   if (!session) return session;
+  if (!session.runtimeType) {
+    const runtime = await getLabRuntime(session.labId);
+    session.runtimeType = runtime.type;
+  }
   session.tools = await buildSessionTools(session);
   session.apiBaseUrl = await getSessionApiBaseUrl(session);
   session.containerPort = await getContainerPort(session.labId);

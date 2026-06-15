@@ -38,7 +38,7 @@ export const verifyJupyterEmbedToken = (token) => {
     }
     return claims;
   } catch (err) {
-    if (err instanceof unauthorized) throw err;
+    if (err.statusCode === 401) throw err;
     throw unauthorized("Invalid or expired embed token");
   }
 };

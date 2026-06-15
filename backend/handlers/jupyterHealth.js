@@ -12,7 +12,8 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
   }
 
   const host = getContainerHost(session);
-  const port = getLabRuntime(session.labId).port || 8888;
+  const runtime = await getLabRuntime(session.labId);
+  const port = runtime.port || 8888;
   if (!host || session.status !== "running") {
     return ok({
       reachable: false,

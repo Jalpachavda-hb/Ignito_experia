@@ -45,11 +45,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const [activeFileIndex, setActiveFileIndex] = useState(-1);
   const [labId, setLabId] = useState('');
 
-  const isPythonLab = () => labId.includes('python');
-  const isJavaLab = () => labId.includes('java');
-  const isAgileLab = () => labId.includes('agile');
-  const isBigDataLab = () => labId.includes('big-data') || labId.includes('bigdata') || labId.includes('analytics');
-  const isNoAutoSaveLab = () => false;
+
 
   const [loadedPaths, setLoadedPaths] = useState(new Set<string>());
   const [isSaving, setIsSaving] = useState(false);
@@ -107,17 +103,8 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       try {
         const response = await fetchFiles(sessionId);
         if (isMounted && response.success) {
-          const filteredFiles = response.files.filter((f: any) => {
-            const ext = f.name.split('.').pop()?.toLowerCase();
-            if (isPythonLab()) return ext === 'py';
-            if (isJavaLab()) return ext === 'java';
-            if (isAgileLab()) return ['txt', 'md', 'doc', 'docx', 'pdf', 'js', 'jsx', 'html', 'css', 'json'].includes(ext);
-            if (isBigDataLab()) return ['py', 'ipynb', 'csv', 'json', 'txt'].includes(ext);
-            return true;
-          });
-          setFiles(filteredFiles);
-          setOpenFilePaths(filteredFiles.map((f: any) => f.path));
-          // Don't auto open the first file, so we see the empty state
+          setFiles(response.files);
+          setOpenFilePaths(response.files.map((f: any) => f.path));
         }
       } catch (err) {
         console.error('Load files error:', err);
@@ -152,35 +139,10 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   }, [activeFileIndex, sessionId, loadedPaths]);
 
   useEffect(() => {
-    if (activeFileIndex === -1 || !files[activeFileIndex] || isNoAutoSaveLab()) return;
+    if (activeFileIndex === -1 || !files[activeFileIndex]) return;
     const timeout = setTimeout(() => handleSave(false), 1500);
     return () => clearTimeout(timeout);
-  }, [files, activeFileIndex, labId]);
-
-  // Hadoop Verification
-  useEffect(() => {
-    let isMounted = true;
-    if (isBigDataLab() && sessionId) {
-      const verifyHadoop = async () => {
-        try {
-          const payload = {
-            path: '/workspace/.verify_hadoop.py',
-            language: 'python',
-            content: "import os, subprocess\ntry:\n    subprocess.check_output(['hadoop', 'version'], stderr=subprocess.STDOUT)\n    subprocess.check_output(['hdfs', 'dfs', '-ls', '/'], stderr=subprocess.STDOUT)\nexcept Exception as e:\n    print('HADOOP_ERROR: ' + str(e))"
-          };
-          const res = await runFile(payload, sessionId);
-          if (isMounted && res && res.output && res.output.includes("HADOOP_ERROR")) {
-            setRestrictionMsg("Hadoop Environment Verification Failed: " + res.output);
-            setShowRestrictionModal(true);
-          }
-        } catch (err) {
-          console.error("Hadoop verification error:", err);
-        }
-      };
-      setTimeout(verifyHadoop, 2000);
-    }
-    return () => { isMounted = false; };
-  }, [sessionId, labId]);
+  }, [files, activeFileIndex]);
 
   const activeFile = files[activeFileIndex];
 
@@ -223,63 +185,20 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     if (!activeFile || !sessionId) return;
     setIsRunning(true);
 
-    if (isPythonLab() || isJavaLab() || isBigDataLab()) {
-      if (!isTerminalOpen) setIsTerminalOpen(true);
-      setTimeout(() => {
-        if (terminalRef.current) {
-          terminalRef.current.runFile(activeFile);
-        }
-        setIsRunning(false);
-      }, 500);
+    if (activeFile.language === 'html') {
+      setWebPreviewCode(activeFile.content || '');
+      setIsRunning(false);
       return;
     }
 
-    setWebPreviewCode(`
-      <html>
-        <body style="background:#fff;color:#333;font-family:monospace;padding:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;">
-          <div style="width:30px;height:30px;border:3px solid #f3f3f3;border-top:3px solid #ef4444;border-radius:50%;animation:spin 1s linear infinite;margin-bottom:15px;"></div>
-          <style>@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style>
-          <div style="text-transform:uppercase;letter-spacing:1px;font-size:12px;font-weight:bold;">Executing Code...</div>
-        </body>
-      </html>
-    `);
-
-    if (!isNoAutoSaveLab()) {
-      await handleSave(false);
-    }
-
-    try {
-      const payload = isNoAutoSaveLab()
-        ? { path: activeFile.path, language: activeFile.language, content: activeFile.content }
-        : { path: activeFile.path, language: activeFile.language };
-
-      const response = await runFile(payload, sessionId);
-      if (response.success) {
-        const isHtmlFile = activeFile.name.endsWith('.html') || activeFile.name.endsWith('.htm');
-        if (isHtmlFile) {
-          setWebPreviewCode(activeFile.content);
-        } else {
-          setWebPreviewCode(`
-            <div style="font-family:monospace; background:#fff; padding:20px; height:100%;">
-              <h3 style="color:#d32f2f; font-size:11px; text-transform:uppercase; border-bottom: 1px solid #eee; padding-bottom: 8px;">Terminal Output</h3>
-              <pre style="background:#f9f9f9; padding:16px; border-radius:8px; margin-top: 10px; white-space: pre-wrap; word-wrap: break-word;">${response.output || '(No output)'}</pre>
-              ${response.error ? `<h3 style="color:#ef4444; font-size:11px; margin-top:20px; border-bottom: 1px solid #fee2e2; padding-bottom: 8px;">Errors Detected</h3><pre style="background:#fff5f5; color:#b91c1c; padding:16px; border:1px solid #fecaca; border-radius:8px; margin-top: 10px;">${response.error}</pre>` : ''}
-            </div>
-          `);
-        }
-      } else {
-        setWebPreviewCode(`
-          <div style="font-family:monospace; background:#fff; padding:20px; height:100%;">
-            <h3 style="color:#ef4444; font-size:11px; text-transform:uppercase; border-bottom: 1px solid #fee2e2; padding-bottom: 8px;">Execution Failed</h3>
-            <pre style="background:#fff5f5; color:#b91c1c; padding:16px; border:1px solid #fecaca; border-radius:8px; margin-top: 10px; white-space: pre-wrap;">${response.error}</pre>
-          </div>
-        `);
+    if (!isTerminalOpen) setIsTerminalOpen(true);
+    setTimeout(() => {
+      if (terminalRef.current) {
+        terminalRef.current.runFile(activeFile);
       }
-    } catch (err) {
-      console.error('Run error:', err);
-    } finally {
       setIsRunning(false);
-    }
+    }, 500);
+    return;
   };
 
   const handleAddFile = async () => {
@@ -289,38 +208,9 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       return;
     }
 
-    const defaultName = isJavaLab() ? 'Main.java' : (isPythonLab() ? 'script.py' : (isBigDataLab() ? 'script.py' : (isAgileLab() ? 'File.java' : 'script.txt')));
-    const fileName = window.prompt(`Enter file name (e.g. ${defaultName}):`, defaultName);
+    const defaultName = 'script.txt';
+    const fileName = window.prompt(`Enter file name:`, defaultName);
     if (!fileName) return;
-
-    const ext = fileName.split('.').pop()?.toLowerCase();
-
-    if (isPythonLab() && ext !== 'py') {
-      setRestrictionMsg('This is a Python lab environment. You can only create or add .py files.');
-      setShowRestrictionModal(true);
-      return;
-    }
-    if (isJavaLab() && ext !== 'java') {
-      setRestrictionMsg('This is a Java lab environment. You can only create or add .java files.');
-      setShowRestrictionModal(true);
-      return;
-    }
-    if (isAgileLab()) {
-      const allowed = ['java'];
-      if (!allowed.includes(ext as string)) {
-        setRestrictionMsg(`This is an Agile Methodology lab. You can only create or add these extensions: ${allowed.join(', ')}`);
-        setShowRestrictionModal(true);
-        return;
-      }
-    }
-    if (isBigDataLab()) {
-      const allowed = ['java', 'py', 'csv', 'json', 'xml', 'log', 'txt', 'parquet', 'avro', 'orc'];
-      if (!allowed.includes(ext as string)) {
-        setRestrictionMsg(`This is a Big Data Analytics lab. You can only create or add these extensions: ${allowed.join(', ')}`);
-        setShowRestrictionModal(true);
-        return;
-      }
-    }
 
     const newFile = { name: fileName, path: `/workspace/${fileName}`, type: 'file', language: detectLanguage(fileName), content: '' };
     if (sessionId) {
@@ -358,33 +248,6 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     }
 
     const ext = file.name.split('.').pop()?.toLowerCase();
-
-    if (isPythonLab() && ext !== 'py') {
-      setRestrictionMsg('Strict Restriction: Only .py files are permitted in the Python workspace.');
-      setShowRestrictionModal(true);
-      return;
-    }
-    if (isJavaLab() && ext !== 'java') {
-      setRestrictionMsg('Strict Restriction: Only .java files are permitted in the Java workspace.');
-      setShowRestrictionModal(true);
-      return;
-    }
-    if (isAgileLab()) {
-      const allowed = ['txt', 'md', 'doc', 'docx', 'pdf', 'js', 'jsx', 'html', 'css', 'json'];
-      if (!allowed.includes(ext as string)) {
-        setRestrictionMsg(`This is an Agile Methodology lab. You can only upload these extensions: ${allowed.join(', ')}`);
-        setShowRestrictionModal(true);
-        return;
-      }
-    }
-    if (isBigDataLab()) {
-      const allowed = ['py', 'java', 'ipynb', 'csv', 'json', 'txt', 'xml', 'log', 'parquet', 'avro', 'orc'];
-      if (!allowed.includes(ext as string)) {
-        setRestrictionMsg(`This is a Big Data Analytics lab. You can only upload these extensions: ${allowed.join(', ')}`);
-        setShowRestrictionModal(true);
-        return;
-      }
-    }
 
     const reader = new FileReader();
     reader.onload = async (e) => {

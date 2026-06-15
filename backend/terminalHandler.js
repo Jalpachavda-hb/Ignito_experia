@@ -103,8 +103,8 @@ export const setupTerminal = (io) => {
         try {
           const { describeTask } = await import('./services/ecsService.js');
           
-          // Poll for up to 60 seconds (30 iterations * 2s)
-          for (let i = 0; i < 30; i++) {
+          // Poll for up to 180 seconds (90 iterations * 2s)
+          for (let i = 0; i < 90; i++) {
             const taskDetails = await describeTask(session.taskArn);
             
             if (taskDetails) {
