@@ -1,10 +1,10 @@
 import pool from "../lib/mysql.js";
 
 class LabRepository {
-  async getAllAdmin(status) {
-    const [rows] = await pool.query("CALL sp_Lab_GetAll(?)", [status || null]);
-    return rows[0];
-  }
+async getAllAdmin(status) {
+  const [rows] = await pool.query("CALL sp_Lab_GetAll()");
+  return rows[0];
+}
 
   async getAllActive() {
     const [rows] = await pool.query("CALL sp_Lab_GetActiveLabs()");
