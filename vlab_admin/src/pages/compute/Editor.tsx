@@ -7,6 +7,7 @@ import {
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon
 } from 'lucide-react';
 import Terminal from './Terminal';
+import { useLabStore } from '@/stores/labStore';
 
 const getFileIcon = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -37,6 +38,53 @@ const detectLanguage = (fileName: string) => {
   return 'text';
 };
 
+const getLabExtensionRules = (labName: string, labId: string) => {
+  const name = (labName || '').toLowerCase();
+  const id = (labId || '').toLowerCase();
+
+  if (name.includes('agile') || id.includes('agile')) {
+    return {
+      courseName: 'Agile Methodology',
+      extensions: ['java']
+    };
+  }
+  if (
+    name.includes('big data') || 
+    id.includes('big-data') || 
+    name.includes('analytics') || 
+    id.includes('analytics') || 
+    name.includes('hadoop') || 
+    id.includes('hadoop')
+  ) {
+    return {
+      courseName: 'Big Data Analytics-I',
+      extensions: ['py', 'java', 'csv', 'txt', 'jar', 'xml', 'sh', 'json', 'log', 'parquet', 'avro', 'orc']
+    };
+  }
+  if (name.includes('mobile') || id.includes('mobile')) {
+    return {
+      courseName: 'Fundamental of Mobile',
+      extensions: ['py', 'java', 'jar', 'xml', 'sh', 'txt', 'csv', 'json', 'log', 'parquet', 'avro', 'orc']
+    };
+  }
+  if (name.includes('java development') || id.includes('java-development')) {
+    return {
+      courseName: 'Java Development Lab',
+      extensions: ['java']
+    };
+  }
+  if (name.includes('python') || id.includes('python')) {
+    return {
+      courseName: 'Python Programming Lab',
+      extensions: ['py']
+    };
+  }
+  return {
+    courseName: labName || 'this Lab',
+    extensions: ['py', 'java', 'js', 'jsx', 'html', 'css', 'json', 'md', 'csv', 'txt', 'log', 'xml', 'parquet', 'avro', 'orc', 'sh', 'jar']
+  };
+};
+
 const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: any) => {
   const location = useLocation();
   const editorRef = useRef<any>(null);
@@ -44,6 +92,14 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const [files, setFiles] = useState<any[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(-1);
   const [labId, setLabId] = useState('');
+
+  const { labs, loadLabs } = useLabStore();
+
+  useEffect(() => {
+    if (labs.length === 0) {
+      loadLabs();
+    }
+  }, [labs, loadLabs]);
 
 
 
@@ -191,14 +247,151 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       return;
     }
 
-    if (!isTerminalOpen) setIsTerminalOpen(true);
-    setTimeout(() => {
-      if (terminalRef.current) {
-        terminalRef.current.runFile(activeFile);
+    try {
+      setWebPreviewCode(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              body {
+                background-color: #1e1e1e;
+                color: rgba(255,255,255,0.6);
+                font-family: monospace;
+                padding: 16px;
+                margin: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 80vh;
+              }
+              .spinner {
+                width: 24px;
+                height: 24px;
+                border: 3px solid rgba(255,255,255,0.1);
+                border-top: 3px solid #dc2626;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin-bottom: 12px;
+              }
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+              .text {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="spinner"></div>
+            <div class="text">Executing program...</div>
+          </body>
+        </html>
+      `);
+
+      const response = await runFile(
+        {
+          path: activeFile.path,
+          language: activeFile.language,
+          content: activeFile.content,
+        },
+        sessionId
+      );
+
+      if (response) {
+        const runSuccess = response.success || response.status === 'COMPLETED';
+        const rawOutput = response.output || '';
+        const rawError = response.error || response.runtimeError || response.syntaxError || '';
+
+        const escapeHtml = (text: string) => {
+          return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        };
+
+        const formattedOutput = escapeHtml(rawOutput);
+        const formattedError = escapeHtml(rawError);
+
+        const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <style>
+                body {
+                  background-color: #1e1e1e;
+                  color: #f8f8f2;
+                  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+                  padding: 16px;
+                  margin: 0;
+                  white-space: pre-wrap;
+                  word-break: break-all;
+                  font-size: 13px;
+                  line-height: 1.6;
+                }
+                .error {
+                  color: #ff5555;
+                  font-weight: bold;
+                }
+                .header-success {
+                  color: #50fa7b;
+                  border-bottom: 1px solid #44475a;
+                  padding-bottom: 6px;
+                  margin-bottom: 12px;
+                  font-weight: bold;
+                  font-size: 11px;
+                  text-transform: uppercase;
+                  letter-spacing: 1px;
+                }
+                .header-error {
+                  color: #ff5555;
+                  border-bottom: 1px solid #44475a;
+                  padding-bottom: 6px;
+                  margin-bottom: 12px;
+                  font-weight: bold;
+                  font-size: 11px;
+                  text-transform: uppercase;
+                  letter-spacing: 1px;
+                }
+              </style>
+            </head>
+            <body>
+              ${runSuccess 
+                ? `<div class="header-success">Execution Succeeded</div><pre>${formattedOutput || '(No output)'}</pre>` 
+                : `<div class="header-error">Execution Failed</div><pre class="error">${formattedError || formattedOutput || 'Unknown error'}</pre>`
+              }
+            </body>
+          </html>
+        `;
+        setWebPreviewCode(htmlContent);
+      } else {
+        setWebPreviewCode(`
+          <html>
+            <body style="background-color: #1e1e1e; color: #ff5555; font-family: monospace; padding: 16px;">
+              <h3 style="color: #ff5555;">Execution Error</h3>
+              <p>No output received from the runtime engine.</p>
+            </body>
+          </html>
+        `);
       }
+    } catch (err: any) {
+      setWebPreviewCode(`
+        <html>
+          <body style="background-color: #1e1e1e; color: #ff5555; font-family: monospace; padding: 16px;">
+            <h3 style="color: #ff5555;">Execution Error</h3>
+            <p>${err.message || 'Failed to call the code execution service.'}</p>
+          </body>
+        </html>
+      `);
+    } finally {
       setIsRunning(false);
-    }, 500);
-    return;
+    }
   };
 
   const handleAddFile = async () => {
@@ -208,9 +401,32 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       return;
     }
 
-    const defaultName = 'script.txt';
+    const currentLab = labs.find(l => l.id === labId || l.name?.toLowerCase() === labId || l.title?.toLowerCase() === labId);
+    const labName = currentLab?.name || currentLab?.title || '';
+    const rules = getLabExtensionRules(labName, labId);
+
+    let defaultExt = 'txt';
+    if (rules.extensions.includes('py')) {
+      defaultExt = 'py';
+    } else if (rules.extensions.includes('java')) {
+      defaultExt = 'java';
+    } else if (rules.extensions.length > 0) {
+      defaultExt = rules.extensions[0];
+    }
+    const defaultName = `script.${defaultExt}`;
+
     const fileName = window.prompt(`Enter file name:`, defaultName);
     if (!fileName) return;
+
+    const hasExtension = fileName.includes('.') && fileName.split('.').pop() !== '';
+    const ext = hasExtension ? fileName.split('.').pop()?.toLowerCase() || '' : '';
+    if (!hasExtension || !rules.extensions.includes(ext)) {
+      setRestrictionMsg(
+        `Workspace Restriction: Invalid file extension. Only the following extensions are allowed for ${rules.courseName}: ${rules.extensions.map(e => `.${e}`).join(', ')}`
+      );
+      setShowRestrictionModal(true);
+      return;
+    }
 
     const newFile = { name: fileName, path: `/workspace/${fileName}`, type: 'file', language: detectLanguage(fileName), content: '' };
     if (sessionId) {
@@ -247,7 +463,19 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       return;
     }
 
-    const ext = file.name.split('.').pop()?.toLowerCase();
+    const currentLab = labs.find(l => l.id === labId || l.name?.toLowerCase() === labId || l.title?.toLowerCase() === labId);
+    const labName = currentLab?.name || currentLab?.title || '';
+    const rules = getLabExtensionRules(labName, labId);
+
+    const hasExtension = file.name.includes('.') && file.name.split('.').pop() !== '';
+    const fileExt = hasExtension ? file.name.split('.').pop()?.toLowerCase() || '' : '';
+    if (!hasExtension || !rules.extensions.includes(fileExt)) {
+      setRestrictionMsg(
+        `Workspace Restriction: Invalid file extension. Only the following extensions are allowed for ${rules.courseName}: ${rules.extensions.map(e => `.${e}`).join(', ')}`
+      );
+      setShowRestrictionModal(true);
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = async (e) => {

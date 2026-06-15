@@ -157,12 +157,16 @@ export const setupJupyterProxy = (app, apiPrefix) => {
   const proxyMiddleware = createProxyMiddleware({
     target: "http://placeholder",
     changeOrigin: true,
-    ws: true,
+    ws: false,
     timeout: PROXY_TIMEOUT_MS,
     proxyTimeout: PROXY_TIMEOUT_MS,
-    router: (req) => req.jupyterTarget || "http://127.0.0.1:8888",
+    router: (req) => {
+      console.log(`[jupyterProxy router] url=${req.url} jupyterTarget=${req.jupyterTarget}`);
+      return req.jupyterTarget || "http://127.0.0.1:8888";
+    },
     pathRewrite: (path, req) => {
-      const match = req.originalUrl?.match(/\/lab-sessions\/([^/]+)\/jupyter/);
+      const url = req.originalUrl || req.url || path || "";
+      const match = url.match(/\/lab-sessions\/([^/]+)\/jupyter/);
       const sessionId = match ? match[1] : "";
       const prefix = `${apiPrefix}/lab-sessions/${sessionId}/jupyter`;
       return path.startsWith(prefix) ? path : `${prefix}${path}`;
@@ -257,6 +261,8 @@ export const setupJupyterProxy = (app, apiPrefix) => {
     },
   });
 
+  global.jupyterWsProxy = proxyMiddleware;
+
   app.use(mountPath, skipNonProxyPaths, authMiddleware, proxyMiddleware);
 
   return mountPath;
@@ -285,18 +291,13 @@ export const attachJupyterProxyUpgrade = (httpServer, apiPrefix) => {
       const port = runtime.port || 8888;
       req.jupyterTarget = `http://${host}:${port}`;
 
-      const proxy = createProxyMiddleware({
-        target: req.jupyterTarget,
-        changeOrigin: true,
-        ws: true,
-      });
-
-      if (typeof proxy.upgrade === "function") {
-        proxy.upgrade(req, socket, head);
+      if (global.jupyterWsProxy && typeof global.jupyterWsProxy.upgrade === "function") {
+        global.jupyterWsProxy.upgrade(req, socket, head);
       } else {
         socket.destroy();
       }
-    } catch {
+    } catch (err) {
+      console.error("[jupyterProxyUpgrade error]", err);
       socket.destroy();
     }
   });

@@ -35,6 +35,7 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
     // 404 means the server is up but base URL is mismatched.
     const isReady = probe.ok || probe.status === 302 || probe.status === 404;
     return ok({
+      ready: isReady,
       reachable: isReady,
       status: probe.status,
       host,
@@ -44,6 +45,7 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
     console.error("[jupyterHealth] fetch failed for", host, port, err.message);
     clearTimeout(timer);
     return ok({
+      ready: false,
       reachable: false,
       message:
         "Cannot reach Jupyter on port 8888. AWS engineer must allow inbound TCP 8888 on the ECS security group.",

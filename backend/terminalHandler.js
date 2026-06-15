@@ -64,8 +64,8 @@ export const setupTerminal = (io) => {
         const taskId = session.taskArn.split('/').pop();
         
         const containerName = 'lab-runtime';
-        const interactiveShell = '/bin/bash';
-
+        const interactiveShell = 'sh -c "mkdir -p /tmp/workspace/workspace && cd /tmp/workspace/workspace || cd /workspace; [ -x /bin/bash ] && exec bash || exec sh"';
+        
         console.log('Connecting terminal to ECS container via /bin/sh...');
 
         // =====================================

@@ -248,10 +248,39 @@ export const executeInContainer = async (session, payload) => {
 export const deleteFromContainer = async (session, filePath) => {
   if (!filePath || !filePath.startsWith('/workspace/')) return;
 
+  // Since container maps paths starting with /workspace/ to /tmp/workspace/workspace/,
+  // we check all potential mapped paths inside the container to ensure cleanup.
   const payload = {
     path: "/workspace/.delete_script.py",
     language: "python",
-    content: `import os\ntarget = "${filePath}"\nif os.path.exists(target):\n    if os.path.isdir(target):\n        import shutil\n        shutil.rmtree(target)\n    else:\n        os.remove(target)\n    print("Deleted")\nelse:\n    print("Not found")\nif os.path.exists(__file__):\n    os.remove(__file__)`
+    content: `import os
+import shutil
+
+targets = [
+    "${filePath}",
+    "${filePath}".replace('/workspace/', '/tmp/workspace/workspace/'),
+    os.path.join(os.getcwd(), "${filePath}".split('/')[-1])
+]
+
+deleted_any = False
+for target in targets:
+    if os.path.exists(target):
+        try:
+            if os.path.isdir(target):
+                shutil.rmtree(target)
+            else:
+                os.remove(target)
+            deleted_any = True
+        except Exception as e:
+            print(f"Error deleting {target}: {e}")
+
+if deleted_any:
+    print("Deleted successfully")
+else:
+    print("No targets found")
+
+if os.path.exists(__file__):
+    os.remove(__file__)`
   };
 
   try {

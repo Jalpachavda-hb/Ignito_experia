@@ -96,7 +96,7 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
   const proxyMiddleware = createProxyMiddleware({
     target: "http://placeholder",
     changeOrigin: true,
-    ws: true,
+    ws: false,
     timeout: PROXY_TIMEOUT_MS,
     proxyTimeout: PROXY_TIMEOUT_MS,
     router: (req) => req.codeServerTarget || "http://127.0.0.1:8080",
