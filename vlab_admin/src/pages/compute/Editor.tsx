@@ -534,6 +534,12 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                   color: #ff5555;
                   font-weight: bold;
                 }
+                pre {
+                  white-space: pre-wrap;
+                  word-wrap: break-word;
+                  margin: 0;
+                  font-family: inherit;
+                }
                 .header-success {
                   color: #50fa7b;
                   border-bottom: 1px solid #44475a;

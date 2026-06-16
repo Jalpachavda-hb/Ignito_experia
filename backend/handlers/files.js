@@ -7,7 +7,7 @@ import {
   upsertFile,
   deleteFile,
 } from "../services/fileRepository.js";
-import { saveToContainer, deleteFromContainer } from "../services/containerClient.js";
+import { saveToContainer, deleteFromContainer, getContainerFiles } from "../services/containerClient.js";
 
 const getSessionId = (event) =>
   event.headers?.["x-session-id"] ||
@@ -30,7 +30,19 @@ const assertSessionAccess = async (event) => {
 };
 
 export const filesListHandler = async (event) => {
-  const { sessionId } = await assertSessionAccess(event);
+  const { sessionId, session } = await assertSessionAccess(event);
+
+  if (session?.status === "running") {
+    try {
+      const containerFiles = await getContainerFiles(session);
+      if (containerFiles && containerFiles.length > 0) {
+        return ok({ files: containerFiles });
+      }
+    } catch (err) {
+      console.warn("[filesListHandler] Failed to fetch container files:", err.message);
+    }
+  }
+
   const files = await listFiles(sessionId);
   return ok({
     files: files.map(({ content, ...meta }) => meta),

@@ -29,6 +29,15 @@ const getContainerFilePath = (filePath) => {
   return `/workspace/${cleanPath}`;
 };
 
+const getTaskDetails = (session) => {
+  if (!session?.taskArn) return { cluster: null, task: null };
+  const parts = session.taskArn.split("/");
+  if (parts.length >= 3) {
+    return { cluster: parts[1], task: parts[2] };
+  }
+  return { cluster: process.env.ECS_CLUSTER || "vlab-dev-cluster", task: parts.pop() };
+};
+
 const buildHeaders = (session) => {
   const headers = { "Content-Type": "application/json" };
   if (session?.sessionToken) {
@@ -56,29 +65,32 @@ export const saveToContainer = async (session, { path, content }) => {
   } catch (err) {
     console.warn("[saveToContainer] HTTP unreachable, attempting AWS SSM fallback:", err.message);
     
-    if (session.TaskId && session.ClusterName) {
-      try {
-        const b64 = Buffer.from(content).toString('base64');
-        const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
-        
-        // Use local Session Manager plugin if needed on Windows
-        const localPipAwsPath = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\aws.exe';
-        const fs = await import('fs');
-        if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
-           execCmd = `"${localPipAwsPath}" ecs execute-command --cluster ${session.ClusterName} --task ${session.TaskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
-        }
+    if (session.taskArn) {
+      const { cluster, task } = getTaskDetails(session);
+      if (cluster && task) {
+        try {
+          const b64 = Buffer.from(content).toString('base64');
+          const region = process.env.AWS_REGION || 'ap-south-1';
+          let execCmd = `call aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
+          
+          // Use local Session Manager plugin if needed on Windows
+          const localPipAwsPath = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\aws.exe';
+          const fs = await import('fs');
+          if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
+             execCmd = `call "${localPipAwsPath}" ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
+          }
 
-        const env = { ...process.env };
-        if (os.platform() === 'win32') {
-          env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;${env.PATH || ''}`;
+          const env = { ...process.env };
+          if (os.platform() === 'win32') {
+            env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;${env.PATH || ''}`;
+          }
+          
+          await execAsync(execCmd, { env });
+          console.log(`[saveToContainer] SSM fallback sync successful for ${containerPath}`);
+          return { proxied: true, method: 'ssm' };
+        } catch (ssmErr) {
+          console.warn("[saveToContainer] SSM fallback failed:", ssmErr.message);
         }
-        
-        await execAsync(execCmd, { env });
-        console.log(`[saveToContainer] SSM fallback sync successful for ${containerPath}`);
-        return { proxied: true, method: 'ssm' };
-      } catch (ssmErr) {
-        console.warn("[saveToContainer] SSM fallback failed:", ssmErr.message);
       }
     }
     
@@ -245,6 +257,67 @@ export const executeInContainer = async (session, payload) => {
       );
 
       if (endpoint === "/execute") {
+        console.warn("[executeInContainer] HTTP execute failed, trying SSM fallback...");
+
+        if (session.taskArn) {
+          const { cluster, task } = getTaskDetails(session);
+          if (cluster && task) {
+            try {
+              const b64 = Buffer.from(payload.content || "").toString('base64');
+              const region = process.env.AWS_REGION || 'ap-south-1';
+              let runner = "python3";
+              let ext = "py";
+              
+              const lang = (payload.language || "").toLowerCase();
+              if (lang === "javascript" || lang === "node" || lang === "js") {
+                runner = "node"; ext = "js";
+              } else if (lang === "bash" || lang === "shell" || lang === "sh") {
+                runner = "bash"; ext = "sh";
+              } else if (lang === "java") {
+                runner = "python3"; ext = "py";
+              }
+
+              let execCmd = `call aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
+
+              const localPipAwsPath = 'C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts\\\\aws.exe';
+              const fs = await import('fs');
+              if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
+                 execCmd = `call "${localPipAwsPath}" ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
+              }
+
+              const env = { ...process.env };
+              if (os.platform() === 'win32') {
+                env.PATH = `C:\\\\Program Files\\\\Amazon\\\\SessionManagerPlugin\\\\bin;C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts;\${env.PATH || ''}`;
+              }
+              
+              const { stdout } = await execAsync(execCmd, { env });
+              
+              let cleanOut = stdout;
+              if (cleanOut.includes("Starting session with SessionId:")) {
+                const parts = cleanOut.split(/Starting session with SessionId: [\\w-]+\\s*/);
+                if (parts.length > 1) {
+                  cleanOut = parts[1];
+                }
+              }
+              if (cleanOut.includes("Exiting session with sessionId:")) {
+                const exitParts = cleanOut.split(/\\s*Exiting session with sessionId:/);
+                cleanOut = exitParts[0];
+              }
+
+              return {
+                success: true,
+                output: cleanOut.trim(),
+                error: null,
+                syntaxError: "",
+                runtimeError: ""
+              };
+            } catch (ssmErr) {
+              console.warn("[executeInContainer] SSM fallback failed:", ssmErr.message);
+              throw new Error(`SSM Fallback execution failed: ${ssmErr.message}`);
+            }
+          }
+        }
+
         throw err;
       }
     }
@@ -299,4 +372,101 @@ if os.path.exists(__file__):
   } catch (err) {
     console.warn("[deleteFromContainer] Failed to delete from container:", err.message);
   }
+};
+
+export const getContainerFiles = async (session) => {
+  const baseUrl = await getSessionApiBaseUrl(session);
+  if (!baseUrl) return [];
+
+  const payload = {
+    path: "/workspace/.list_script.py",
+    language: "python",
+    content: `import os
+import json
+import mimetypes
+
+ignored = ['__pycache__', 'node_modules', '.git', '.delete_script.py', '.list_script.py', '.hadoop_wrapper.py']
+
+files_list = []
+for root, dirs, files in os.walk('/workspace'):
+    dirs[:] = [d for d in dirs if d not in ignored]
+    for f in files:
+        if f in ignored or f.endswith('.class'): continue
+        path = os.path.join(root, f)
+        rel_path = path.replace('/workspace/', '')
+        if path.startswith('/workspace/'):
+             rel_path = path
+        else:
+             rel_path = '/workspace/' + path
+        mime, _ = mimetypes.guess_type(path)
+        lang = 'plaintext'
+        if f.endswith('.py'): lang = 'python'
+        elif f.endswith('.js'): lang = 'javascript'
+        elif f.endswith('.java'): lang = 'java'
+        elif f.endswith('.sh'): lang = 'shell'
+        elif f.endswith('.json'): lang = 'json'
+        elif f.endswith('.html'): lang = 'html'
+        elif f.endswith('.css'): lang = 'css'
+        
+        files_list.append({
+            'name': f,
+            'path': rel_path,
+            'language': lang,
+            'type': 'file'
+        })
+
+print("###" + json.dumps(files_list) + "###")`
+  };
+
+  try {
+    const result = await executeInContainer(session, payload);
+    if (result && result.success && result.output) {
+      const match = result.output.match(/###(.*?)###/s);
+      if (match) {
+        return JSON.parse(match[1]);
+      }
+    }
+  } catch (err) {
+    console.warn("[getContainerFiles] HTTP execute failed, trying SSM fallback:", err.message);
+  }
+
+  // SSM Fallback (Always execute if HTTP fails)
+  if (session.taskArn) {
+    const { cluster, task } = getTaskDetails(session);
+    if (cluster && task) {
+      try {
+        const region = process.env.AWS_REGION || 'ap-south-1';
+        let execCmd = `call aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'find /workspace /tmp/workspace/workspace -maxdepth 5 -type f 2>/dev/null'" --region ${region} < NUL`;
+
+        const localPipAwsPath = 'C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts\\\\aws.exe';
+        const fs = await import('fs');
+        if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
+          execCmd = `call "${localPipAwsPath}" ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'find /workspace /tmp/workspace/workspace -maxdepth 5 -type f 2>/dev/null'" --region ${region} < NUL`;
+        }
+
+        const env = { ...process.env };
+        if (os.platform() === 'win32') {
+          env.PATH = `C:\\\\Program Files\\\\Amazon\\\\SessionManagerPlugin\\\\bin;C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts;\${env.PATH || ''}`;
+        }
+
+        const { stdout } = await execAsync(execCmd, { env });
+        const files = stdout.split('\\n').map(line => line.trim()).filter(line => line.startsWith('/workspace/') || line.startsWith('/tmp/workspace/workspace/'));
+        
+        return files.map(f => {
+            const cleanPath = f.replace('/tmp/workspace/workspace', '/workspace');
+            const name = cleanPath.split('/').pop();
+            return {
+                name,
+                path: cleanPath,
+                type: 'file',
+                language: name.endsWith('.py') ? 'python' : 'plaintext'
+            };
+        });
+      } catch (ssmErr) {
+        console.warn("[getContainerFiles] SSM fallback failed:", ssmErr.message);
+      }
+    }
+  }
+
+  return [];
 };
