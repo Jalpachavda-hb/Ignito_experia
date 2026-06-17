@@ -2,7 +2,6 @@ import { ok } from "../lib/apigw.js";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors.js";
 import { canonicalLabType } from "../lib/labTypeMapper.js";
 import { getLabById } from "../config/labs.js";
-import { ENV } from "../config/env.js";
 import {
   createSessionRecord,
   findActiveSessionForUser,
@@ -24,11 +23,15 @@ export const sessionsStartHandler = async ({ body, auth }) => {
   const labId = body?.labId;
   if (!auth?.userId) throw unauthorized("Authentication required");
   const userId = auth.userId;
-  const durationMinutes = Number(body?.duration || ENV.defaultSessionMinutes);
 
   if (!labId) throw badRequest("labId is required");
   const lab = await getLabById(labId);
   if (!lab) throw notFound("Lab not found");
+
+  const durationMinutes = Number(lab.durationMinutes);
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    throw badRequest("Lab session duration is not configured");
+  }
 
   const existing = await findActiveSessionForUser(userId);
   if (existing) {

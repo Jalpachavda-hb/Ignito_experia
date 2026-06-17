@@ -22,11 +22,15 @@ const containerFetch = async (url, options = {}) => {
 
 const getContainerFilePath = (filePath) => {
   if (!filePath) return "";
-  if (filePath.startsWith("/workspace/") || filePath.startsWith("/tmp/workspace/workspace/")) {
+  if (filePath.startsWith("/tmp/workspace/workspace/")) {
     return filePath;
   }
+  if (filePath.startsWith("/workspace/")) {
+    const cleanPath = filePath.replace(/^\/workspace\//, "");
+    return `/tmp/workspace/workspace/${cleanPath}`;
+  }
   const cleanPath = filePath.replace(/^\/+/, "");
-  return `/workspace/${cleanPath}`;
+  return `/tmp/workspace/workspace/${cleanPath}`;
 };
 
 const getTaskDetails = (session) => {
@@ -64,27 +68,20 @@ export const saveToContainer = async (session, { path, content }) => {
     }
   } catch (err) {
     console.warn("[saveToContainer] HTTP unreachable, attempting AWS SSM fallback:", err.message);
-    
+
     if (session.taskArn) {
       const { cluster, task } = getTaskDetails(session);
       if (cluster && task) {
         try {
           const b64 = Buffer.from(content).toString('base64');
           const region = process.env.AWS_REGION || 'ap-south-1';
-          let execCmd = `call aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
-          
-          // Use local Session Manager plugin if needed on Windows
-          const localPipAwsPath = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\aws.exe';
-          const fs = await import('fs');
-          if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
-             execCmd = `call "${localPipAwsPath}" ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
-          }
+          let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
 
           const env = { ...process.env };
           if (os.platform() === 'win32') {
-            env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;${env.PATH || ''}`;
+            env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
           }
-          
+
           await execAsync(execCmd, { env });
           console.log(`[saveToContainer] SSM fallback sync successful for ${containerPath}`);
           return { proxied: true, method: 'ssm' };
@@ -93,7 +90,7 @@ export const saveToContainer = async (session, { path, content }) => {
         }
       }
     }
-    
+
     return { proxied: false };
   } finally {
     clearTimeout(timer);
@@ -267,7 +264,7 @@ export const executeInContainer = async (session, payload) => {
               const region = process.env.AWS_REGION || 'ap-south-1';
               let runner = "python3";
               let ext = "py";
-              
+
               const lang = (payload.language || "").toLowerCase();
               if (lang === "javascript" || lang === "node" || lang === "js") {
                 runner = "node"; ext = "js";
@@ -277,32 +274,19 @@ export const executeInContainer = async (session, payload) => {
                 runner = "python3"; ext = "py";
               }
 
-              let execCmd = `call aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
-
-              const localPipAwsPath = 'C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts\\\\aws.exe';
-              const fs = await import('fs');
-              if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
-                 execCmd = `call "${localPipAwsPath}" ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo \\"${b64}\\" | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
-              }
+              let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
 
               const env = { ...process.env };
               if (os.platform() === 'win32') {
-                env.PATH = `C:\\\\Program Files\\\\Amazon\\\\SessionManagerPlugin\\\\bin;C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts;\${env.PATH || ''}`;
+                env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
               }
-              
+
               const { stdout } = await execAsync(execCmd, { env });
-              
+
               let cleanOut = stdout;
-              if (cleanOut.includes("Starting session with SessionId:")) {
-                const parts = cleanOut.split(/Starting session with SessionId: [\\w-]+\\s*/);
-                if (parts.length > 1) {
-                  cleanOut = parts[1];
-                }
-              }
-              if (cleanOut.includes("Exiting session with sessionId:")) {
-                const exitParts = cleanOut.split(/\\s*Exiting session with sessionId:/);
-                cleanOut = exitParts[0];
-              }
+              cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
+              cleanOut = cleanOut.replace(/Starting session with SessionId:\s*[\w-]+\s*/gi, '');
+              cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, '');
 
               return {
                 success: true,
@@ -384,20 +368,49 @@ export const getContainerFiles = async (session) => {
     content: `import os
 import json
 import mimetypes
+import shutil
 
-ignored = ['__pycache__', 'node_modules', '.git', '.delete_script.py', '.list_script.py', '.hadoop_wrapper.py']
+ignored = ['__pycache__', 'node_modules', '.git', '.delete_script.py', '.list_script.py', '.hadoop_wrapper.py', '.read_script.py', 'semple.csv', 'sample.csv']
+
+workspace_dir = '/tmp/workspace/workspace'
+if not os.path.exists(workspace_dir):
+    try:
+        os.makedirs(workspace_dir, exist_ok=True)
+    except:
+        workspace_dir = '/workspace'
+
+if workspace_dir == '/tmp/workspace/workspace' and os.path.exists('/workspace'):
+    is_empty = True
+    try:
+        for f in os.listdir(workspace_dir):
+            if f not in ignored:
+                is_empty = False
+                break
+    except:
+        pass
+    if is_empty:
+        try:
+            for item in os.listdir('/workspace'):
+                if item not in ignored:
+                    s = os.path.join('/workspace', item)
+                    d = os.path.join(workspace_dir, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(s, d)
+        except:
+            pass
 
 files_list = []
-for root, dirs, files in os.walk('/workspace'):
+for root, dirs, files in os.walk(workspace_dir):
     dirs[:] = [d for d in dirs if d not in ignored]
     for f in files:
         if f in ignored or f.endswith('.class'): continue
         path = os.path.join(root, f)
-        rel_path = path.replace('/workspace/', '')
-        if path.startswith('/workspace/'):
-             rel_path = path
+        if workspace_dir == '/tmp/workspace/workspace':
+             rel_path = path.replace('/tmp/workspace/workspace', '/workspace')
         else:
-             rel_path = '/workspace/' + path
+             rel_path = path
         mime, _ = mimetypes.guess_type(path)
         lang = 'plaintext'
         if f.endswith('.py'): lang = 'python'
@@ -436,31 +449,48 @@ print("###" + json.dumps(files_list) + "###")`
     if (cluster && task) {
       try {
         const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `call aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'find /workspace /tmp/workspace/workspace -maxdepth 5 -type f 2>/dev/null'" --region ${region} < NUL`;
-
-        const localPipAwsPath = 'C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts\\\\aws.exe';
-        const fs = await import('fs');
-        if (os.platform() === 'win32' && fs.existsSync(localPipAwsPath)) {
-          execCmd = `call "${localPipAwsPath}" ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'find /workspace /tmp/workspace/workspace -maxdepth 5 -type f 2>/dev/null'" --region ${region} < NUL`;
-        }
+        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && find /tmp/workspace/workspace -maxdepth 5 -type f 2>/dev/null'" --region ${region} < NUL`;
 
         const env = { ...process.env };
         if (os.platform() === 'win32') {
-          env.PATH = `C:\\\\Program Files\\\\Amazon\\\\SessionManagerPlugin\\\\bin;C:\\\\Users\\\\Hackberry Softech\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts;\${env.PATH || ''}`;
+          env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
         }
 
         const { stdout } = await execAsync(execCmd, { env });
-        const files = stdout.split('\\n').map(line => line.trim()).filter(line => line.startsWith('/workspace/') || line.startsWith('/tmp/workspace/workspace/'));
-        
+        const files = stdout.split('\n')
+          .map(line => line.trim())
+          .filter(line => {
+            const clean = line.replace('/tmp/workspace/workspace', '/workspace');
+            const name = clean.split('/').pop();
+            return (line.startsWith('/workspace/') || line.startsWith('/tmp/workspace/workspace/')) &&
+                   name !== 'semple.csv' && name !== 'sample.csv';
+          });
+
+        const detectLanguage = (fileName) => {
+          const ext = fileName.split('.').pop()?.toLowerCase();
+          if (ext === 'py') return 'python';
+          if (ext === 'java') return 'java';
+          if (ext === 'html') return 'html';
+          if (ext === 'css') return 'css';
+          if (ext === 'js' || ext === 'jsx') return 'javascript';
+          if (ext === 'json') return 'json';
+          if (ext === 'md') return 'markdown';
+          if (ext === 'gradle') return 'groovy';
+          if (ext === 'properties') return 'properties';
+          if (ext === 'sh') return 'shell';
+          if (ext === 'xml') return 'xml';
+          return 'plaintext';
+        };
+
         return files.map(f => {
-            const cleanPath = f.replace('/tmp/workspace/workspace', '/workspace');
-            const name = cleanPath.split('/').pop();
-            return {
-                name,
-                path: cleanPath,
-                type: 'file',
-                language: name.endsWith('.py') ? 'python' : 'plaintext'
-            };
+          const cleanPath = f.replace('/tmp/workspace/workspace', '/workspace');
+          const name = cleanPath.split('/').pop();
+          return {
+            name,
+            path: cleanPath,
+            type: 'file',
+            language: detectLanguage(name)
+          };
         });
       } catch (ssmErr) {
         console.warn("[getContainerFiles] SSM fallback failed:", ssmErr.message);
@@ -469,4 +499,69 @@ print("###" + json.dumps(files_list) + "###")`
   }
 
   return [];
+};
+
+export const readFromContainer = async (session, filePath) => {
+  const containerPath = getContainerFilePath(filePath);
+
+  const payload = {
+    path: "/workspace/.read_script.py",
+    language: "python",
+    content: `import os
+import base64
+
+target = "${containerPath}"
+if os.path.exists(target) and os.path.isfile(target):
+    with open(target, 'rb') as f:
+        print("###" + base64.b64encode(f.read()).decode('utf-8') + "###")
+else:
+    print("###NOT_FOUND###")`
+  };
+
+  try {
+    const result = await executeInContainer(session, payload);
+    if (result && result.success && result.output) {
+      const match = result.output.match(/###(.*?)###/s);
+      if (match) {
+        const data = match[1];
+        if (data === "NOT_FOUND") return null;
+        return Buffer.from(data, 'base64').toString('utf-8');
+      }
+    }
+  } catch (err) {
+    console.warn("[readFromContainer] HTTP execute failed, trying SSM fallback:", err.message);
+  }
+
+  // SSM Fallback
+  if (session.taskArn) {
+    const { cluster, task } = getTaskDetails(session);
+    if (cluster && task) {
+      try {
+        const region = process.env.AWS_REGION || 'ap-south-1';
+        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'" --region ${region} < NUL`;
+
+        const env = { ...process.env };
+        if (os.platform() === 'win32') {
+          env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
+        }
+
+        const { stdout } = await execAsync(execCmd, { env });
+        let cleanOut = stdout;
+        cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
+        cleanOut = cleanOut.replace(/Starting session with SessionId:\s*[\w-]+\s*/gi, '');
+        cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, '');
+
+        const lines = cleanOut.split('\n').map(l => l.trim()).filter(Boolean);
+        const lastLine = lines[lines.length - 1];
+        if (lastLine === "NOT_FOUND") return null;
+
+        const b64Data = lines.join('');
+        return Buffer.from(b64Data, 'base64').toString('utf-8');
+      } catch (ssmErr) {
+        console.warn("[readFromContainer] SSM fallback failed:", ssmErr.message);
+      }
+    }
+  }
+
+  return null;
 };

@@ -6,6 +6,7 @@ import {
   ReceiptText,
   Activity,
   Award,
+  Trophy,
   User,
   BookOpen
 } from 'lucide-react'
@@ -68,9 +69,9 @@ export function getStudentSidebarData(): SidebarData {
             icon: Activity,
           },
           {
-            title: 'Certificates',
-            url: '/student/certificates',
-            icon: Award,
+            title: 'Achievements',
+            url: '/student/badges-achievements',
+            icon: Trophy,
           },
           {
             title: 'Profile',

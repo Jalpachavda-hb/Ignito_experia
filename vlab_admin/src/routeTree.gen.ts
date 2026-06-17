@@ -54,7 +54,7 @@ import { Route as AuthenticatedStudentMyLabsRouteRouteImport } from './routes/_a
 import { Route as AuthenticatedStudentLabCatalogueRouteRouteImport } from './routes/_authenticated/student/lab-catalogue/route'
 import { Route as AuthenticatedStudentDashboardRouteRouteImport } from './routes/_authenticated/student/dashboard/route'
 import { Route as AuthenticatedStudentCreditWalletRouteRouteImport } from './routes/_authenticated/student/credit-wallet/route'
-import { Route as AuthenticatedStudentCertificatesRouteRouteImport } from './routes/_authenticated/student/certificates/route'
+import { Route as AuthenticatedStudentBadgesAchievementsRouteRouteImport } from './routes/_authenticated/student/badges-achievements/route'
 import { Route as AuthenticatedStudentAcademicProgressRouteRouteImport } from './routes/_authenticated/student/academic-progress/route'
 import { Route as AuthenticatedAdminComputeRdpRouteImport } from './routes/_authenticated/admin.compute.rdp'
 
@@ -106,9 +106,8 @@ const AuthenticatedStudentDashboardIndexLazyRouteImport = createFileRoute(
 const AuthenticatedStudentCreditWalletIndexLazyRouteImport = createFileRoute(
   '/_authenticated/student/credit-wallet/',
 )()
-const AuthenticatedStudentCertificatesIndexLazyRouteImport = createFileRoute(
-  '/_authenticated/student/certificates/',
-)()
+const AuthenticatedStudentBadgesAchievementsIndexLazyRouteImport =
+  createFileRoute('/_authenticated/student/badges-achievements/')()
 const AuthenticatedStudentAcademicProgressIndexLazyRouteImport =
   createFileRoute('/_authenticated/student/academic-progress/')()
 
@@ -437,10 +436,10 @@ const AuthenticatedStudentCreditWalletRouteRoute =
     path: '/student/credit-wallet',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedStudentCertificatesRouteRoute =
-  AuthenticatedStudentCertificatesRouteRouteImport.update({
-    id: '/student/certificates',
-    path: '/student/certificates',
+const AuthenticatedStudentBadgesAchievementsRouteRoute =
+  AuthenticatedStudentBadgesAchievementsRouteRouteImport.update({
+    id: '/student/badges-achievements',
+    path: '/student/badges-achievements',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedStudentAcademicProgressRouteRoute =
@@ -509,13 +508,13 @@ const AuthenticatedStudentCreditWalletIndexLazyRoute =
       (d) => d.Route,
     ),
   )
-const AuthenticatedStudentCertificatesIndexLazyRoute =
-  AuthenticatedStudentCertificatesIndexLazyRouteImport.update({
+const AuthenticatedStudentBadgesAchievementsIndexLazyRoute =
+  AuthenticatedStudentBadgesAchievementsIndexLazyRouteImport.update({
     id: '/',
     path: '/',
-    getParentRoute: () => AuthenticatedStudentCertificatesRouteRoute,
+    getParentRoute: () => AuthenticatedStudentBadgesAchievementsRouteRoute,
   } as any).lazy(() =>
-    import('./routes/_authenticated/student/certificates/index.lazy').then(
+    import('./routes/_authenticated/student/badges-achievements/index.lazy').then(
       (d) => d.Route,
     ),
   )
@@ -560,7 +559,7 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/student/academic-progress': typeof AuthenticatedStudentAcademicProgressRouteRouteWithChildren
-  '/student/certificates': typeof AuthenticatedStudentCertificatesRouteRouteWithChildren
+  '/student/badges-achievements': typeof AuthenticatedStudentBadgesAchievementsRouteRouteWithChildren
   '/student/credit-wallet': typeof AuthenticatedStudentCreditWalletRouteRouteWithChildren
   '/student/dashboard': typeof AuthenticatedStudentDashboardRouteRouteWithChildren
   '/student/lab-catalogue': typeof AuthenticatedStudentLabCatalogueRouteRouteWithChildren
@@ -593,7 +592,7 @@ export interface FileRoutesByFullPath {
   '/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
   '/admin/compute/rdp': typeof AuthenticatedAdminComputeRdpRoute
   '/student/academic-progress/': typeof AuthenticatedStudentAcademicProgressIndexLazyRoute
-  '/student/certificates/': typeof AuthenticatedStudentCertificatesIndexLazyRoute
+  '/student/badges-achievements/': typeof AuthenticatedStudentBadgesAchievementsIndexLazyRoute
   '/student/credit-wallet/': typeof AuthenticatedStudentCreditWalletIndexLazyRoute
   '/student/dashboard/': typeof AuthenticatedStudentDashboardIndexLazyRoute
   '/student/lab-catalogue/': typeof AuthenticatedStudentLabCatalogueIndexLazyRoute
@@ -639,7 +638,7 @@ export interface FileRoutesByTo {
   '/transactions': typeof AuthenticatedTransactionsIndexLazyRoute
   '/admin/compute/rdp': typeof AuthenticatedAdminComputeRdpRoute
   '/student/academic-progress': typeof AuthenticatedStudentAcademicProgressIndexLazyRoute
-  '/student/certificates': typeof AuthenticatedStudentCertificatesIndexLazyRoute
+  '/student/badges-achievements': typeof AuthenticatedStudentBadgesAchievementsIndexLazyRoute
   '/student/credit-wallet': typeof AuthenticatedStudentCreditWalletIndexLazyRoute
   '/student/dashboard': typeof AuthenticatedStudentDashboardIndexLazyRoute
   '/student/lab-catalogue': typeof AuthenticatedStudentLabCatalogueIndexLazyRoute
@@ -673,7 +672,7 @@ export interface FileRoutesById {
   '/(errors)/503': typeof errors503Route
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/student/academic-progress': typeof AuthenticatedStudentAcademicProgressRouteRouteWithChildren
-  '/_authenticated/student/certificates': typeof AuthenticatedStudentCertificatesRouteRouteWithChildren
+  '/_authenticated/student/badges-achievements': typeof AuthenticatedStudentBadgesAchievementsRouteRouteWithChildren
   '/_authenticated/student/credit-wallet': typeof AuthenticatedStudentCreditWalletRouteRouteWithChildren
   '/_authenticated/student/dashboard': typeof AuthenticatedStudentDashboardRouteRouteWithChildren
   '/_authenticated/student/lab-catalogue': typeof AuthenticatedStudentLabCatalogueRouteRouteWithChildren
@@ -706,7 +705,7 @@ export interface FileRoutesById {
   '/_authenticated/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
   '/_authenticated/admin/compute/rdp': typeof AuthenticatedAdminComputeRdpRoute
   '/_authenticated/student/academic-progress/': typeof AuthenticatedStudentAcademicProgressIndexLazyRoute
-  '/_authenticated/student/certificates/': typeof AuthenticatedStudentCertificatesIndexLazyRoute
+  '/_authenticated/student/badges-achievements/': typeof AuthenticatedStudentBadgesAchievementsIndexLazyRoute
   '/_authenticated/student/credit-wallet/': typeof AuthenticatedStudentCreditWalletIndexLazyRoute
   '/_authenticated/student/dashboard/': typeof AuthenticatedStudentDashboardIndexLazyRoute
   '/_authenticated/student/lab-catalogue/': typeof AuthenticatedStudentLabCatalogueIndexLazyRoute
@@ -740,7 +739,7 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/student/academic-progress'
-    | '/student/certificates'
+    | '/student/badges-achievements'
     | '/student/credit-wallet'
     | '/student/dashboard'
     | '/student/lab-catalogue'
@@ -773,7 +772,7 @@ export interface FileRouteTypes {
     | '/transactions/'
     | '/admin/compute/rdp'
     | '/student/academic-progress/'
-    | '/student/certificates/'
+    | '/student/badges-achievements/'
     | '/student/credit-wallet/'
     | '/student/dashboard/'
     | '/student/lab-catalogue/'
@@ -819,7 +818,7 @@ export interface FileRouteTypes {
     | '/transactions'
     | '/admin/compute/rdp'
     | '/student/academic-progress'
-    | '/student/certificates'
+    | '/student/badges-achievements'
     | '/student/credit-wallet'
     | '/student/dashboard'
     | '/student/lab-catalogue'
@@ -852,7 +851,7 @@ export interface FileRouteTypes {
     | '/(errors)/503'
     | '/_authenticated/'
     | '/_authenticated/student/academic-progress'
-    | '/_authenticated/student/certificates'
+    | '/_authenticated/student/badges-achievements'
     | '/_authenticated/student/credit-wallet'
     | '/_authenticated/student/dashboard'
     | '/_authenticated/student/lab-catalogue'
@@ -885,7 +884,7 @@ export interface FileRouteTypes {
     | '/_authenticated/transactions/'
     | '/_authenticated/admin/compute/rdp'
     | '/_authenticated/student/academic-progress/'
-    | '/_authenticated/student/certificates/'
+    | '/_authenticated/student/badges-achievements/'
     | '/_authenticated/student/credit-wallet/'
     | '/_authenticated/student/dashboard/'
     | '/_authenticated/student/lab-catalogue/'
@@ -1281,11 +1280,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedStudentCreditWalletRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/student/certificates': {
-      id: '/_authenticated/student/certificates'
-      path: '/student/certificates'
-      fullPath: '/student/certificates'
-      preLoaderRoute: typeof AuthenticatedStudentCertificatesRouteRouteImport
+    '/_authenticated/student/badges-achievements': {
+      id: '/_authenticated/student/badges-achievements'
+      path: '/student/badges-achievements'
+      fullPath: '/student/badges-achievements'
+      preLoaderRoute: typeof AuthenticatedStudentBadgesAchievementsRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/student/academic-progress': {
@@ -1337,12 +1336,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedStudentCreditWalletIndexLazyRouteImport
       parentRoute: typeof AuthenticatedStudentCreditWalletRouteRoute
     }
-    '/_authenticated/student/certificates/': {
-      id: '/_authenticated/student/certificates/'
+    '/_authenticated/student/badges-achievements/': {
+      id: '/_authenticated/student/badges-achievements/'
       path: '/'
-      fullPath: '/student/certificates/'
-      preLoaderRoute: typeof AuthenticatedStudentCertificatesIndexLazyRouteImport
-      parentRoute: typeof AuthenticatedStudentCertificatesRouteRoute
+      fullPath: '/student/badges-achievements/'
+      preLoaderRoute: typeof AuthenticatedStudentBadgesAchievementsIndexLazyRouteImport
+      parentRoute: typeof AuthenticatedStudentBadgesAchievementsRouteRoute
     }
     '/_authenticated/student/academic-progress/': {
       id: '/_authenticated/student/academic-progress/'
@@ -1547,19 +1546,19 @@ const AuthenticatedStudentAcademicProgressRouteRouteWithChildren =
     AuthenticatedStudentAcademicProgressRouteRouteChildren,
   )
 
-interface AuthenticatedStudentCertificatesRouteRouteChildren {
-  AuthenticatedStudentCertificatesIndexLazyRoute: typeof AuthenticatedStudentCertificatesIndexLazyRoute
+interface AuthenticatedStudentBadgesAchievementsRouteRouteChildren {
+  AuthenticatedStudentBadgesAchievementsIndexLazyRoute: typeof AuthenticatedStudentBadgesAchievementsIndexLazyRoute
 }
 
-const AuthenticatedStudentCertificatesRouteRouteChildren: AuthenticatedStudentCertificatesRouteRouteChildren =
+const AuthenticatedStudentBadgesAchievementsRouteRouteChildren: AuthenticatedStudentBadgesAchievementsRouteRouteChildren =
   {
-    AuthenticatedStudentCertificatesIndexLazyRoute:
-      AuthenticatedStudentCertificatesIndexLazyRoute,
+    AuthenticatedStudentBadgesAchievementsIndexLazyRoute:
+      AuthenticatedStudentBadgesAchievementsIndexLazyRoute,
   }
 
-const AuthenticatedStudentCertificatesRouteRouteWithChildren =
-  AuthenticatedStudentCertificatesRouteRoute._addFileChildren(
-    AuthenticatedStudentCertificatesRouteRouteChildren,
+const AuthenticatedStudentBadgesAchievementsRouteRouteWithChildren =
+  AuthenticatedStudentBadgesAchievementsRouteRoute._addFileChildren(
+    AuthenticatedStudentBadgesAchievementsRouteRouteChildren,
   )
 
 interface AuthenticatedStudentCreditWalletRouteRouteChildren {
@@ -1666,7 +1665,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedTransactionsRouteRoute: typeof AuthenticatedTransactionsRouteRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedStudentAcademicProgressRouteRoute: typeof AuthenticatedStudentAcademicProgressRouteRouteWithChildren
-  AuthenticatedStudentCertificatesRouteRoute: typeof AuthenticatedStudentCertificatesRouteRouteWithChildren
+  AuthenticatedStudentBadgesAchievementsRouteRoute: typeof AuthenticatedStudentBadgesAchievementsRouteRouteWithChildren
   AuthenticatedStudentCreditWalletRouteRoute: typeof AuthenticatedStudentCreditWalletRouteRouteWithChildren
   AuthenticatedStudentDashboardRouteRoute: typeof AuthenticatedStudentDashboardRouteRouteWithChildren
   AuthenticatedStudentLabCatalogueRouteRoute: typeof AuthenticatedStudentLabCatalogueRouteRouteWithChildren
@@ -1700,8 +1699,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedStudentAcademicProgressRouteRoute:
     AuthenticatedStudentAcademicProgressRouteRouteWithChildren,
-  AuthenticatedStudentCertificatesRouteRoute:
-    AuthenticatedStudentCertificatesRouteRouteWithChildren,
+  AuthenticatedStudentBadgesAchievementsRouteRoute:
+    AuthenticatedStudentBadgesAchievementsRouteRouteWithChildren,
   AuthenticatedStudentCreditWalletRouteRoute:
     AuthenticatedStudentCreditWalletRouteRouteWithChildren,
   AuthenticatedStudentDashboardRouteRoute:

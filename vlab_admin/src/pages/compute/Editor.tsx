@@ -4,8 +4,8 @@ import { useLocation } from '@tanstack/react-router';
 import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile } from '../../services/ideService';
 import {
   File, Code2, Plus, Upload, Play, Save, AlignLeft,
-  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen
+  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, Database, Terminal as TerminalIcon,
+  Folder, FolderOpen, RefreshCw
 } from 'lucide-react';
 import Terminal from './Terminal';
 import { useLabStore } from '@/stores/labStore';
@@ -57,11 +57,11 @@ const getLabExtensionRules = (labName: string, labId: string) => {
     };
   }
   if (
-    name.includes('big data') || 
-    id.includes('big-data') || 
-    name.includes('analytics') || 
-    id.includes('analytics') || 
-    name.includes('hadoop') || 
+    name.includes('big data') ||
+    id.includes('big-data') ||
+    name.includes('analytics') ||
+    id.includes('analytics') ||
+    name.includes('hadoop') ||
     id.includes('hadoop')
   ) {
     return {
@@ -107,14 +107,14 @@ const buildFileTree = (filesList: any[]) => {
   filesList.forEach((file, index) => {
     const cleanPath = file.path.replace(/^\/+/, '');
     const parts = cleanPath.split('/');
-    
+
     let current = root;
-    parts.forEach((part, partIdx) => {
+    parts.forEach((part: string, partIdx: number) => {
       if (partIdx === 0 && part === 'workspace') return;
-      
+
       const isLast = partIdx === parts.length - 1;
       let child = current.children?.find(c => c.name === part);
-      
+
       if (!child) {
         child = {
           name: part,
@@ -146,7 +146,7 @@ const buildFileTree = (filesList: any[]) => {
   return root.children || [];
 };
 
-const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: any) => {
+const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const location = useLocation();
   const editorRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -230,9 +230,8 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
             }
             setActiveFileIndex(i);
           }}
-          className={`group flex items-center gap-2 py-1 cursor-pointer border-l-2 transition-all ${
-            isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
-          }`}
+          className={`group flex items-center gap-2 py-1 cursor-pointer border-l-2 transition-all ${isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
+            }`}
           style={{ paddingLeft: `${depth * 12 + 30}px`, paddingRight: '16px' }}
         >
           {getFileIcon(file.name)}
@@ -303,7 +302,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [cliInput, setCliInput] = useState('');
+
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(250);
   const terminalRef = useRef<any>(null);
@@ -328,6 +327,67 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     document.addEventListener('mouseup', onMouseUp);
   };
 
+  const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
+
+  const refreshFiles = async (showLoading = false) => {
+    if (!sessionId) return;
+    if (showLoading) setIsLoading(true);
+    else setIsRefreshingFiles(true);
+    try {
+      const response = await fetchFiles(sessionId);
+      if (response.success) {
+        // Track the current active file's path to restore index properly after reload
+        const activePath = activeFileIndex >= 0 && files[activeFileIndex] ? files[activeFileIndex].path : null;
+
+        // Merge existing loaded file contents into the refreshed file list to avoid clearing editor contents
+        const mergedFiles = response.files.map((newFile: any) => {
+          const existing = files.find(f => f.path === newFile.path);
+          if (existing && existing.content !== undefined) {
+            return { ...newFile, content: existing.content };
+          }
+          return newFile;
+        });
+
+        setFiles(mergedFiles);
+
+        setOpenFilePaths(prev => {
+          if (prev.length === 0 && response.files.length > 0) {
+            return response.files.map((f: any) => f.path).slice(0, 8);
+          }
+          const validPaths = response.files.map((f: any) => f.path);
+          return prev.filter(p => validPaths.includes(p));
+        });
+
+        // Clean up loaded paths for deleted files
+        setLoadedPaths(prev => {
+          const next = new Set(prev);
+          const newPaths = response.files.map((f: any) => f.path);
+          prev.forEach(p => {
+            if (!newPaths.includes(p)) {
+              next.delete(p);
+            }
+          });
+          return next;
+        });
+
+        if (activePath) {
+          const newIdx = mergedFiles.findIndex((f: any) => f.path === activePath);
+          setActiveFileIndex(newIdx);
+        }
+      }
+    } catch (err) {
+      console.error('Refresh files error:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshingFiles(false);
+    }
+  };
+
+  const refreshFilesRef = useRef(refreshFiles);
+  useEffect(() => {
+    refreshFilesRef.current = refreshFiles;
+  });
+
   useEffect(() => {
     // @ts-ignore
     const searchParams = new URLSearchParams(location.search);
@@ -341,25 +401,28 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   }, [propSession, location.search]);
 
   useEffect(() => {
-    let isMounted = true;
-    const loadFiles = async () => {
-      if (!sessionId) return;
-      setIsLoading(true);
-      try {
-        const response = await fetchFiles(sessionId);
-        if (isMounted && response.success) {
-          setFiles(response.files);
-          setOpenFilePaths(response.files.map((f: any) => f.path));
-        }
-      } catch (err) {
-        console.error('Load files error:', err);
-      } finally {
-        if (isMounted) setIsLoading(false);
+    refreshFiles(true);
+  }, [sessionId, labId]);
+
+  // Auto-refresh file explorer every 3 minutes
+  useEffect(() => {
+    if (!sessionId) return;
+    const interval = setInterval(() => {
+      refreshFilesRef.current(false);
+    }, 180000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
+
+  // Refresh file explorer when window/tab gains focus (e.g. returning from terminal/external window)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (sessionId) {
+        refreshFilesRef.current(false);
       }
     };
-    loadFiles();
-    return () => { isMounted = false; };
-  }, [sessionId, labId]);
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [sessionId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -383,11 +446,20 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     loadActiveFile();
   }, [activeFileIndex, sessionId, loadedPaths]);
 
+  const latestSaveRef = useRef<(() => void) | null>(null);
   useEffect(() => {
-    if (activeFileIndex === -1 || !files[activeFileIndex]) return;
-    const timeout = setTimeout(() => handleSave(false), 1500);
-    return () => clearTimeout(timeout);
-  }, [files, activeFileIndex]);
+    latestSaveRef.current = () => handleSave(false);
+  });
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const interval = setInterval(() => {
+      if (latestSaveRef.current) {
+        latestSaveRef.current();
+      }
+    }, 180000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
 
   const activeFile = files[activeFileIndex];
 
@@ -402,6 +474,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     setIsSaving(true);
     try {
       await saveFile(activeFile, sessionId);
+      await refreshFiles(false);
       if (showFeedback) {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
@@ -563,10 +636,10 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               </style>
             </head>
             <body>
-              ${runSuccess 
-                ? `<div class="header-success">Execution Succeeded</div><pre>${formattedOutput || '(No output)'}</pre>` 
-                : `<div class="header-error">Execution Failed</div><pre class="error">${formattedError || formattedOutput || 'Unknown error'}</pre>`
-              }
+              ${runSuccess
+            ? `<div class="header-success">Execution Succeeded</div><pre>${formattedOutput || '(No output)'}</pre>`
+            : `<div class="header-error">Execution Failed</div><pre class="error">${formattedError || formattedOutput || 'Unknown error'}</pre>`
+          }
             </body>
           </html>
         `;
@@ -639,6 +712,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       setActiveFileIndex(files.length);
       try {
         await saveFile(newFile, sessionId);
+        await refreshFiles(false);
       } catch (err) {
         console.error('Failed to save newly added file on backend:', err);
       }
@@ -709,6 +783,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
 
         try {
           await saveFile(newFile, sessionId);
+          await refreshFiles(false);
         } catch (err) {
           console.error('Failed to save uploaded file on backend:', err);
         }
@@ -762,6 +837,14 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
           <div className="h-12 px-4 flex items-center justify-between border-b border-[#1f1f1f]">
             <span className="text-[10px] text-white/60 uppercase font-bold tracking-widest">Explorer</span>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => refreshFiles(false)}
+                disabled={isRefreshingFiles}
+                className="text-white/70 hover:text-white transition-colors"
+                title="Refresh Files"
+              >
+                <RefreshCw size={13} className={isRefreshingFiles ? 'animate-spin' : ''} />
+              </button>
               <button onClick={handleAddFile} className="text-white/70 hover:text-white transition-colors" title="Add File">
                 <Plus size={16} />
               </button>
@@ -930,70 +1013,70 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
           <div className="flex-1 flex overflow-hidden">
             {activeFileIndex !== -1 && activeFile ? (
               <div className="flex-1 flex flex-col relative border-r border-[#1f1f1f]">
-              <div className="absolute top-4 right-6 z-10 flex gap-2">
+                <div className="absolute top-4 right-6 z-10 flex gap-2">
+                  <button
+                    onClick={handleFormat}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
+                  >
+                    <AlignLeft size={12} /> Format
+                  </button>
+                  <button
+                    onClick={() => handleSave(true)}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
+                  >
+                    <Save size={12} /> {isSaving ? 'Saving...' : (saveSuccess ? 'Saved!' : 'Save')}
+                  </button>
+                </div>
+
+                <Editor
+                  height="100%"
+                  language={activeFile.language}
+                  value={activeFile.content}
+                  onChange={handleEditorChange}
+                  theme="vs-dark"
+                  onMount={(editor) => { editorRef.current = editor; }}
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 14,
+                    wordWrap: 'on',
+                    scrollBeyondLastLine: false,
+                    padding: { top: 16 }
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-[#1e1e1e]">
+                <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-4 border border-white/10">
+                  <FileText className="w-8 h-8 text-white/20" />
+                </div>
+                <h2 className="text-white/40 text-[11px] font-bold tracking-widest uppercase mb-4">
+                  Select a file to begin coding
+                </h2>
                 <button
-                  onClick={handleFormat}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
+                  onClick={handleAddFile}
+                  className="flex items-center gap-2 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 text-white/60 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-all hover:bg-white/5"
                 >
-                  <AlignLeft size={12} /> Format
-                </button>
-                <button
-                  onClick={() => handleSave(true)}
-                  disabled={isSaving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
-                >
-                  <Save size={12} /> {isSaving ? 'Saving...' : (saveSuccess ? 'Saved!' : 'Save')}
+                  <Plus size={14} /> Create New File
                 </button>
               </div>
+            )}
 
-              <Editor
-                height="100%"
-                language={activeFile.language}
-                value={activeFile.content}
-                onChange={handleEditorChange}
-                theme="vs-dark"
-                onMount={(editor) => { editorRef.current = editor; }}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  wordWrap: 'on',
-                  scrollBeyondLastLine: false,
-                  padding: { top: 16 }
-                }}
-              />
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-[#1e1e1e]">
-              <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-4 border border-white/10">
-                <FileText className="w-8 h-8 text-white/20" />
+            {/* Right Preview Panel */}
+            <div className="w-[40%] bg-white flex flex-col shrink-0">
+              <div className="h-10 bg-white flex justify-center items-center border-b border-red-500/20 relative">
+                <span className="text-[#dc2626] text-[10px] font-black uppercase tracking-widest">Preview</span>
+                <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
               </div>
-              <h2 className="text-white/40 text-[11px] font-bold tracking-widest uppercase mb-4">
-                Select a file to begin coding
-              </h2>
-              <button
-                onClick={handleAddFile}
-                className="flex items-center gap-2 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 text-white/60 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-all hover:bg-white/5"
-              >
-                <Plus size={14} /> Create New File
-              </button>
+              <div className="flex-1 w-full bg-white relative">
+                <iframe
+                  srcDoc={webPreviewCode}
+                  className="absolute inset-0 w-full h-full border-0"
+                  title="Preview"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                />
+              </div>
             </div>
-          )}
-
-          {/* Right Preview Panel */}
-          <div className="w-[40%] bg-white flex flex-col shrink-0">
-            <div className="h-10 bg-white flex justify-center items-center border-b border-red-500/20 relative">
-              <span className="text-[#dc2626] text-[10px] font-black uppercase tracking-widest">Preview</span>
-              <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
-            </div>
-            <div className="flex-1 w-full bg-white relative">
-              <iframe
-                srcDoc={webPreviewCode}
-                className="absolute inset-0 w-full h-full border-0"
-                title="Preview"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-              />
-            </div>
-          </div>
           </div>
 
           {/* Terminal Panel */}
@@ -1008,10 +1091,10 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                 style={{ height: terminalHeight }}
                 className="w-full shrink-0 flex flex-col border-t border-[#1f1f1f] bg-[#0c0c0c] relative"
               >
-                <Terminal 
+                <Terminal
                   ref={terminalRef}
-                  session={propSession || { sessionId, labId }} 
-                  hideHeader={false} 
+                  session={propSession || { sessionId, labId }}
+                  hideHeader={false}
                   onClose={() => setIsTerminalOpen(false)}
                 />
               </div>

@@ -44,21 +44,43 @@ const authMiddleware = async (req, res, next) => {
 
 /** Strip the prefix so /api/lab-sessions/:id/vscode/some/path → /some/path */
 const stripProxyPrefix = (path, req) => {
-  const sessionId = req.params?.codeServerSessionId || req.codeServerSessionId || "";
+  let sessionId = req.codeServerSessionId;
+
+  // Fallback: extract sessionId from URL
+  if (!sessionId) {
+    const match = (req.originalUrl || req.url || "").match(
+      /\/lab-sessions\/([^/]+)\/vscode/
+    );
+    sessionId = match?.[1];
+  }
+
+  if (!sessionId) {
+    return path;
+  }
+
+  const originalPath = req.originalUrl || req.url || path;
+
   const prefixes = [
     `${ENV.apiPrefix}/lab-sessions/${sessionId}/vscode`,
     `/api/lab-sessions/${sessionId}/vscode`,
     `/lab-sessions/${sessionId}/vscode`,
   ];
-  let stripped = (req.originalUrl || path).split("?")[0];
-  for (const pfx of prefixes) {
-    if (stripped.startsWith(pfx)) {
-      stripped = stripped.slice(pfx.length) || "/";
+
+  let rewrittenPath = originalPath;
+
+  for (const prefix of prefixes) {
+    if (rewrittenPath.startsWith(prefix)) {
+      rewrittenPath = rewrittenPath.substring(prefix.length) || "/";
       break;
     }
   }
-  const qs = (req.originalUrl || "").split("?")[1];
-  return (stripped.startsWith("/") ? stripped : `/${stripped}`) + (qs ? `?${qs}` : "");
+
+  console.log("Original URL:", req.originalUrl || req.url);
+  console.log("Session ID:", sessionId);
+  console.log("Rewritten URL:", rewrittenPath);
+  return rewrittenPath.startsWith("/")
+    ? rewrittenPath
+    : `/${rewrittenPath}`;
 };
 
 export const setupCodeServerProxy = (app, apiPrefix) => {
@@ -96,7 +118,7 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
   const proxyMiddleware = createProxyMiddleware({
     target: "http://placeholder",
     changeOrigin: true,
-    ws: false,
+   ws: true,
     timeout: PROXY_TIMEOUT_MS,
     proxyTimeout: PROXY_TIMEOUT_MS,
     router: (req) => req.codeServerTarget || "http://127.0.0.1:8080",
@@ -116,7 +138,8 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
           </body></html>`);
         }
       },
-      proxyReqWs(proxyReq, req, socket, options, head) {
+      // proxyReqWs(proxyReq, req, socket, options, head) 
+      proxyReqWs(){
         proxyReq.setHeader('Connection', 'Upgrade');
         proxyReq.setHeader('Upgrade', 'websocket');
       },

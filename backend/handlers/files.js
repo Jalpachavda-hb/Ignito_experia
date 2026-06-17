@@ -7,7 +7,7 @@ import {
   upsertFile,
   deleteFile,
 } from "../services/fileRepository.js";
-import { saveToContainer, deleteFromContainer, getContainerFiles } from "../services/containerClient.js";
+import { saveToContainer, deleteFromContainer, getContainerFiles, readFromContainer } from "../services/containerClient.js";
 
 const getSessionId = (event) =>
   event.headers?.["x-session-id"] ||
@@ -50,8 +50,30 @@ export const filesListHandler = async (event) => {
 };
 
 export const filesContentHandler = async (event) => {
-  const { sessionId } = await assertSessionAccess(event);
+  const { sessionId, session } = await assertSessionAccess(event);
   const filePath = event.queryStringParameters?.path;
+
+  if (session?.status === "running") {
+    try {
+      const containerContent = await readFromContainer(session, filePath);
+      if (containerContent !== null) {
+        return ok({
+          path: filePath,
+          content: containerContent,
+          language: filePath.endsWith('.py') ? 'python' :
+                    filePath.endsWith('.js') || filePath.endsWith('.jsx') ? 'javascript' :
+                    filePath.endsWith('.java') ? 'java' :
+                    filePath.endsWith('.html') ? 'html' :
+                    filePath.endsWith('.css') ? 'css' :
+                    filePath.endsWith('.json') ? 'json' :
+                    filePath.endsWith('.sh') ? 'shell' : 'plaintext',
+        });
+      }
+    } catch (err) {
+      console.warn("[filesContentHandler] Failed to read container file content:", err.message);
+    }
+  }
+
   const file = await getFile(sessionId, filePath);
   if (!file) throw notFound("File not found");
   return ok({
@@ -82,15 +104,15 @@ export const filesSaveHandler = async (event) => {
 export const filesDeleteHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
   const filePath = event.queryStringParameters?.path;
-  
+
   console.log(`[filesDeleteHandler] Deleting file: sessionId=${sessionId}, filePath=${filePath}`);
-  
+
   try {
     await deleteFile(sessionId, filePath);
   } catch (e) {
     console.warn("deleteFile error (ignoring):", e.message);
   }
-  
+
   if (session?.status === "running") {
     try {
       await deleteFromContainer(session, filePath);
@@ -98,6 +120,6 @@ export const filesDeleteHandler = async (event) => {
       console.warn("[filesDelete] container proxy skipped:", err.message);
     }
   }
-  
+
   return ok({ message: "File deleted successfully" });
 };

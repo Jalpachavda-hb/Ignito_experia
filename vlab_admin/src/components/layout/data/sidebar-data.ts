@@ -122,8 +122,8 @@ export const sidebarData: SidebarData = {
               url: '/student/transactions',
             },
             {
-              title: 'Certificates',
-              url: '/student/certificates',
+              title: 'Achievements',
+              url: '/student/badges-achievements',
             },
             {
               title: 'Profile',
