@@ -1,6 +1,7 @@
 import pty from 'node-pty';
 import os from 'os';
 import fs from 'fs';
+import path from 'path';
 import { getSession } from './services/sessionRepository.js';
 
 const LOCAL_SHELL = os.platform() === 'win32' ? 'cmd.exe' : 'bash';
@@ -217,11 +218,12 @@ export const setupTerminal = (io) => {
     if (!ptyProcess) {
       console.log('[LOCAL FALLBACK TERMINAL]');
       try {
+        const localWorkspaceRoot = path.resolve(process.cwd(), '..');
         ptyProcess = pty.spawn(LOCAL_SHELL, [], {
           name: 'xterm-color',
           cols: 120,
           rows: 30,
-          cwd: process.env.HOME || process.env.USERPROFILE || process.cwd(),
+          cwd: localWorkspaceRoot,
           useConpty: false,
           env: {
             ...process.env,
@@ -305,8 +307,13 @@ export const setupTerminal = (io) => {
              // local machine fallback
              const fs = require('fs');
              const nodePath = require('path');
-             const localPath = nodePath.join(process.cwd(), path.replace('/workspace/', ''));
-             try { fs.writeFileSync(localPath, content); } catch(e){}
+             const cleanPath = path.replace(/^\/workspace\//, "").replace(/^\/+/, "");
+             const localPath = nodePath.join(nodePath.resolve(process.cwd(), ".."), cleanPath);
+             try { 
+                const dir = nodePath.dirname(localPath);
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                fs.writeFileSync(localPath, content); 
+             } catch(e){}
              syncCmd = `echo "Local file synced"`;
           }
 

@@ -50,62 +50,61 @@ const buildHeaders = (session) => {
   return headers;
 };
 
-export const saveToContainer = async (session, { path, content }) => {
-  const containerPath = getContainerFilePath(path);
+export const saveToContainer = async (session, { path: filePath, content }) => {
+  const containerPath = getContainerFilePath(filePath);
   const baseUrl = await getSessionApiBaseUrl(session);
-  if (!baseUrl) return { proxied: false };
+  let httpSuccess = false;
 
-  // Fast reachability check (5s) to avoid 35s connection timeouts in local dev
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
-  try {
-    const response = await fetch(`${baseUrl}/health`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`health check failed (${response.status})`);
-    }
-  } catch (err) {
-    console.warn("[saveToContainer] HTTP unreachable, attempting AWS SSM fallback:", err.message);
-
-    if (session.taskArn) {
-      const { cluster, task } = getTaskDetails(session);
-      if (cluster && task) {
-        try {
-          const b64 = Buffer.from(content).toString('base64');
-          const region = process.env.AWS_REGION || 'ap-south-1';
-          let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
-
-          const env = { ...process.env };
-          if (os.platform() === 'win32') {
-            env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
-          }
-
-          await execAsync(execCmd, { env });
-          console.log(`[saveToContainer] SSM fallback sync successful for ${containerPath}`);
-          return { proxied: true, method: 'ssm' };
-        } catch (ssmErr) {
-          console.warn("[saveToContainer] SSM fallback failed:", ssmErr.message);
+  if (baseUrl) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      const response = await fetch(`${baseUrl}/health`, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        const saveRes = await containerFetch(`${baseUrl}/api/save`, {
+          method: "POST",
+          headers: buildHeaders(session),
+          body: JSON.stringify({ path: containerPath, content, sessionId: session.sessionId }),
+        });
+        if (saveRes.ok) {
+          httpSuccess = true;
         }
       }
+    } catch (err) {
+      console.warn("[saveToContainer] HTTP save failed:", err.message);
+    } finally {
+      clearTimeout(timer);
     }
-
-    return { proxied: false };
-  } finally {
-    clearTimeout(timer);
   }
 
-  const response = await containerFetch(`${baseUrl}/api/save`, {
-    method: "POST",
-    headers: buildHeaders(session),
-    body: JSON.stringify({ path: containerPath, content, sessionId: session.sessionId }),
-  });
+  // Always write the file directly to the container's disk via SSM execute-command to keep the filesystem in sync
+  if (session.taskArn) {
+    const { cluster, task } = getTaskDetails(session);
+    if (cluster && task) {
+      try {
+        const b64 = Buffer.from(content).toString('base64');
+        const region = process.env.AWS_REGION || 'ap-south-1';
+        const containerDir = containerPath.split('/').slice(0, -1).join('/');
+        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'mkdir -p \\"${containerDir}\\" && echo \\"${b64}\\" | base64 -d > \\"${containerPath}\\"'" --region ${region} < NUL`;
 
-  if (!response.ok) {
-    throw new Error(`Container save failed (${response.status})`);
+        const env = { ...process.env };
+        if (os.platform() === 'win32') {
+          env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
+        }
+
+        await execAsync(execCmd, { env });
+        console.log(`[saveToContainer] SSM sync to container disk successful for ${containerPath}`);
+        return { proxied: true, method: 'both', httpSuccess };
+      } catch (ssmErr) {
+        console.warn("[saveToContainer] SSM fallback failed:", ssmErr.message);
+      }
+    }
   }
-  return { proxied: true, ...(await response.json()) };
+
+  return { proxied: httpSuccess, method: 'http_only' };
 };
 
 export const executeInContainer = async (session, payload) => {
@@ -360,7 +359,6 @@ if os.path.exists(__file__):
 
 export const getContainerFiles = async (session) => {
   const baseUrl = await getSessionApiBaseUrl(session);
-  if (!baseUrl) return [];
 
   const payload = {
     path: "/workspace/.list_script.py",
@@ -370,7 +368,7 @@ import json
 import mimetypes
 import shutil
 
-ignored = ['__pycache__', 'node_modules', '.git', '.delete_script.py', '.list_script.py', '.hadoop_wrapper.py', '.read_script.py', 'semple.csv', 'sample.csv']
+ignored = ['__pycache__', 'node_modules', '.git', '.delete_script.py', '.list_script.py', '.hadoop_wrapper.py', '.read_script.py', 'semple.csv', 'sample.csv', 'intermediates', 'generated', 'tmp', 'kotlin', '.gradle', '.tanstack']
 
 workspace_dir = '/tmp/workspace/workspace'
 if not os.path.exists(workspace_dir):
@@ -422,10 +420,10 @@ for root, dirs, files in os.walk(workspace_dir):
         elif f.endswith('.css'): lang = 'css'
         
         files_list.append({
-            'name': f,
-            'path': rel_path,
-            'language': lang,
-            'type': 'file'
+          'name': f,
+          'path': rel_path,
+          'language': lang,
+          'type': 'file'
         })
 
 print("###" + json.dumps(files_list) + "###")`
@@ -449,7 +447,7 @@ print("###" + json.dumps(files_list) + "###")`
     if (cluster && task) {
       try {
         const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && find /tmp/workspace/workspace -maxdepth 5 -type f 2>/dev/null'" --region ${region} < NUL`;
+        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && find /tmp/workspace/workspace -maxdepth 8 -type f 2>/dev/null'" --region ${region} < NUL`;
 
         const env = { ...process.env };
         if (os.platform() === 'win32') {
@@ -462,8 +460,13 @@ print("###" + json.dumps(files_list) + "###")`
           .filter(line => {
             const clean = line.replace('/tmp/workspace/workspace', '/workspace');
             const name = clean.split('/').pop();
+            // Filter out system and heavy build directories to keep list clean
+            if (clean.includes('/.git/') || clean.includes('/node_modules/') || clean.includes('/__pycache__/') || clean.includes('/.gradle/') ||
+                clean.includes('/build/intermediates/') || clean.includes('/build/generated/') || clean.includes('/build/tmp/') || clean.includes('/build/kotlin/')) {
+              return false;
+            }
             return (line.startsWith('/workspace/') || line.startsWith('/tmp/workspace/workspace/')) &&
-                   name !== 'semple.csv' && name !== 'sample.csv';
+              name !== 'semple.csv' && name !== 'sample.csv';
           });
 
         const detectLanguage = (fileName) => {

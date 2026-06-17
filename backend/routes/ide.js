@@ -12,12 +12,30 @@ import {
   executeInContainer,
 } from "../services/containerClient.js";
 import { executeLocally } from "../services/localExecutor.js";
+import fs from "fs";
+import path from "path";
 
 const router = express.Router();
 
 export { clearSessionFiles };
 
 const upsertFile = (sessionId, { path: filePath, content, name, language }) => {
+  if (filePath) {
+    try {
+      const diskPath = filePath.startsWith("/workspace/")
+        ? filePath.replace(/^\/workspace\//, "/tmp/workspace/workspace/")
+        : filePath;
+      const dir = path.dirname(diskPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(diskPath, content ?? "");
+      console.log(`[Container API] Successfully saved file to container disk: ${diskPath}`);
+    } catch (err) {
+      console.error(`[Container API] Failed to write file to container disk: ${filePath}`, err.message);
+    }
+  }
+
   if (!SESSION_FILES[sessionId]) {
     SESSION_FILES[sessionId] = [];
   }

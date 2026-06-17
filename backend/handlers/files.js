@@ -8,6 +8,7 @@ import {
   deleteFile,
 } from "../services/fileRepository.js";
 import { saveToContainer, deleteFromContainer, getContainerFiles, readFromContainer } from "../services/containerClient.js";
+import { validateFile } from "../utils/validation.js";
 
 const getSessionId = (event) =>
   event.headers?.["x-session-id"] ||
@@ -32,20 +33,29 @@ const assertSessionAccess = async (event) => {
 export const filesListHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
 
-  if (session?.status === "running") {
+  // If a remote container session is active and running, we fetch files exclusively from the container
+  if (session?.status === "running" && session.taskArn) {
     try {
       const containerFiles = await getContainerFiles(session);
-      if (containerFiles && containerFiles.length > 0) {
-        return ok({ files: containerFiles });
-      }
+      return ok({
+        files: (containerFiles || []).map(({ content, ...meta }) => meta),
+      });
     } catch (err) {
       console.warn("[filesListHandler] Failed to fetch container files:", err.message);
+      return ok({ files: [] });
     }
   }
 
-  const files = await listFiles(sessionId);
+  // Otherwise (local mock session or stopped session), fetch from local files
+  let localFiles = [];
+  try {
+    localFiles = await listFiles(sessionId);
+  } catch (err) {
+    console.warn("[filesListHandler] Failed to list local files:", err.message);
+  }
+
   return ok({
-    files: files.map(({ content, ...meta }) => meta),
+    files: localFiles.map(({ content, ...meta }) => meta),
   });
 };
 
@@ -87,6 +97,12 @@ export const filesSaveHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
   const { path: filePath, content, name, language } = event.body || {};
   if (!filePath) throw badRequest("path is required");
+
+  // Enforce runtime-specific validation before saving/uploading
+  const validation = validateFile(filePath, content, session?.labType || session?.labId);
+  if (!validation.valid) {
+    throw badRequest(validation.error);
+  }
 
   await upsertFile(sessionId, { path: filePath, content, name, language });
 

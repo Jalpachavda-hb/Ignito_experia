@@ -9,7 +9,7 @@ const APP_ENV = {
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || ''
 };
 
-const TerminalInstance = forwardRef(({ session, isActive }: { session: any, isActive: boolean }, ref) => {
+const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: { session: any, isActive: boolean, onTerminalCommand?: () => void }, ref) => {
   const [terminalState, setTerminalState] = useState('initializing');
   const [statusMessage, setStatusMessage] = useState('Starting Lab Environment...');
 
@@ -70,6 +70,9 @@ const TerminalInstance = forwardRef(({ session, isActive }: { session: any, isAc
 
     term.onData((data) => {
       socket.emit('terminal-input', data);
+      if (data.includes('\r') || data.includes('\n')) {
+        onTerminalCommand?.();
+      }
     });
 
     socket.on('terminal-output', (data) => {
@@ -209,7 +212,7 @@ const TerminalInstance = forwardRef(({ session, isActive }: { session: any, isAc
   );
 });
 
-const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose }: any, ref) => {
+const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, onTerminalCommand }: any, ref) => {
   const [tabs, setTabs] = useState([
     { id: 'default', name: 'bash' }
   ]);
@@ -307,6 +310,7 @@ const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose }
             session={session}
             isActive={activeTabId === tab.id}
             ref={activeTabId === tab.id ? activeInstanceRef : null}
+            onTerminalCommand={onTerminalCommand}
           />
         ))}
       </div>
