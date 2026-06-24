@@ -164,21 +164,43 @@ const runSsmShellCommand = async (session, commandValue) => {
 };
 
 const executeViaSsm = async (session, payload) => {
-  const lang = (payload.language || "").toLowerCase();
+  let lang = (payload.language || "").toLowerCase();
+  
+  // If language is missing, infer from file path
+  if (!lang && payload.path) {
+    const ext = payload.path.split('.').pop().toLowerCase();
+    if (ext === 'java') lang = 'java';
+    else if (ext === 'py') lang = 'python';
+    else if (ext === 'js') lang = 'javascript';
+    else if (ext === 'sh') lang = 'bash';
+  }
+
   const content = payload.content || "";
   const b64 = Buffer.from(content).toString("base64");
 
-  let ext = "py";
-  let runner = "python3";
-  if (lang === "javascript" || lang === "js" || lang === "node") {
-    ext = "js";
-    runner = "node";
-  } else if (lang === "bash" || lang === "shell" || lang === "sh") {
-    ext = "sh";
-    runner = "bash";
+  let commandValue = "";
+
+  if (lang === "java") {
+    const containerPath = payload.path ? getContainerFilePath(payload.path) : "/tmp/workspace/workspace/Main.java";
+    const fileName = containerPath.split('/').pop();
+    const className = fileName.replace('.java', '');
+    const dirName = containerPath.substring(0, containerPath.lastIndexOf('/'));
+    
+    commandValue = `sh -c 'echo ${b64} | base64 -d > "${containerPath}" && cd "${dirName}" && javac "${fileName}" && java "${className}" 2>&1'`;
+  } else {
+    let ext = "py";
+    let runner = "python3";
+    if (lang === "javascript" || lang === "js" || lang === "node") {
+      ext = "js";
+      runner = "node";
+    } else if (lang === "bash" || lang === "shell" || lang === "sh") {
+      ext = "sh";
+      runner = "bash";
+    }
+    
+    commandValue = `sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'`;
   }
 
-  const commandValue = `sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'`;
   const output = await runSsmShellCommand(session, commandValue);
 
   return {

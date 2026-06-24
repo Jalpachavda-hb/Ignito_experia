@@ -61,12 +61,13 @@ export const Route = createFileRoute('/_authenticated')({
     const path = location.pathname;
 
     const isStudentPath = path.startsWith('/student');
+    const isComputePath = path.startsWith('/admin/compute');
 
     if (userRole === 'Student') {
       if (path === '/') {
         throw redirect({ to: '/student/dashboard' })
       }
-      if (!isStudentPath && path !== '/403' && path !== '/404') {
+      if (!isStudentPath && !isComputePath && path !== '/403' && path !== '/404') {
         toast.error('Access Denied: You do not have permission to view that page.')
         throw redirect({ to: '/student/dashboard' })
       }
