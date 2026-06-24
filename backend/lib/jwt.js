@@ -9,6 +9,7 @@ export const signAccessToken = (user) =>
       email: user.email,
       role: user.role,
       name: user.name,
+      roleId: user.roleId,
     },
     ENV.jwtSecret,
     { expiresIn: ENV.jwtExpiresIn },
@@ -66,6 +67,7 @@ export const authFromAuthorizerContext = (event) => {
     email: ctx.email || "",
     role: ctx.role || "Tenant User",
     name: ctx.name || "",
+    roleId: ctx.roleId ? parseInt(ctx.roleId, 10) : null,
     claims: ctx,
   };
 };
@@ -82,6 +84,7 @@ export const requireAuth = (event) => {
     email: claims.email,
     role: claims.role,
     name: claims.name,
+    roleId: claims.roleId,
     claims,
   };
 };

@@ -1,6 +1,12 @@
 import { createHandler } from "./lib/apigw.js";
 import { healthHandler, databaseHealthHandler } from "./handlers/health.js";
-import { authLoginHandler } from "./handlers/authLogin.js";
+import {
+  authRegisterHandler,
+  authLoginHandler,
+  authRefreshHandler,
+  authLogoutHandler,
+  authMeHandler,
+} from "./handlers/auth.js";
 import {
   labsListHandler,
   labsGetHandler,
@@ -33,6 +39,13 @@ import {
   usersUpdateStatusHandler,
 } from "./handlers/users.js";
 import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
+import {
+  rolesListHandler,
+  rolesGetHandler,
+  rolesCreateHandler,
+  rolesUpdateHandler,
+  rolesDeleteHandler,
+} from "./handlers/roles.js";
 
 /**
  * Route table — paths match AWS API Gateway (no /api prefix).
@@ -43,11 +56,23 @@ export const ROUTES = [
   { method: "GET", path: "/health", handler: healthHandler, auth: false },
   { method: "GET", path: "/health/database", handler: databaseHealthHandler, auth: false },
 
+  { method: "POST", path: "/auth/register", handler: authRegisterHandler, auth: false },
   { method: "POST", path: "/auth/login", handler: authLoginHandler, auth: false },
+  { method: "POST", path: "/auth/refresh", handler: authRefreshHandler, auth: false },
+  { method: "POST", path: "/auth/logout", handler: authLogoutHandler, auth: false },
+  { method: "GET", path: "/auth/me", handler: authMeHandler, auth: true },
+
 
   { method: "GET", path: "/users", handler: usersListHandler, auth: true },
   { method: "POST", path: "/users", handler: usersCreateHandler, auth: true },
   { method: "PATCH", path: "/users/:userId/status", handler: usersUpdateStatusHandler, auth: true },
+
+  { method: "GET", path: "/roles", handler: rolesListHandler, auth: true },
+  { method: "GET", path: "/roles/:roleId", handler: rolesGetHandler, auth: true },
+  { method: "POST", path: "/roles", handler: rolesCreateHandler, auth: true },
+  { method: "PATCH", path: "/roles/:roleId", handler: rolesUpdateHandler, auth: true },
+  { method: "DELETE", path: "/roles/:roleId", handler: rolesDeleteHandler, auth: true },
+
 
 
 

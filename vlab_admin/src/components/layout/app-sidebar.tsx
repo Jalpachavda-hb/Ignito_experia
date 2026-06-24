@@ -1,5 +1,6 @@
 import { useLayout } from '@/context/layout-provider'
 import { useLocation } from '@tanstack/react-router'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   Sidebar,
   SidebarContent,
@@ -16,9 +17,16 @@ import { NavUser } from './nav-user'
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   const location = useLocation()
+  const { auth } = useAuthStore()
 
   const isStudentRoute = location.pathname.startsWith('/student')
   const currentSidebarData = isStudentRoute ? getStudentSidebarData() : sidebarData
+
+  const activeUser = auth.user ? {
+    name: auth.user.fullName || auth.user.email.split('@')[0],
+    email: auth.user.email,
+    avatar: '/avatars/shadcn.jpg'
+  } : currentSidebarData.user;
 
   return (
     <Sidebar collapsible={collapsible} variant={variant}>
@@ -34,9 +42,10 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={currentSidebarData.user} />
+        <NavUser user={activeUser} />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )
 }
+

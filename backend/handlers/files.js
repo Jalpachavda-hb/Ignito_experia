@@ -70,15 +70,15 @@ export const filesSaveHandler = async (event) => {
 export const filesDeleteHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
   const filePath = event.queryStringParameters?.path;
-  
+
   console.log(`[filesDeleteHandler] Deleting file: sessionId=${sessionId}, filePath=${filePath}`);
-  
+
   try {
     await deleteFile(sessionId, filePath);
   } catch (e) {
     console.warn("deleteFile error (ignoring):", e.message);
   }
-  
+
   if (session?.status === "running") {
     try {
       await deleteFromContainer(session, filePath);
@@ -86,6 +86,6 @@ export const filesDeleteHandler = async (event) => {
       console.warn("[filesDelete] container proxy skipped:", err.message);
     }
   }
-  
+
   return ok({ message: "File deleted successfully" });
 };

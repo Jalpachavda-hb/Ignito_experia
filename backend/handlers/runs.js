@@ -162,39 +162,45 @@ except Exception as e:
     }
   }
 
-  let didContainerFail = false;
-  if (session.status === "running" && host && isReachable) {
+  let containerAttempted = false;
+  let containerError = null;
+
+  if (session.status === "running" && (session.taskArn || (host && isReachable))) {
     console.log("-----------------------------------------");
     console.log(`[EXECUTION SOURCE] >> CONTAINER (AWS Fargate)`);
-    console.log(`Container Host:   ${host}`);
+    console.log(`Container Host:   ${host || "(SSM only)"}`);
+    console.log(`Reachable (HTTP): ${isReachable}`);
+    console.log(`ECS Task:         ${session.taskArn ? "yes" : "no"}`);
     console.log("-----------------------------------------");
+    containerAttempted = true;
+
     try {
-      console.log(`[Container Run] Sending execution request to container...`);
-      console.log("EXECUTING INSIDE ECS CONTAINER");
+      console.log("[Container Run] Sending execution request to container...");
       result = await executeInContainer(session, payload);
 
-      console.log(`[Container Run] Raw Result:`);
+      console.log("[Container Run] Raw Result:");
       console.log(JSON.stringify(result, null, 2));
 
       if (!result) {
         throw new Error("No response received from container execution server.");
       }
     } catch (err) {
-      didContainerFail = true;
-      console.log(`[Runs Handler] Container run threw exception: ${err.message}.`);
-      result = {
-        success: false,
-        output: "",
-        error: `[Container Error] ${err.message}`,
-        runtimeError: err.message,
-      };
+      containerError = err.message;
+      console.log(`[Runs Handler] Container run failed: ${err.message}`);
+      result = null;
     }
   }
 
-  if (session.status !== "running" || !host || !isReachable) {
+  if (!result) {
     console.log("-----------------------------------------");
     console.log("[EXECUTION SOURCE] >> LOCAL FALLBACK");
-    console.log(`Reason:            ${!isReachable && host ? "Container is unreachable (blocked/offline)" : `Session status is "${session.status}"`}`);
+    if (containerAttempted) {
+      console.log(`Reason:            Container execution failed (${containerError || "unknown"})`);
+    } else if (!isReachable && host) {
+      console.log("Reason:            Container HTTP unreachable and no ECS task for SSM");
+    } else {
+      console.log(`Reason:            Session status is "${session.status}"`);
+    }
     console.log("-----------------------------------------");
     const local = await executeLocally(payload);
     result = {

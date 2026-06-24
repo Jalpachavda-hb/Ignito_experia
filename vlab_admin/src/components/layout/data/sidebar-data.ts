@@ -18,6 +18,8 @@ import {
   User,
   BookMarked,
   Award,
+  UserCheck,
+  UserCog,
 } from 'lucide-react'
 import { type SidebarData } from '../types'
 
@@ -33,15 +35,11 @@ export const sidebarData: SidebarData = {
       title: 'Observability',
       items: [
         {
-          title: 'dashboard',
+          title: 'Dashboard',
           url: '/',
           icon: LayoutDashboard,
+          // Dashboard is always visible — no moduleCode filter
         },
-        // {
-        //   title: 'Analytics',
-        //   url: '/analytics',
-        //   icon: LineChart,
-        // },
       ],
     },
     {
@@ -51,11 +49,13 @@ export const sidebarData: SidebarData = {
           title: 'Lab Management',
           url: '/labs',
           icon: FlaskConical,
+          moduleCode: 'LAB_MANAGEMENT',
         },
         {
           title: 'Session Monitoring',
           url: '/sessions',
           icon: Activity,
+          moduleCode: 'SESSION_MONITORING',
         },
       ],
     },
@@ -66,11 +66,30 @@ export const sidebarData: SidebarData = {
           title: 'User Management',
           url: '/users',
           icon: Users,
+          moduleCode: 'USER_MANAGEMENT',
         },
         {
           title: 'Role Management',
           url: '/roles',
           icon: Shield,
+          moduleCode: 'ROLE_MANAGEMENT',
+        },
+      ],
+    },
+    {
+      title: 'People',
+      items: [
+        {
+          title: 'Student Management',
+          url: '/users',
+          icon: UserCheck,
+          moduleCode: 'STUDENT_MANAGEMENT',
+        },
+        {
+          title: 'Faculty Management',
+          url: '/users',
+          icon: UserCog,
+          moduleCode: 'FACULTY_MANAGEMENT',
         },
       ],
     },
@@ -81,55 +100,19 @@ export const sidebarData: SidebarData = {
           title: 'Programs',
           url: '/programs',
           icon: GraduationCap,
+          moduleCode: 'PROGRAM_MANAGEMENT',
         },
         {
           title: 'Courses',
           url: '/courses',
           icon: BookOpen,
+          moduleCode: 'COURSE_MANAGEMENT',
         },
         {
           title: 'Semesters',
           url: '/semesters',
           icon: Layers,
-        },
-      ],
-    },
-    {
-      title: 'Student Portal Preview',
-      items: [
-        {
-          title: 'Student Dashboard',
-          icon: GraduationCap,
-          items: [
-            {
-              title: 'Dashboard',
-              url: '/student/dashboard',
-            },
-            {
-              title: 'Academic Progress',
-              url: '/student/academic-progress',
-            },
-            {
-              title: 'My Labs',
-              url: '/student/my-labs',
-            },
-            {
-              title: 'Credit Wallet',
-              url: '/student/credit-wallet',
-            },
-            {
-              title: 'Transactions',
-              url: '/student/transactions',
-            },
-            {
-              title: 'Certificates',
-              url: '/student/certificates',
-            },
-            {
-              title: 'Profile',
-              url: '/student/profile',
-            },
-          ],
+          moduleCode: 'SEMESTER_MANAGEMENT',
         },
       ],
     },
@@ -140,42 +123,36 @@ export const sidebarData: SidebarData = {
           title: 'Credit Management',
           url: '/credits',
           icon: Wallet,
+          moduleCode: 'CREDIT_MANAGEMENT',
         },
         {
           title: 'Transactions',
           url: '/transactions',
           icon: ReceiptText,
+          moduleCode: 'TRANSACTION_MANAGEMENT',
         },
         {
           title: 'Reports',
           url: '/reports',
           icon: FileText,
+          moduleCode: 'REPORTS',
         },
         {
           title: 'Audit Logs',
           url: '/audit-logs',
           icon: ScrollText,
+          moduleCode: 'SETTINGS',
         },
       ],
     },
     {
       title: 'Configuration',
       items: [
-        // {
-        //   title: 'Notifications',
-        //   url: '/notifications',
-        //   icon: Bell,
-        //   badge: '3',
-        // },
-        // {
-        //   title: 'Infrastructure',
-        //   url: '/infrastructure',
-        //   icon: Server,
-        // },
         {
           title: 'Settings',
           url: '/settings',
           icon: Settings,
+          moduleCode: 'SETTINGS',
         },
       ],
     },

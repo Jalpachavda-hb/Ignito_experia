@@ -18,6 +18,77 @@ async function runUpdates() {
 
         // Let's run them one by one
         console.log("Running schema changes...");
+
+        // Create Users and UserRefreshTokens tables
+        console.log("Creating Users table...");
+        await pool.query(`CREATE TABLE IF NOT EXISTS Users (
+            UserId INT AUTO_INCREMENT PRIMARY KEY,
+            FullName VARCHAR(255) NOT NULL,
+            Email VARCHAR(255) NOT NULL UNIQUE,
+            PasswordHash VARCHAR(255) NOT NULL,
+            Role VARCHAR(50) NOT NULL, -- Student, Faculty, TenantAdmin, SuperAdmin
+            Status VARCHAR(20) DEFAULT 'Active', -- Active, Inactive, Suspended, Pending
+            ProgramId INT NULL,
+            SemesterId INT NULL,
+            LastLoginAt DATETIME NULL,
+            CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CreatedBy INT NULL,
+            UpdatedBy INT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+        console.log("Creating UserRefreshTokens table...");
+        await pool.query(`CREATE TABLE IF NOT EXISTS UserRefreshTokens (
+            TokenId INT AUTO_INCREMENT PRIMARY KEY,
+            UserId INT NOT NULL,
+            RefreshToken VARCHAR(500) NOT NULL UNIQUE,
+            ExpiresAt DATETIME NOT NULL,
+            CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            IsRevoked TINYINT(1) DEFAULT 0,
+            FOREIGN KEY (UserId) REFERENCES Users(UserId) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
+        // ── Remove deprecated email-verification columns if they still exist ──
+        console.log("Checking for deprecated email-verification columns...");
+        const [userCols] = await pool.query("SHOW COLUMNS FROM Users");
+        const userColNames = userCols.map(c => c.Field);
+        const colsToDrop = ['EmailVerified', 'PasswordResetToken', 'PasswordResetExpiresAt'];
+        const dropClauses = colsToDrop
+            .filter(col => userColNames.includes(col))
+            .map(col => `DROP COLUMN ${col}`)
+            .join(', ');
+        if (dropClauses) {
+            console.log(`Dropping columns: ${colsToDrop.filter(c => userColNames.includes(c)).join(', ')}`);
+            await pool.query(`ALTER TABLE Users ${dropClauses}`);
+        } else {
+            console.log("No deprecated columns found — nothing to drop.");
+        }
+
+        // Check if Users table needs seeding
+        const [usersCountResult] = await pool.query("SELECT COUNT(*) as count FROM Users");
+        if (usersCountResult[0].count === 0) {
+            console.log("Seeding default users...");
+            const { hashPassword } = await import('../utils/crypto.js');
+            const defaultUsers = [
+                { name: "Meet Nayak", email: "admin@ignito.com", password: "admin123", role: "SuperAdmin" },
+                { name: "Meet Nayak", email: "meet.nayak@hackberrysoftech.in", password: "admin123", role: "TenantAdmin" },
+                { name: "Ankur Patel", email: "info@hackberrysoftech.com", password: "admin123", role: "TenantAdmin" },
+                { name: "Jalpa Rajpuriya", email: "jalpa@gmail.com", password: "jalpa123", role: "Student" },
+                { name: "Jalpa Rajpuriya", email: "jalpa.rajpuriya@hackberrysoftech.in", password: "jalpa123", role: "Student" },
+                { name: "ayushi trivedi", email: "ayushi.hackberrysoftech@gmail.com", password: "ayushi123", role: "Student" },
+                { name: "Hackberrysoftech", email: "hackberry123@gmail.com", password: "hackberry123", role: "Student" }
+            ];
+
+            for (const u of defaultUsers) {
+                const passwordHash = hashPassword(u.password);
+                await pool.query(
+                    `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status) VALUES (?, ?, ?, ?, 'Active')`,
+                    [u.name, u.email, passwordHash, u.role]
+                );
+            }
+            console.log("Users seeding completed.");
+        }
+
         await pool.query(`CREATE TABLE IF NOT EXISTS RuntimeTypes (
         Id INT AUTO_INCREMENT PRIMARY KEY,
         Value VARCHAR(50) NOT NULL UNIQUE,
@@ -109,11 +180,21 @@ async function runUpdates() {
         );`);
 
         console.log("Database updates completed successfully!");
-        process.exit(0);
+        if (process.argv[1] && (process.argv[1].endsWith('run_db_updates.js') || process.argv[1].endsWith('run_db_updates'))) {
+            process.exit(0);
+        }
     } catch (error) {
         console.error("Database update failed:", error);
-        process.exit(1);
+        if (process.argv[1] && (process.argv[1].endsWith('run_db_updates.js') || process.argv[1].endsWith('run_db_updates'))) {
+            process.exit(1);
+        }
     }
 }
 
-runUpdates();
+export { runUpdates };
+
+const isDirectRun = process.argv[1] && (process.argv[1].endsWith('run_db_updates.js') || process.argv[1].endsWith('run_db_updates'));
+if (isDirectRun) {
+    runUpdates();
+}
+

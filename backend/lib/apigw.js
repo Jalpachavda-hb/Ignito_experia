@@ -103,8 +103,20 @@ export const expressRoute = (app, route, apiPrefix) => {
         result?.statusCode && result?.body
           ? result
           : jsonResponse(result?.statusCode ?? 200, result?.body ?? result);
-      res.status(response.statusCode).set(response.headers).send(response.body);
+
+      const headers = { ...response.headers };
+      const reqOrigin = req.headers.origin;
+      if (reqOrigin) {
+        headers["Access-Control-Allow-Origin"] = reqOrigin;
+        headers["Access-Control-Allow-Credentials"] = "true";
+      }
+
+      res.status(response.statusCode).set(headers).send(response.body);
     } catch (err) {
+      const origin = req.headers.origin || "*";
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+
       if (err instanceof HttpError) {
         return res.status(err.statusCode).json({ success: false, message: err.message });
       }

@@ -68,8 +68,8 @@ export function getStudentSidebarData(): SidebarData {
             icon: Activity,
           },
           {
-            title: 'Certificates',
-            url: '/student/certificates',
+            title: 'Badges & Achievements',
+            url: '/student/badges-achievements',
             icon: Award,
           },
           {

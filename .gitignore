@@ -132,3 +132,8 @@ dist
 *.njsproj
 *.sln
 *.sw?
+
+
+cursor.md
+Memory.md
+Skill.md

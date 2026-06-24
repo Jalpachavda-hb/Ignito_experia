@@ -11,11 +11,6 @@ interface SecurityInfoCardProps {
 export function SecurityInfoCard({ student }: SecurityInfoCardProps) {
   const securityItems = [
     {
-      label: 'Email Verified',
-      status: student.emailVerified,
-      value: student.email
-    },
-    {
       label: 'Mobile Verified',
       status: student.mobileVerified,
       value: student.mobile

@@ -1,6 +1,7 @@
 import pty from 'node-pty';
 import os from 'os';
 import fs from 'fs';
+import path from 'path';
 import { getSession } from './services/sessionRepository.js';
 
 const LOCAL_SHELL = os.platform() === 'win32' ? 'cmd.exe' : 'bash';
@@ -64,25 +65,40 @@ export const setupTerminal = (io) => {
         const taskId = session.taskArn.split('/').pop();
         
         const containerName = 'lab-runtime';
-        const interactiveShell = 'sh -c "mkdir -p /tmp/workspace/workspace && cd /tmp/workspace/workspace || cd /workspace; [ -x /bin/bash ] && exec bash || exec sh"';
+        const interactiveShell = 'sh -c "mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && cd /tmp/workspace/workspace || cd /workspace; [ -x /bin/bash ] && exec bash || exec sh"';
         
         console.log('Connecting terminal to ECS container via /bin/sh...');
 
         // =====================================
-        // AWS CLI PATH & DYNAMIC FALLBACK
+        // AWS CLI PATH & DYNAMIC RESOLUTION
         // =====================================
         let awsExePath = 'C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe';
-        const localPipAwsPath = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\aws';
-        const localPythonExe = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe';
-        
+        let localPipAwsPath = '';
+        let localPythonExe = '';
         let isLocalWinSetup = false;
         let awsExists = fs.existsSync(awsExePath);
 
-        if (!awsExists && os.platform() === 'win32' && fs.existsSync(localPipAwsPath) && fs.existsSync(localPythonExe)) {
-          // absolute python path is mandatory for node-pty to prevent "File not found" errors
-          awsExePath = localPythonExe;
-          isLocalWinSetup = true;
-          awsExists = true;
+        if (!awsExists && os.platform() === 'win32') {
+          const userHome = os.homedir();
+          const pythonDir = path.join(userHome, 'AppData', 'Local', 'Python');
+          if (fs.existsSync(pythonDir)) {
+            try {
+              const folders = fs.readdirSync(pythonDir);
+              for (const folder of folders) {
+                const scriptsDir = path.join(pythonDir, folder, 'Scripts');
+                const checkAwsNoExt = path.join(scriptsDir, 'aws');
+                const checkPythonExe = path.join(pythonDir, folder, 'python.exe');
+                if (fs.existsSync(checkAwsNoExt) && fs.existsSync(checkPythonExe)) {
+                  localPipAwsPath = checkAwsNoExt;
+                  localPythonExe = checkPythonExe;
+                  awsExePath = localPythonExe;
+                  isLocalWinSetup = true;
+                  awsExists = true;
+                  break;
+                }
+              }
+            } catch (e) {}
+          }
         }
 
         console.log('AWS CLI Exists:', awsExists);
@@ -142,8 +158,26 @@ export const setupTerminal = (io) => {
         // SESSION MANAGER PLUGIN VERIFICATION
         // =====================================
         const standardSsmPath = 'C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin\\session-manager-plugin.exe';
-        const localPipSsmPath = 'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\session-manager-plugin.exe';
-        const ssmExists = fs.existsSync(standardSsmPath) || fs.existsSync(localPipSsmPath);
+        let localPipSsmPath = '';
+        let ssmExists = fs.existsSync(standardSsmPath);
+
+        if (!ssmExists && os.platform() === 'win32') {
+          const userHome = os.homedir();
+          const pythonDir = path.join(userHome, 'AppData', 'Local', 'Python');
+          if (fs.existsSync(pythonDir)) {
+            try {
+              const folders = fs.readdirSync(pythonDir);
+              for (const folder of folders) {
+                const checkSsm = path.join(pythonDir, folder, 'Scripts', 'session-manager-plugin.exe');
+                if (fs.existsSync(checkSsm)) {
+                  localPipSsmPath = checkSsm;
+                  ssmExists = true;
+                  break;
+                }
+              }
+            } catch (e) {}
+          }
+        }
 
         console.log('Session Manager Plugin Exists:', ssmExists);
         
@@ -173,9 +207,21 @@ export const setupTerminal = (io) => {
 
         // Ensure both Session Manager Plugin directories (standard and local pip scripts) are explicitly in PATH
         const additions = [
-          'C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin',
-          'C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts'
+          'C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin'
         ];
+        if (os.platform() === 'win32') {
+          const userHome = os.homedir();
+          const pythonDir = path.join(userHome, 'AppData', 'Local', 'Python');
+          if (fs.existsSync(pythonDir)) {
+            try {
+              const folders = fs.readdirSync(pythonDir);
+              for (const folder of folders) {
+                additions.push(path.join(pythonDir, folder, 'Scripts'));
+              }
+            } catch (e) {}
+          }
+        }
+        
         const pathString = additions.join(pathDelimiter);
         ptyEnv[pathKey] = `${pathString}${pathDelimiter}${ptyEnv[pathKey] || ''}`;
 

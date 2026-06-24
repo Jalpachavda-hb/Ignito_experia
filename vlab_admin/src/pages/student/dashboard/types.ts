@@ -32,7 +32,6 @@ export interface StudentProfile {
   lastLogin?: string
   passwordLastChanged?: string
   twoFactorEnabled?: boolean
-  emailVerified?: boolean
   mobileVerified?: boolean
   program: ProgramInfo
   academicStatus: 'Good Standing' | 'Warning' | 'Probation'
