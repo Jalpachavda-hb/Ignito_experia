@@ -72,6 +72,11 @@ export const Route = createFileRoute('/_authenticated')({
         throw redirect({ to: '/student/dashboard' })
       }
     } else {
+      if (isStudentPath) {
+        toast.error('Access Denied: You do not have permission to view that page.')
+        throw redirect({ to: '/' })
+      }
+
       // Dynamic permission guard for admin / faculty paths
       const matchedPrefix = Object.keys(pathPermissions).find(
         (prefix) => path === prefix || path.startsWith(prefix + '/')
