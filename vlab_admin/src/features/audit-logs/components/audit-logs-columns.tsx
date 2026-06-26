@@ -4,7 +4,7 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header'
 import { type AuditLog, type AuditAction } from '../data/schema'
 import { AuditLogsRowActions } from './audit-logs-row-actions'
 
-const getActionVariant = (action: AuditAction) => {
+const getActionVariant = (action: string) => {
   switch (action) {
     case 'CREATE': return 'default'
     case 'DELETE': return 'destructive'
@@ -14,6 +14,7 @@ const getActionVariant = (action: AuditAction) => {
     default: return 'outline'
   }
 }
+
 
 export const auditLogsColumns: ColumnDef<AuditLog>[] = [
   {
@@ -32,15 +33,21 @@ export const auditLogsColumns: ColumnDef<AuditLog>[] = [
     sortingFn: 'datetime',
   },
   {
-    accessorKey: 'user',
+    accessorKey: 'userName',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='User' />
+      <DataTableColumnHeader column={column} title='Full Name' />
     ),
     cell: ({ row }) => (
-      <div className='flex flex-col'>
-        <span className='font-medium text-sm'>{row.original.user.name}</span>
-        <span className='text-xs text-muted-foreground'>{row.original.user.email}</span>
-      </div>
+      <span className='font-medium text-sm'>{row.original.user.name}</span>
+    ),
+  },
+  {
+    accessorKey: 'userEmail',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Email' />
+    ),
+    cell: ({ row }) => (
+      <span className='text-sm text-muted-foreground'>{row.original.user.email}</span>
     ),
   },
   {
@@ -70,6 +77,16 @@ export const auditLogsColumns: ColumnDef<AuditLog>[] = [
     },
   },
   {
+    accessorKey: 'category',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Category' />
+    ),
+    cell: ({ row }) => (
+      <div className='text-sm text-muted-foreground'>{row.getValue('category')}</div>
+    ),
+  },
+
+  {
     accessorKey: 'description',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Description' />
@@ -80,15 +97,7 @@ export const auditLogsColumns: ColumnDef<AuditLog>[] = [
       </div>
     ),
   },
-  {
-    accessorKey: 'ipAddress',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='IP Address' />
-    ),
-    cell: ({ row }) => (
-      <div className='font-mono text-xs text-muted-foreground'>{row.getValue('ipAddress')}</div>
-    ),
-  },
+
   {
     id: 'actions',
     cell: ({ row }) => <AuditLogsRowActions row={row} />,

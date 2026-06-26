@@ -24,7 +24,6 @@ export const dashboardData: DashboardData = {
     lastLogin: '2024-03-20T10:15:22Z',
     passwordLastChanged: '2024-01-10T14:20:00Z',
     twoFactorEnabled: true,
-    emailVerified: true,
     mobileVerified: true,
     academicStatus: 'Good Standing',
     program: {

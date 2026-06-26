@@ -6,9 +6,12 @@ export const signAccessToken = (user) =>
   jwt.sign(
     {
       sub: user.id,
+      profileId: user.profileId,
       email: user.email,
       role: user.role,
       name: user.name,
+      roleId: user.roleId,
+      source: user.source,
     },
     ENV.jwtSecret,
     { expiresIn: ENV.jwtExpiresIn },
@@ -66,6 +69,7 @@ export const authFromAuthorizerContext = (event) => {
     email: ctx.email || "",
     role: ctx.role || "Tenant User",
     name: ctx.name || "",
+    roleId: ctx.roleId ? parseInt(ctx.roleId, 10) : null,
     claims: ctx,
   };
 };
@@ -79,9 +83,12 @@ export const requireAuth = (event) => {
   const claims = verifyAccessToken(token);
   return {
     userId: claims.sub,
+    profileId: claims.profileId,
     email: claims.email,
     role: claims.role,
     name: claims.name,
+    roleId: claims.roleId,
+    source: claims.source,
     claims,
   };
 };

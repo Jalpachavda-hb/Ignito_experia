@@ -69,9 +69,9 @@ export function getStudentSidebarData(): SidebarData {
             icon: Activity,
           },
           {
-            title: 'Achievements',
+            title: 'Badges & Achievements',
             url: '/student/badges-achievements',
-            icon: Trophy,
+            icon: Award,
           },
           {
             title: 'Profile',

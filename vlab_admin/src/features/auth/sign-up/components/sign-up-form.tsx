@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Loader2, MailCheck, CheckCircle2, EyeOff, Eye } from 'lucide-react'
+import { Loader2, MailCheck, EyeOff, Eye } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from '@tanstack/react-router'
 import { sleep, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { registerWithCredentials } from '@/services/authService'
 import {
   Form,
   FormControl,
@@ -14,17 +15,10 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-  FormDescription
+
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
+
 
 const formSchema = z.object({
   fullName: z.string().min(1, 'Full Name is required'),
@@ -37,9 +31,9 @@ const formSchema = z.object({
     .regex(/[0-9]/, 'Must contain number')
     .regex(/[^A-Za-z0-9]/, 'Must contain special character'),
   confirmPassword: z.string(),
-  
+
   // Terms
-  agreeTerms: z.boolean().refine(val => val === true, 'You must agree to the Terms & Conditions and Privacy Policy'),
+  agreeTerms: z.boolean().optional().default(true),
   receiveUpdates: z.boolean().optional().default(false),
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -64,35 +58,39 @@ export function SignUpForm({
       mobileNumber: '',
       password: '',
       confirmPassword: '',
-      agreeTerms: false,
+      agreeTerms: true,
       receiveUpdates: false,
     },
   })
 
-  const watchPassword = form.watch('password') || ''
+  // const watchPassword = form.watch('password') || ''
 
-  const passwordReqs = [
-    { regex: /[A-Z]/, label: 'Uppercase' },
-    { regex: /[a-z]/, label: 'Lowercase' },
-    { regex: /[0-9]/, label: 'Number' },
-    { regex: /[^A-Za-z0-9]/, label: 'Special' },
-    { regex: /.{8,}/, label: '8+ Chars' },
-  ]
+  // const passwordReqs = [
+  //   { regex: /[A-Z]/, label: 'Uppercase' },
+  //   { regex: /[a-z]/, label: 'Lowercase' },
+  //   { regex: /[0-9]/, label: 'Number' },
+  //   { regex: /[^A-Za-z0-9]/, label: 'Special' },
+  //   { regex: /.{8,}/, label: '8+ Chars' },
+  // ]
 
   async function onSubmit(data: z.infer<typeof formSchema>) {
     setIsLoading(true)
-    
-    // Auto-assign student role
-    const payload = {
-      ...data,
-      role: 'student'
-    }
 
-    // Simulate API call
-    await sleep(1500)
-    
-    setIsLoading(false)
-    setIsSuccess(true)
+    try {
+      await registerWithCredentials({
+        fullName: data.fullName,
+        email: data.email,
+        password: data.password,
+        confirmPassword: data.confirmPassword,
+      });
+
+      setIsLoading(false)
+      setIsSuccess(true)
+      toast.success('Account created successfully!')
+    } catch (err: any) {
+      setIsLoading(false)
+      toast.error(err.message || 'Registration failed. Please try again.')
+    }
   }
 
   if (isSuccess) {
@@ -102,17 +100,14 @@ export function SignUpForm({
           <MailCheck className="h-8 w-8" />
         </div>
         <div className="space-y-2">
-          <h3 className="text-2xl font-bold text-slate-900">Account Created Successfully</h3>
+          <h3 className="text-2xl font-bold text-slate-900">Account Created Successfully!</h3>
           <p className="text-slate-500 font-medium max-w-[300px]">
-            Please verify your email before logging in. We've sent a verification link to your email address.
+            Your student account is ready. You can log in immediately — no extra steps needed.
           </p>
         </div>
-        <div className="w-full space-y-3 pt-4">
+        <div className="w-full pt-4">
           <Button className="w-full bg-[#dc2626] hover:bg-[#dc2626]/90 text-white" onClick={() => window.location.href = '/sign-in'}>
             Go To Login
-          </Button>
-          <Button variant="outline" className="w-full" onClick={() => toast.success('Verification email sent!')}>
-            Resend Verification Email
           </Button>
         </div>
       </div>
@@ -180,10 +175,10 @@ export function SignUpForm({
                 <FormControl>
                   <div className="relative">
                     <Input placeholder="********" type={showPassword ? 'text' : 'password'} {...field} />
-                    <Button 
-                      type="button" 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
                       className="absolute right-0 top-0 h-full px-3 py-1 hover:bg-transparent text-slate-400 hover:text-slate-600"
                       onClick={() => setShowPassword(!showPassword)}
                     >
@@ -205,10 +200,10 @@ export function SignUpForm({
                 <FormControl>
                   <div className="relative">
                     <Input placeholder="********" type={showConfirmPassword ? 'text' : 'password'} {...field} />
-                    <Button 
-                      type="button" 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
                       className="absolute right-0 top-0 h-full px-3 py-1 hover:bg-transparent text-slate-400 hover:text-slate-600"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     >
@@ -223,7 +218,7 @@ export function SignUpForm({
         </div>
 
         {/* Password Strength Meter - Horizontal layout */}
-        {watchPassword && (
+        {/* {watchPassword && (
           <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[11px]">
             {passwordReqs.map((req, i) => (
               <div key={i} className="flex items-center gap-1">
@@ -238,9 +233,9 @@ export function SignUpForm({
               </div>
             ))}
           </div>
-        )}
+        )} */}
 
-        <div className="space-y-2 pt-1">
+        {/* <div className="space-y-2 pt-1">
           <FormField
             control={form.control}
             name="agreeTerms"
@@ -274,7 +269,7 @@ export function SignUpForm({
               </FormItem>
             )}
           />
-        </div>
+        </div> */}
 
         {/* Sticky Action Area */}
         <div className="sticky bottom-0 bg-white pt-4 pb-2 mt-2 border-t border-slate-100 flex flex-col gap-3">

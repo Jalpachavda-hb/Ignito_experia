@@ -1,5 +1,6 @@
 import { ok, notFound, serverError } from "../lib/apigw.js";
 import { labService } from "../services/labService.js";
+import requirePermission from "../middleware/PermissionMiddleware.js";
 
 export const labsListHandler = async () => {
   try {
@@ -11,14 +12,16 @@ export const labsListHandler = async () => {
   }
 };
 
-export const labsAdminListHandler = async ({ queryStringParameters }) => {
+export const labsAdminListHandler = async (parsed) => {
   try {
+    await requirePermission(parsed, "LAB_MANAGEMENT", "read");
+    const { queryStringParameters } = parsed;
     const status = queryStringParameters?.status;
     const labs = await labService.getAllAdmin(status);
     return ok({ labs });
   } catch (error) {
     console.error("[labsAdminListHandler Error]", error);
-    return serverError({ success: false, message: `Database operation failed: ${error.message}` });
+    throw error;
   }
 };
 
@@ -63,8 +66,10 @@ const validateLabPayload = (body) => {
   return null;
 };
 
-export const createLabHandler = async ({ body, auth }) => {
+export const createLabHandler = async (parsed) => {
   try {
+    await requirePermission(parsed, "LAB_MANAGEMENT", "create");
+    const { body, auth } = parsed;
     const errorMsg = validateLabPayload(body);
     if (errorMsg) {
       return { statusCode: 400, body: { success: false, message: errorMsg } };
@@ -94,12 +99,14 @@ export const createLabHandler = async ({ body, auth }) => {
     const result = await labService.insertLab(payload);
     return ok({ message: "Lab created successfully", data: result }, 201);
   } catch (error) {
-    return { statusCode: 500, body: { success: false, message: "Failed to create lab", error: error.message } };
+    throw error;
   }
 };
 
-export const updateLabHandler = async ({ pathParameters, body, auth }) => {
+export const updateLabHandler = async (parsed) => {
   try {
+    await requirePermission(parsed, "LAB_MANAGEMENT", "update");
+    const { pathParameters, body, auth } = parsed;
     const labId = pathParameters?.labId;
     if (!labId) return { statusCode: 400, body: { success: false, message: "labId is required" } };
 
@@ -132,12 +139,14 @@ export const updateLabHandler = async ({ pathParameters, body, auth }) => {
     const result = await labService.updateLab(labId, payload);
     return ok({ message: "Lab updated successfully", data: result });
   } catch (error) {
-    return { statusCode: 500, body: { success: false, message: "Failed to update lab", error: error.message } };
+    throw error;
   }
 };
 
-export const updateLabStatusHandler = async ({ pathParameters, body, auth }) => {
+export const updateLabStatusHandler = async (parsed) => {
   try {
+    await requirePermission(parsed, "LAB_MANAGEMENT", "update");
+    const { pathParameters, body, auth } = parsed;
     const labId = pathParameters?.labId;
     const status = body?.status;
     
@@ -149,30 +158,34 @@ export const updateLabStatusHandler = async ({ pathParameters, body, auth }) => 
     const result = await labService.updateLabStatus(labId, status, auth?.userId);
     return ok({ message: "Lab status updated successfully", data: result });
   } catch (error) {
-    return { statusCode: 500, body: { success: false, message: "Failed to update lab status", error: error.message } };
+    throw error;
   }
 };
 
-export const deleteLabHandler = async ({ pathParameters, auth }) => {
+export const deleteLabHandler = async (parsed) => {
   try {
+    await requirePermission(parsed, "LAB_MANAGEMENT", "delete");
+    const { pathParameters, auth } = parsed;
     const labId = pathParameters?.labId;
     if (!labId) return { statusCode: 400, body: { success: false, message: "labId is required" } };
 
     const result = await labService.deleteLab(labId, auth?.userId);
     return ok({ message: "Lab deleted successfully", data: result });
   } catch (error) {
-    return { statusCode: 500, body: { success: false, message: "Failed to delete lab", error: error.message } };
+    throw error;
   }
 };
 
-export const restoreLabHandler = async ({ pathParameters, auth }) => {
+export const restoreLabHandler = async (parsed) => {
   try {
+    await requirePermission(parsed, "LAB_MANAGEMENT", "delete");
+    const { pathParameters, auth } = parsed;
     const labId = pathParameters?.labId;
     if (!labId) return { statusCode: 400, body: { success: false, message: "labId is required" } };
 
     const result = await labService.restoreLab(labId, auth?.userId);
     return ok({ message: "Lab restored successfully", data: result });
   } catch (error) {
-    return { statusCode: 500, body: { success: false, message: "Failed to restore lab", error: error.message } };
+    throw error;
   }
 };

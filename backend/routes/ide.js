@@ -3,69 +3,31 @@ import { asyncHandler } from "../middleware/asyncHandler.js";
 import { requireSession, getSessionId } from "../middleware/requireSession.js";
 import { ok, fail } from "../utils/apiResponse.js";
 import {
-  SESSIONS,
-  SESSION_FILES,
-  clearSessionFiles,
-} from "../services/sessionStore.js";
+  listFiles,
+  getFile,
+  upsertFile,
+  deleteFile,
+  clearSessionFiles
+} from "../services/fileRepository.js";
 import {
-  saveToContainer,
   executeInContainer,
 } from "../services/containerClient.js";
 import { executeLocally } from "../services/localExecutor.js";
-import fs from "fs";
-import path from "path";
+import { getAllowedExtensions } from "../lib/labTypeMapper.js";
 
 const router = express.Router();
 
 export { clearSessionFiles };
-
-const upsertFile = (sessionId, { path: filePath, content, name, language }) => {
-  if (filePath) {
-    try {
-      const diskPath = filePath.startsWith("/workspace/")
-        ? filePath.replace(/^\/workspace\//, "/tmp/workspace/workspace/")
-        : filePath;
-      const dir = path.dirname(diskPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(diskPath, content ?? "");
-      console.log(`[Container API] Successfully saved file to container disk: ${diskPath}`);
-    } catch (err) {
-      console.error(`[Container API] Failed to write file to container disk: ${filePath}`, err.message);
-    }
-  }
-
-  if (!SESSION_FILES[sessionId]) {
-    SESSION_FILES[sessionId] = [];
-  }
-
-  const files = SESSION_FILES[sessionId];
-  const index = files.findIndex((f) => f.path === filePath);
-
-  const fileData = {
-    name: name || filePath.split("/").pop(),
-    path: filePath,
-    type: "file",
-    content: content ?? "",
-    language: language || "python",
-  };
-
-  if (index !== -1) {
-    files[index] = { ...files[index], ...fileData };
-  } else {
-    files.push(fileData);
-  }
-
-  return fileData;
-};
 
 // GET /api/files
 router.get(
   "/files",
   asyncHandler(async (req, res) => {
     const sessionId = getSessionId(req);
-    const files = SESSION_FILES[sessionId] || [];
+    if (!sessionId) {
+      return fail(res, "Session ID required", 400);
+    }
+    const files = await listFiles(sessionId);
     ok(res, {
       files: files.map(({ content, ...meta }) => meta),
     });
@@ -77,8 +39,11 @@ router.get(
   "/files/content",
   asyncHandler(async (req, res) => {
     const sessionId = getSessionId(req);
-    const files = SESSION_FILES[sessionId] || [];
-    const file = files.find((f) => f.path === req.query.path);
+    if (!sessionId) {
+      return fail(res, "Session ID required", 400);
+    }
+    const filePath = req.query.path;
+    const file = await getFile(sessionId, filePath);
 
     if (!file) {
       return fail(res, "File not found", 404);
@@ -95,29 +60,28 @@ router.get(
 // POST /api/save
 router.post(
   "/save",
+  requireSession,
   asyncHandler(async (req, res) => {
-    const sessionId = getSessionId(req);
-    if (!sessionId) {
-      return fail(res, "Session ID required (x-session-id header)", 400);
-    }
-
+    const { sessionId, session } = req;
     const { path: filePath, content, name, language } = req.body;
     if (!filePath) {
       return fail(res, "File path is required", 400);
     }
 
-    upsertFile(sessionId, { path: filePath, content, name, language });
-
-    const session = SESSIONS[sessionId];
-    if (session?.status === "running") {
-      try {
-        await saveToContainer(session, { path: filePath, content });
-      } catch (err) {
-        console.warn(`[IDE] Container save skipped: ${err.message}`);
-      }
+    // File extension validation
+    const allowedExtensions = getAllowedExtensions(session.labId);
+    const hasExtension = filePath.includes(".") && filePath.split(".").pop() !== "";
+    const ext = hasExtension ? filePath.split(".").pop().toLowerCase() : "";
+    if (!hasExtension || !allowedExtensions.includes(ext)) {
+      return fail(
+        res,
+        `Workspace Restriction: Invalid file extension. Only the following extensions are allowed for this lab: ${allowedExtensions.map(e => `.${e}`).join(", ")}`,
+        400
+      );
     }
 
-    ok(res, { message: "File saved successfully" });
+    const record = await upsertFile(sessionId, { path: filePath, content, name, language });
+    ok(res, { message: "File saved successfully", file: record });
   }),
 );
 
@@ -126,15 +90,11 @@ router.delete(
   "/files",
   asyncHandler(async (req, res) => {
     const sessionId = getSessionId(req);
-    const files = SESSION_FILES[sessionId] || [];
-    const filePath = req.query.path;
-    const index = files.findIndex((f) => f.path === filePath);
-
-    if (index === -1) {
-      return fail(res, "File not found", 404);
+    if (!sessionId) {
+      return fail(res, "Session ID required", 400);
     }
-
-    files.splice(index, 1);
+    const filePath = req.query.path;
+    await deleteFile(sessionId, filePath);
     ok(res, { message: "File deleted successfully" });
   }),
 );
@@ -147,8 +107,19 @@ router.post(
     const { sessionId, session } = req;
     const { path: filePath, language } = req.body;
 
-    const files = SESSION_FILES[sessionId] || [];
-    const file = files.find((f) => f.path === filePath);
+    // File extension validation
+    const allowedExtensions = getAllowedExtensions(session.labId);
+    const hasExtension = filePath.includes(".") && filePath.split(".").pop() !== "";
+    const ext = hasExtension ? filePath.split(".").pop().toLowerCase() : "";
+    if (!hasExtension || !allowedExtensions.includes(ext)) {
+      return fail(
+        res,
+        `Workspace Restriction: Invalid file extension. Only the following extensions are allowed for this lab: ${allowedExtensions.map(e => `.${e}`).join(", ")}`,
+        400
+      );
+    }
+
+    const file = await getFile(sessionId, filePath);
 
     if (!file) {
       return fail(res, "File not found. Save your code before running.", 404);
@@ -160,7 +131,7 @@ router.post(
       content: req.body.content !== undefined ? req.body.content : file.content,
     };
 
-    if (session.status === "running" && session.publicIp) {
+    if (session.status === "running" && (session.publicIp || session.taskArn)) {
       try {
         const result = await executeInContainer(session, payload);
         if (result) {
@@ -168,7 +139,6 @@ router.post(
         }
       } catch (err) {
         console.error("[IDE] Container execution failed:", err.message);
-        return fail(res, `Container execution failed: ${err.message}`, 502);
       }
     }
 
@@ -176,7 +146,7 @@ router.post(
     ok(res, {
       ...local,
       runId: `run_${Date.now().toString(36)}`,
-      message: session.publicIp
+      message: session.publicIp || session.taskArn
         ? "Executed locally (container unreachable)"
         : "Executed locally (mock session)",
     });

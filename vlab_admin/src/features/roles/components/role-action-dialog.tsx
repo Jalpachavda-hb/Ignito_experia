@@ -1,8 +1,10 @@
 'use client'
 
+import { useEffect } from 'react'
 import { z } from 'zod'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -22,16 +24,16 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Textarea } from '@/components/ui/textarea'
-import { type Role, MODULES, roleSchema, permissionSchema } from '../data/schema'
-import { toast } from 'sonner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useEffect } from 'react'
+import { Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { type Role, MODULES, MODULE_LABELS, permissionSchema } from '../data/schema'
+import { createRole, updateRole } from '@/services/rolesService'
 
 const formSchema = z.object({
   name: z.string().min(1, 'Role name is required.'),
   description: z.string().optional(),
-  permissions: z.record(z.enum(MODULES), permissionSchema),
+  permissions: z.record(z.string(), permissionSchema),
   isEdit: z.boolean(),
 })
 type RoleForm = z.infer<typeof formSchema>
@@ -40,59 +42,91 @@ type RoleActionDialogProps = {
   currentRow?: Role
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSuccess?: () => void
+}
+
+const buildDefaultPermissions = () => {
+  const perms: Record<string, { create: boolean; read: boolean; update: boolean; delete: boolean }> = {}
+  MODULES.forEach((mod) => {
+    perms[mod] = { create: false, read: false, update: false, delete: false }
+  })
+  return perms
 }
 
 export function RoleActionDialog({
   currentRow,
   open,
   onOpenChange,
+  onSuccess,
 }: RoleActionDialogProps) {
   const isEdit = !!currentRow
-
-  const defaultPermissions: any = {}
-  MODULES.forEach(mod => {
-    defaultPermissions[mod] = { create: false, read: false, update: false, delete: false }
-  })
 
   const form = useForm<RoleForm>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
       description: '',
-      permissions: defaultPermissions,
-      isEdit,
+      permissions: buildDefaultPermissions(),
+      isEdit: false,
     },
   })
 
-  // Reset form when currentRow changes
+  // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       if (currentRow) {
+        // Merge existing permissions with defaults so all modules are shown
+        const mergedPermissions = buildDefaultPermissions()
+        if (currentRow.permissions) {
+          Object.entries(currentRow.permissions).forEach(([mod, perm]) => {
+            mergedPermissions[mod] = perm
+          })
+        }
         form.reset({
           name: currentRow.name,
           description: currentRow.description || '',
-          permissions: currentRow.permissions,
+          permissions: mergedPermissions,
           isEdit: true,
         })
       } else {
         form.reset({
           name: '',
           description: '',
-          permissions: defaultPermissions,
+          permissions: buildDefaultPermissions(),
           isEdit: false,
         })
       }
     }
-  }, [open, currentRow, form])
+  }, [open, currentRow])
+
+  const mutation = useMutation({
+    mutationFn: async (values: RoleForm) => {
+      const payload = {
+        name: values.name,
+        description: values.description,
+        permissions: values.permissions,
+      }
+      if (isEdit && currentRow) {
+        return updateRole(currentRow.roleId, payload)
+      }
+      return createRole(payload)
+    },
+    onSuccess: () => {
+      toast.success(`Role ${isEdit ? 'updated' : 'created'} successfully!`)
+      onOpenChange(false)
+      onSuccess?.()
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || `Failed to ${isEdit ? 'update' : 'create'} role.`)
+    },
+  })
 
   const onSubmit = (values: RoleForm) => {
-    toast.success(`Role ${values.isEdit ? 'updated' : 'created'} successfully!`)
-    onOpenChange(false)
+    mutation.mutate(values)
   }
 
   const toggleModuleAll = (moduleName: string, checked: boolean) => {
-    const currentPerms = form.getValues('permissions')
-    form.setValue(`permissions.${moduleName as any}`, {
+    form.setValue(`permissions.${moduleName}` as any, {
       create: checked,
       read: checked,
       update: checked,
@@ -101,12 +135,12 @@ export function RoleActionDialog({
   }
 
   const isModuleAllChecked = (moduleName: string) => {
-    const perms = form.watch(`permissions.${moduleName as any}`)
+    const perms = form.watch(`permissions.${moduleName}` as any)
     return perms?.create && perms?.read && perms?.update && perms?.delete
   }
 
   const isModuleIndeterminate = (moduleName: string) => {
-    const perms = form.watch(`permissions.${moduleName as any}`)
+    const perms = form.watch(`permissions.${moduleName}` as any)
     if (!perms) return false
     const values = Object.values(perms)
     const some = values.some(Boolean)
@@ -134,7 +168,7 @@ export function RoleActionDialog({
                     <FormItem>
                       <FormLabel>Role Name</FormLabel>
                       <FormControl>
-                        <Input placeholder='e.g. Audit Viewer' {...field} />
+                        <Input placeholder='e.g. Lab Coordinator' {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -161,7 +195,7 @@ export function RoleActionDialog({
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
-                        <TableHead className="w-[200px]">Module</TableHead>
+                        <TableHead className="w-[220px]">Module</TableHead>
                         <TableHead className="text-center">Select All</TableHead>
                         <TableHead className="text-center">Create</TableHead>
                         <TableHead className="text-center">Read</TableHead>
@@ -172,18 +206,20 @@ export function RoleActionDialog({
                     <TableBody>
                       {MODULES.map((moduleName) => (
                         <TableRow key={moduleName}>
-                          <TableCell className="font-medium">{moduleName}</TableCell>
+                          <TableCell className="font-medium text-sm">
+                            {MODULE_LABELS[moduleName]}
+                          </TableCell>
                           <TableCell className="text-center">
                             <Checkbox 
                               checked={isModuleAllChecked(moduleName) || (isModuleIndeterminate(moduleName) && 'indeterminate')}
                               onCheckedChange={(checked) => toggleModuleAll(moduleName, !!checked)}
                             />
                           </TableCell>
-                          {(['create', 'read', 'update', 'delete'] as const).map(action => (
+                          {(['create', 'read', 'update', 'delete'] as const).map((action) => (
                             <TableCell key={`${moduleName}-${action}`} className="text-center">
                               <FormField
                                 control={form.control}
-                                name={`permissions.${moduleName}.${action}`}
+                                name={`permissions.${moduleName}.${action}` as any}
                                 render={({ field }) => (
                                   <FormItem className="space-y-0 inline-flex items-center">
                                     <FormControl>
@@ -207,8 +243,13 @@ export function RoleActionDialog({
           </Form>
         </div>
         <DialogFooter className='pt-2'>
-          <Button variant='outline' onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type='submit' form='role-form'>Save Role</Button>
+          <Button variant='outline' onClick={() => onOpenChange(false)} disabled={mutation.isPending}>
+            Cancel
+          </Button>
+          <Button type='submit' form='role-form' disabled={mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {mutation.isPending ? 'Saving...' : 'Save Role'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

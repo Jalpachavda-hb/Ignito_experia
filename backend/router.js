@@ -1,6 +1,13 @@
 import { createHandler } from "./lib/apigw.js";
 import { healthHandler, databaseHealthHandler } from "./handlers/health.js";
-import { authLoginHandler } from "./handlers/authLogin.js";
+import {
+  authRegisterHandler,
+  authLoginHandler,
+  authRefreshHandler,
+  authLogoutHandler,
+  authMeHandler,
+  ssoLoginHandler,
+} from "./handlers/auth.js";
 import {
   labsListHandler,
   labsGetHandler,
@@ -33,6 +40,13 @@ import {
   usersUpdateStatusHandler,
 } from "./handlers/users.js";
 import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
+import {
+  rolesListHandler,
+  rolesGetHandler,
+  rolesCreateHandler,
+  rolesUpdateHandler,
+  rolesDeleteHandler,
+} from "./handlers/roles.js";
 
 /**
  * Route table — paths match AWS API Gateway (no /api prefix).
@@ -43,11 +57,56 @@ export const ROUTES = [
   { method: "GET", path: "/health", handler: healthHandler, auth: false },
   { method: "GET", path: "/health/database", handler: databaseHealthHandler, auth: false },
 
+  { method: "POST", path: "/auth/register", handler: authRegisterHandler, auth: false },
   { method: "POST", path: "/auth/login", handler: authLoginHandler, auth: false },
+  { method: "POST", path: "/auth/refresh", handler: authRefreshHandler, auth: false },
+  { method: "POST", path: "/auth/logout", handler: authLogoutHandler, auth: false },
+  { method: "POST", path: "/auth/sso-login", handler: ssoLoginHandler, auth: false },
+  { method: "GET", path: "/auth/me", handler: authMeHandler, auth: true },
+
+  // Phase 7: App Bootstrap
+  { method: "GET", path: "/app/bootstrap", handler: (event) => import("./handlers/bootstrap.js").then(m => m.appBootstrapHandler(event)), auth: true },
+
+  // Admin Student Management
+  { method: "GET", path: "/admin/students", handler: (event) => import("./handlers/students.js").then(m => m.studentsListHandler(event)), auth: true },
+  { method: "GET", path: "/admin/students/statistics", handler: (event) => import("./handlers/students.js").then(m => m.studentsStatisticsHandler(event)), auth: true },
+  { method: "GET", path: "/admin/students/:id", handler: (event) => import("./handlers/students.js").then(m => m.studentsDetailHandler(event)), auth: true },
+  { method: "PUT", path: "/admin/students/:id", handler: (event) => import("./handlers/students.js").then(m => m.studentsUpdateHandler(event)), auth: true },
+  { method: "PATCH", path: "/admin/students/:id/status", handler: (event) => import("./handlers/students.js").then(m => m.studentsStatusHandler(event)), auth: true },
+
+  // Auth Session Management (Phase 4)
+  { method: "GET", path: "/auth/session/current", handler: (event) => import("./handlers/authSessions.js").then(m => m.currentAuthSessionHandler(event)), auth: true },
+  { method: "GET", path: "/auth/sessions", handler: (event) => import("./handlers/authSessions.js").then(m => m.userAuthSessionsHandler(event)), auth: true },
+  { method: "DELETE", path: "/auth/sessions", handler: (event) => import("./handlers/authSessions.js").then(m => m.revokeAllMyOtherSessionsHandler(event)), auth: true },
+  { method: "DELETE", path: "/auth/sessions/:id", handler: (event) => import("./handlers/authSessions.js").then(m => m.revokeMyAuthSessionHandler(event)), auth: true },
+  { method: "GET", path: "/admin/sessions", handler: (event) => import("./handlers/authSessions.js").then(m => m.adminListSessionsHandler(event)), auth: true },
+  { method: "GET", path: "/admin/sessions/statistics", handler: (event) => import("./handlers/authSessions.js").then(m => m.sessionStatisticsHandler(event)), auth: true },
+  { method: "DELETE", path: "/admin/sessions/:id", handler: (event) => import("./handlers/authSessions.js").then(m => m.forceLogoutAdminHandler(event)), auth: true },
+
+  // Enterprise Audit Logging (Phase 5)
+  { method: "GET", path: "/admin/audit", handler: (event) => import("./handlers/audit.js").then(m => m.auditListHandler(event)), auth: true },
+  { method: "GET", path: "/admin/audit/statistics", handler: (event) => import("./handlers/audit.js").then(m => m.auditStatisticsHandler(event)), auth: true },
+  { method: "GET", path: "/admin/audit/export/csv", handler: (event) => import("./handlers/audit.js").then(m => m.auditExportCsvHandler(event)), auth: true },
+  { method: "GET", path: "/admin/audit/export/excel", handler: (event) => import("./handlers/audit.js").then(m => m.auditExportExcelHandler(event)), auth: true },
+  { method: "GET", path: "/admin/audit/export/pdf", handler: (event) => import("./handlers/audit.js").then(m => m.auditExportPdfHandler(event)), auth: true },
+
+
+
+  // Phase 8 Analytics Widgets
+  { method: "GET", path: "/admin/analytics/widgets/overview", handler: (event) => import("./handlers/analytics.js").then(m => m.analyticsOverviewWidgetHandler(event)), auth: true },
+  { method: "GET", path: "/admin/analytics/widgets/realtime", handler: (event) => import("./handlers/analytics.js").then(m => m.analyticsRealtimeWidgetHandler(event)), auth: true },
+
 
   { method: "GET", path: "/users", handler: usersListHandler, auth: true },
   { method: "POST", path: "/users", handler: usersCreateHandler, auth: true },
   { method: "PATCH", path: "/users/:userId/status", handler: usersUpdateStatusHandler, auth: true },
+
+  { method: "GET", path: "/roles", handler: rolesListHandler, auth: true },
+  { method: "GET", path: "/roles/:roleId", handler: rolesGetHandler, auth: true },
+  { method: "POST", path: "/roles", handler: rolesCreateHandler, auth: true },
+  { method: "PATCH", path: "/roles/:roleId", handler: rolesUpdateHandler, auth: true },
+  { method: "DELETE", path: "/roles/:roleId", handler: rolesDeleteHandler, auth: true },
+
 
 
 

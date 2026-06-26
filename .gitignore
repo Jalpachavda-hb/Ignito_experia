@@ -133,7 +133,7 @@ dist
 *.sln
 *.sw?
 
-Skill.md
-Memory.md 
-Antigravity.md
 
+cursor.md
+Memory.md
+Skill.md

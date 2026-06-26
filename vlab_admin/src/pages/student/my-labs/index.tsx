@@ -4,9 +4,7 @@ import { Main } from '@/components/layout/main';
 import { useLabStore } from '@/stores/labStore';
 import { MyLabsHeader } from './components/my-labs-header';
 import { ActiveLabs } from './components/active-labs';
-import { LabFilters } from './components/lab-filters';
 import { LabCard } from './components/lab-card';
-import { FilterStatus, SortOption, ViewMode } from './types';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSearch, useNavigate } from '@tanstack/react-router';
@@ -24,11 +22,6 @@ export default function MyLabs() {
 
   const searchParams = useSearch({ strict: false }) as { semester?: string };
   const semesterFilterQuery = searchParams.semester;
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<FilterStatus>('All Labs');
-  const [sortOption, setSortOption] = useState<SortOption>('Name');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
 
   const { activeSession, startingLabId, stoppingLabId, elapsedTime, startError, loadActiveSession, startLab, stopLab, clearStartError } = useLabSessionStore();
 
@@ -71,62 +64,23 @@ export default function MyLabs() {
     return labs.filter(lab => activeSession?.labId === lab.id);
   }, [labs, activeSession]);
 
-  // Filtering and sorting logic
-  const filteredLabs = useMemo(() => {
-    return labs
-      .filter((lab) => {
-        // Semester Filter from URL
-        if (semesterFilterQuery) {
-          // Fallback matching if lab.semester doesn't exist but we want to simulate filtering
+  const displayLabs = useMemo(() => {
+    const filtered = semesterFilterQuery
+      ? labs.filter((lab) => {
           const labSemester = lab.semester || (lab.id && parseInt(lab.id.replace(/\D/g, '')) % 2 === 0 ? '2' : '1');
-          if (!labSemester.toLowerCase().includes(String(semesterFilterQuery).toLowerCase()) && labSemester !== String(semesterFilterQuery)) {
-            return false;
-          }
-        }
+          return (
+            labSemester.toLowerCase().includes(String(semesterFilterQuery).toLowerCase()) ||
+            labSemester === String(semesterFilterQuery)
+          );
+        })
+      : labs;
 
-        // Search
-        if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          const name = (lab.title || lab.name || '').toLowerCase();
-          const desc = (lab.description || '').toLowerCase();
-          const cat = (lab.category || '').toLowerCase();
-          if (!name.includes(q) && !desc.includes(q) && !cat.includes(q)) {
-            return false;
-          }
-        }
-
-        // Status Filter
-        if (statusFilter !== 'All Labs') {
-          const isRunning = activeSession?.labId === lab.id;
-          const displayStatus = lab.status === 'active' ? 'Available' : (lab.status || 'Not Started');
-          const currentStatus = isRunning ? 'In Progress' : displayStatus;
-
-          if (statusFilter === 'In Progress' && currentStatus !== 'In Progress') return false;
-          if (statusFilter === 'Completed' && currentStatus !== 'Completed') return false;
-          if (statusFilter === 'Not Started' && currentStatus !== 'Not Started' && currentStatus !== 'Available') return false;
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        switch (sortOption) {
-          case 'Name': {
-            const nameA = a.title || a.name || '';
-            const nameB = b.title || b.name || '';
-            return nameA.localeCompare(nameB);
-          }
-          case 'Credits':
-            return (a.credits || 0) - (b.credits || 0);
-          case 'Duration':
-            return (a.duration || 0) - (b.duration || 0);
-          case 'Recently Accessed':
-            // If backend provides a lastAccessed date, sort by it. Otherwise fallback to ID or Name
-            return (b.id || '').localeCompare(a.id || '');
-          default:
-            return 0;
-        }
-      });
-  }, [labs, searchQuery, statusFilter, sortOption]);
+    return [...filtered].sort((a, b) => {
+      const nameA = a.title || a.name || '';
+      const nameB = b.title || b.name || '';
+      return nameA.localeCompare(nameB);
+    });
+  }, [labs, semesterFilterQuery]);
 
   const handleStartLab = async (labId: string) => {
     const lab = labs.find(l => l.id === labId);
@@ -251,34 +205,18 @@ export default function MyLabs() {
               )}
 
               <div className="mt-8">
-                <LabFilters
-                  searchQuery={searchQuery}
-                  setSearchQuery={setSearchQuery}
-                  statusFilter={statusFilter}
-                  setStatusFilter={setStatusFilter}
-                  sortOption={sortOption}
-                  setSortOption={setSortOption}
-                  viewMode={viewMode}
-                  setViewMode={setViewMode}
-                />
-
-                {filteredLabs.length === 0 ? (
+                {displayLabs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-card rounded-xl border border-dashed border-border/60">
                     <AlertCircle className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
                     <h3 className="text-lg font-bold text-foreground">No labs found</h3>
-                    <p className="text-muted-foreground">Try adjusting your search or filters.</p>
+                    <p className="text-muted-foreground">No labs are available yet.</p>
                   </div>
                 ) : (
-                  <div className={
-                    viewMode === 'grid'
-                      ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6"
-                      : "flex flex-col gap-4"
-                  }>
-                    {filteredLabs.map(lab => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
+                    {displayLabs.map(lab => (
                       <LabCard
                         key={lab.id}
                         lab={lab}
-                        viewMode={viewMode}
                         onStart={handleStartLab}
                         onResume={handleResumeLab}
                         onStop={handleStopLabClick}

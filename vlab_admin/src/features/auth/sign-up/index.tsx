@@ -116,7 +116,7 @@ export function SignUp() {
             <div className="flex flex-col space-y-1.5 text-center lg:text-left mb-6">
               <h2 className="text-2xl font-bold tracking-tight text-slate-900">Create Your Student Account</h2>
               <p className="text-sm text-slate-500 font-medium">
-                Join Ignito Experia Virtual Labs Platform
+                Join IgnitoExperia Virtual Labs Platform
               </p>
             </div>
             

@@ -33,3 +33,28 @@ export const resolveLabType = ({ labId, language, labType }) => {
   if (labId) return canonicalLabType(labId);
   return language?.toLowerCase() || "python";
 };
+
+export const getAllowedExtensions = (labId) => {
+  const id = (labId || "").toLowerCase();
+  if (id.includes("agile")) {
+    return ["java"];
+  }
+  if (
+    id.includes("big-data") ||
+    id.includes("bigdata") ||
+    id.includes("analytics") ||
+    id.includes("hadoop")
+  ) {
+    return ["py", "java", "csv", "txt", "jar", "xml", "sh", "json", "log", "parquet", "avro", "orc"];
+  }
+  if (id.includes("mobile") || id.includes("android") || id.includes("mobile-app-lab")) {
+    return ["java", "xml", "gradle", "properties", "sh"];
+  }
+  if (id.includes("java-development") || id.includes("java")) {
+    return ["java"];
+  }
+  if (id.includes("python")) {
+    return ["py"];
+  }
+  return ["py", "java", "js", "jsx", "html", "css", "json", "md", "csv", "txt", "log", "xml", "parquet", "avro", "orc", "sh", "jar"];
+};

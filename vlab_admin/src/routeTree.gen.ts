@@ -11,6 +11,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as errors503RouteImport } from './routes/(errors)/503'
@@ -111,6 +112,11 @@ const AuthenticatedStudentBadgesAchievementsIndexLazyRouteImport =
 const AuthenticatedStudentAcademicProgressIndexLazyRouteImport =
   createFileRoute('/_authenticated/student/academic-progress/')()
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -537,6 +543,7 @@ const AuthenticatedAdminComputeRdpRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
+  '/login': typeof LoginRoute
   '/audit-logs': typeof AuthenticatedAuditLogsRouteRouteWithChildren
   '/courses': typeof AuthenticatedCoursesRouteRouteWithChildren
   '/credits': typeof AuthenticatedCreditsRouteRouteWithChildren
@@ -601,6 +608,7 @@ export interface FileRoutesByFullPath {
   '/student/transactions/': typeof AuthenticatedStudentTransactionsIndexLazyRoute
 }
 export interface FileRoutesByTo {
+  '/login': typeof LoginRoute
   '/forgot-password': typeof authForgotPasswordRoute
   '/otp': typeof authOtpRoute
   '/sign-in': typeof authSignInRoute
@@ -649,6 +657,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/login': typeof LoginRoute
   '/_authenticated/audit-logs': typeof AuthenticatedAuditLogsRouteRouteWithChildren
   '/_authenticated/courses': typeof AuthenticatedCoursesRouteRouteWithChildren
   '/_authenticated/credits': typeof AuthenticatedCreditsRouteRouteWithChildren
@@ -717,6 +726,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
     | '/audit-logs'
     | '/courses'
     | '/credits'
@@ -781,6 +791,7 @@ export interface FileRouteTypes {
     | '/student/transactions/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/login'
     | '/forgot-password'
     | '/otp'
     | '/sign-in'
@@ -828,6 +839,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_authenticated'
+    | '/login'
     | '/_authenticated/audit-logs'
     | '/_authenticated/courses'
     | '/_authenticated/credits'
@@ -895,6 +907,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  LoginRoute: typeof LoginRoute
   authForgotPasswordRoute: typeof authForgotPasswordRoute
   authOtpRoute: typeof authOtpRoute
   authSignInRoute: typeof authSignInRoute
@@ -909,6 +922,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -1727,6 +1747,7 @@ const AuthenticatedRouteRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  LoginRoute: LoginRoute,
   authForgotPasswordRoute: authForgotPasswordRoute,
   authOtpRoute: authOtpRoute,
   authSignInRoute: authSignInRoute,

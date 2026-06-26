@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
 import { useLocation } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile } from '../../services/ideService';
 import {
   File, Code2, Plus, Upload, Play, Save, AlignLeft,
-  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RefreshCw
+  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
+  Folder, FolderOpen, RotateCw
 } from 'lucide-react';
 import Terminal from './Terminal';
 import { useLabStore } from '@/stores/labStore';
@@ -222,8 +223,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
           onClick={() => {
             if (!openFilePaths.includes(file.path)) {
               if (openFilePaths.length >= 8) {
-                setRestrictionMsg('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
-                setShowRestrictionModal(true);
+                toast.error('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
                 return;
               }
               setOpenFilePaths(prev => [...prev, file.path]);
@@ -245,30 +245,10 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
               if (!sessionId) return;
               try {
                 await deleteFile(file.path, sessionId);
-
-                const newFiles = [...files];
-                newFiles.splice(i, 1);
-                setFiles(newFiles);
-
-                setOpenFilePaths(prev => {
-                  const next = prev.filter(p => p !== file.path);
-                  if (activeFileIndex === i) {
-                    if (next.length > 0) {
-                      const newActivePath = next[next.length - 1];
-                      const newActiveIdx = newFiles.findIndex(f => f.path === newActivePath);
-                      setActiveFileIndex(newActiveIdx);
-                    } else {
-                      setActiveFileIndex(-1);
-                    }
-                  } else if (activeFileIndex > i) {
-                    setActiveFileIndex(activeFileIndex - 1);
-                  }
-                  return next;
-                });
+                await handleSync();
               } catch (err: any) {
                 console.error('Delete error:', err);
-                setRestrictionMsg(`Failed to delete file: ${err.message || 'Unknown error'}`);
-                setShowRestrictionModal(true);
+                toast.error(`Failed to delete file: ${err.message || 'Unknown error'}`);
               }
             }}
             className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
@@ -296,8 +276,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const [isRunning, setIsRunning] = useState(false);
   const [webPreviewCode, setWebPreviewCode] = useState('');
   const [sessionId, setSessionId] = useState('');
-  const [showRestrictionModal, setShowRestrictionModal] = useState(false);
-  const [restrictionMsg, setRestrictionMsg] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
@@ -455,8 +433,11 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
             return updated;
           });
         }
-      } catch (err) {
-        console.error('Failed to fetch file content on switch:', err);
+      } catch (err: any) {
+        console.error('Load files error:', err);
+        toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     }
   };
@@ -503,8 +484,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
             return updated;
           });
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Content load error:', err);
+        toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
       }
     };
     loadActiveFile();
@@ -516,14 +498,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   });
 
   useEffect(() => {
-    if (!sessionId) return;
-    const interval = setInterval(() => {
-      if (latestSaveRef.current) {
-        latestSaveRef.current();
-      }
-    }, 180000);
-    return () => clearInterval(interval);
-  }, [sessionId]);
+    if (activeFileIndex === -1 || !files[activeFileIndex]) return;
+    const file = files[activeFileIndex];
+    if (!loadedPaths.has(file.path)) return; // DO NOT auto-save if the file content is not loaded yet!
+    
+    const timeout = setTimeout(() => handleSave(false), 1500);
+    return () => clearTimeout(timeout);
+  }, [files, activeFileIndex, loadedPaths]);
 
   const activeFile = files[activeFileIndex];
 
@@ -531,6 +512,65 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     if (!editorRef.current) return;
     const action = editorRef.current.getAction('editor.action.formatDocument');
     if (action) action.run();
+  };
+
+  const handleSync = async () => {
+    if (!sessionId) return;
+    setIsLoading(true);
+    try {
+      const response = await fetchFiles(sessionId);
+      if (response.success) {
+        const newFilesList = response.success ? response.files : [];
+        const activeFileBefore = files[activeFileIndex];
+        const activePathBefore = activeFileBefore ? activeFileBefore.path : null;
+
+        // Merge with existing files to preserve in-memory content of loaded files
+        const mergedFiles = newFilesList.map((newFile: any) => {
+          const existing = files.find(f => f.path === newFile.path);
+          if (existing) {
+            return {
+              ...newFile,
+              content: existing.content !== undefined ? existing.content : newFile.content,
+              language: existing.language || newFile.language,
+            };
+          }
+          return newFile;
+        });
+
+        setFiles(mergedFiles);
+
+        // Clean up openFilePaths and loadedPaths for deleted files
+        const newPaths = new Set(newFilesList.map((f: any) => f.path));
+        
+        let newActiveIdx = -1;
+        if (activePathBefore && newPaths.has(activePathBefore)) {
+          newActiveIdx = mergedFiles.findIndex((f: any) => f.path === activePathBefore);
+        } else {
+          // If active file was deleted, try to activate the last remaining open tab
+          const remainingOpen = openFilePaths.filter(p => newPaths.has(p));
+          if (remainingOpen.length > 0) {
+            const newActivePath = remainingOpen[remainingOpen.length - 1];
+            newActiveIdx = mergedFiles.findIndex((f: any) => f.path === newActivePath);
+          }
+        }
+        setActiveFileIndex(newActiveIdx);
+
+        setOpenFilePaths(prev => prev.filter(p => newPaths.has(p)));
+        setLoadedPaths(prev => {
+          const next = new Set(prev);
+          for (const p of next) {
+            if (!newPaths.has(p)) {
+              next.delete(p);
+            }
+          }
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error('Sync error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSave = async (showFeedback = true) => {
@@ -543,8 +583,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save error:', err);
+      toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
     } finally {
       setIsSaving(false);
     }
@@ -567,8 +608,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     if (!sessionId || (!isAndroid && !activeFile)) return;
     setIsRunning(true);
 
-    // Auto-save the active file first if it exists
-    if (activeFile) {
+    // Auto-save the active file first if it exists and is loaded
+    if (activeFile && loadedPaths.has(activeFile.path)) {
       try {
         await saveFile(activeFile, sessionId);
       } catch (err) {
@@ -735,8 +776,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
   const handleAddFile = async () => {
     if (openFilePaths.length >= 8) {
-      setRestrictionMsg('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
-      setShowRestrictionModal(true);
+      toast.error('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
       return;
     }
 
@@ -760,10 +800,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     const hasExtension = fileName.includes('.') && fileName.split('.').pop() !== '';
     const ext = hasExtension ? fileName.split('.').pop()?.toLowerCase() || '' : '';
     if (!hasExtension || !rules.extensions.includes(ext)) {
-      setRestrictionMsg(
+      toast.error(
         `Workspace Restriction: Invalid file extension. Only the following extensions are allowed for ${rules.courseName}: ${rules.extensions.map(e => `.${e}`).join(', ')}`
       );
-      setShowRestrictionModal(true);
       return;
     }
 
@@ -778,10 +817,16 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         if (!prev.includes(newFile.path)) return [...prev, newFile.path];
         return prev;
       });
-
-      const newFilesList = [...files];
-      if (!newFilesList.some(f => f.path === newFile.path)) {
-        newFilesList.push(newFile);
+      setLoadedPaths(prev => {
+        const next = new Set(prev);
+        next.add(newFile.path);
+        return next;
+      });
+      setActiveFileIndex(files.length);
+      try {
+        await saveFile(newFile, sessionId);
+      } catch (err) {
+        console.error('Failed to save newly added file on backend:', err);
       }
       const newIdx = newFilesList.findIndex(f => f.path === newFile.path);
       if (newIdx !== -1) {
@@ -805,10 +850,15 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     if (!file) return;
 
     const filePath = `/workspace/${file.name}`;
+    const exists = files.some(f => f.path === filePath);
+
+    if (!exists && files.length >= 5) {
+      toast.error('Workspace Limit Reached: You can have a maximum of 5 files in the workspace.');
+      return;
+    }
 
     if (!openFilePaths.includes(filePath) && openFilePaths.length >= 8) {
-      setRestrictionMsg('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
-      setShowRestrictionModal(true);
+      toast.error('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
       return;
     }
 
@@ -819,10 +869,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     const hasExtension = file.name.includes('.') && file.name.split('.').pop() !== '';
     const fileExt = hasExtension ? file.name.split('.').pop()?.toLowerCase() || '' : '';
     if (!hasExtension || !rules.extensions.includes(fileExt)) {
-      setRestrictionMsg(
+      toast.error(
         `Workspace Restriction: Invalid file extension. Only the following extensions are allowed for ${rules.courseName}: ${rules.extensions.map(e => `.${e}`).join(', ')}`
       );
-      setShowRestrictionModal(true);
       return;
     }
 
@@ -920,13 +969,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
           <div className="h-12 px-4 flex items-center justify-between border-b border-[#1f1f1f]">
             <span className="text-[10px] text-white/60 uppercase font-bold tracking-widest">Explorer</span>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => refreshFiles(false)}
-                disabled={isRefreshingFiles}
-                className="text-white/70 hover:text-white transition-colors"
-                title="Refresh Files"
-              >
-                <RefreshCw size={13} className={isRefreshingFiles ? 'animate-spin' : ''} />
+              <button onClick={handleSync} className="text-white/70 hover:text-white transition-colors mr-1" title="Sync Workspace">
+                <RotateCw size={14} className={isLoading ? 'animate-spin text-red-500' : ''} />
               </button>
               <button onClick={handleAddFile} className="text-white/70 hover:text-white transition-colors" title="Add File">
                 <Plus size={16} />
@@ -952,8 +996,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
                   onClick={() => {
                     if (!openFilePaths.includes(file.path)) {
                       if (openFilePaths.length >= 8) {
-                        setRestrictionMsg('Maximum of 8 files can be open in the tabs at the same time.');
-                        setShowRestrictionModal(true);
+                        toast.error('Maximum of 8 files can be open in the tabs at the same time.');
                         return;
                       }
                       setOpenFilePaths(prev => [...prev, file.path]);
@@ -974,26 +1017,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
                       if (!sessionId) return;
                       try {
                         await deleteFile(file.path, sessionId);
-
-                        const newFiles = [...files];
-                        newFiles.splice(i, 1);
-                        setFiles(newFiles);
-
-                        setOpenFilePaths(prev => {
-                          const next = prev.filter(p => p !== file.path);
-                          if (activeFileIndex === i) {
-                            if (next.length > 0) {
-                              const newActivePath = next[next.length - 1];
-                              const newActiveIdx = newFiles.findIndex(f => f.path === newActivePath);
-                              setActiveFileIndex(newActiveIdx);
-                            } else {
-                              setActiveFileIndex(-1);
-                            }
-                          } else if (activeFileIndex > i) {
-                            setActiveFileIndex(activeFileIndex - 1);
-                          }
-                          return next;
-                        });
+                        await handleSync();
                       } catch (err: any) {
                         console.error('Delete error:', err);
                         setRestrictionMsg(`Failed to delete file: ${err.message || 'Unknown error'}`);
@@ -1108,8 +1132,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
                   </button>
                   <button
                     onClick={() => handleSave(true)}
-                    disabled={isSaving}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
+                    disabled={isSaving || !loadedPaths.has(activeFile.path)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Save size={12} /> {isSaving ? 'Saving...' : (saveSuccess ? 'Saved!' : 'Save')}
                   </button>
@@ -1118,6 +1142,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
                 <Editor
                   height="100%"
                   language={activeFile.language}
+                  path={activeFile.path}
                   value={activeFile.content}
                   onChange={handleEditorChange}
                   theme="vs-dark"
@@ -1190,22 +1215,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         </div>
       </div>
 
-      {showRestrictionModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[#252526] p-6 rounded-2xl max-w-sm w-full border border-white/10 text-center shadow-2xl">
-            <h2 className="text-red-500 font-bold mb-4 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
-              <X className="w-5 h-5" /> Workspace Restriction
-            </h2>
-            <p className="text-slate-300 text-sm mb-6 leading-relaxed">{restrictionMsg}</p>
-            <button
-              onClick={() => setShowRestrictionModal(false)}
-              className="w-full bg-[#dc2626] hover:bg-red-700 text-white py-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors"
-            >
-              Understood
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

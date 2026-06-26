@@ -63,18 +63,27 @@ export function UserAuthForm({
           setIsLoading(false)
 
           const sessionUser = response?.user || {}
-          
+
           const user = {
-            accountNo: sessionUser.id || 'ACC001',
+            userId: sessionUser.id,
+            fullName: sessionUser.name || 'User',
             email: sessionUser.email || data.email,
-            role: sessionUser.roles || ['user'],
+            role: sessionUser.role || 'Student',
+            roleId: sessionUser.roleId,
+            status: sessionUser.status || 'Active',
+            programId: sessionUser.programId,
+            semesterId: sessionUser.semesterId,
             exp: Date.now() + 24 * 60 * 60 * 1000,
+            permissions: sessionUser.permissions,
           }
 
           auth.setUser(user)
-          auth.setAccessToken(response?.token || 'mock-access-token')
+          auth.setAccessToken(response?.accessToken || response?.token)
 
-          const targetPath = redirectTo || '/'
+          let targetPath = redirectTo || '/'
+          if (user.role === 'Student' && targetPath === '/') {
+            targetPath = '/student/dashboard'
+          }
           navigate({ to: targetPath, replace: true })
 
           return `Welcome back, ${user.email}!`

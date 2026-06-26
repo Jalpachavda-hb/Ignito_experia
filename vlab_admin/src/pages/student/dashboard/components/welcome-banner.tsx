@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Wallet, ArrowRight } from 'lucide-react'
 import { CreditWallet, StudentProfile } from '../types'
 import { Button } from '@/components/ui/button'
+import { useAuthStore } from '@/stores/auth-store'
 
 export function WelcomeBanner({
   student,
@@ -11,6 +12,8 @@ export function WelcomeBanner({
   student: StudentProfile,
   wallet: CreditWallet,
 }) {
+  const { auth } = useAuthStore()
+
   return (
     <Card className="bg-white dark:bg-card overflow-hidden shadow-sm border-0 border-l-[6px] border-l-red-600 relative rounded-xl h-full min-h-[220px]">
       
@@ -33,7 +36,7 @@ export function WelcomeBanner({
               Good Morning <span>👋</span>
             </p>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-2">
-              {student.name}
+              {auth.user?.fullName || student.name}
             </h1>
             <p className="text-sm font-medium text-muted-foreground mb-1">
               {student.program.name} <span className="mx-1">•</span> Semester {student.program.currentSemester}
