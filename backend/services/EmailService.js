@@ -72,7 +72,7 @@ export async function sendWelcomeEmail({ to, fullName }) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Welcome to Ignito Experia</title>
+  <title>Welcome to IgnitoExperia</title>
   <style>
     body { margin:0; padding:0; font-family: 'Segoe UI', Arial, sans-serif; background:#f0f4ff; }
     .wrapper { max-width:600px; margin:40px auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.08); }
@@ -96,7 +96,7 @@ export async function sendWelcomeEmail({ to, fullName }) {
 <body>
   <div class="wrapper">
     <div class="header">
-      <h1>🎉 Welcome to Ignito Experia!</h1>
+      <h1>🎉 Welcome to IgnitoExperia!</h1>
       <p>Your virtual laboratory journey begins now</p>
     </div>
     <div class="body">
@@ -124,7 +124,7 @@ export async function sendWelcomeEmail({ to, fullName }) {
     </div>
     <div class="footer">
       <p>
-        © ${new Date().getFullYear()} Ignito Experia. All rights reserved.<br />
+        © ${new Date().getFullYear()} IgnitoExperia. All rights reserved.<br />
         <a href="${FRONTEND_URL}">ignito.app</a> · Built for the next generation of learners
       </p>
     </div>
@@ -133,9 +133,9 @@ export async function sendWelcomeEmail({ to, fullName }) {
 </html>
   `.trim();
 
-  const text = `Welcome to Ignito Experia, ${fullName}!\n\nYour account (${to}) has been created. Log in at: ${loginUrl}`;
+  const text = `Welcome to IgnitoExperia, ${fullName}!\n\nYour account (${to}) has been created. Log in at: ${loginUrl}`;
 
-  return sendMail({ to, subject: "🎉 Welcome to Ignito Experia — Account Created!", html, text });
+  return sendMail({ to, subject: "🎉 Welcome to IgnitoExperia — Account Created!", html, text });
 }
 
 /**
@@ -169,11 +169,11 @@ export async function sendPasswordResetEmail({ to, fullName, resetToken }) {
   <div class="wrapper">
     <div class="header">
       <h1>🔐 Password Reset Request</h1>
-      <p>Ignito Experia Security</p>
+      <p>IgnitoExperia Security</p>
     </div>
     <div class="body">
       <h2>Hi ${fullName},</h2>
-      <p>We received a request to reset the password for your Ignito Experia account.</p>
+      <p>We received a request to reset the password for your IgnitoExperia account.</p>
       <p>Click the button below to reset your password. This link expires in <strong>15 minutes</strong>.</p>
       <a href="${resetUrl}" class="btn">Reset My Password →</a>
       <div class="warning-box">
@@ -185,16 +185,16 @@ export async function sendPasswordResetEmail({ to, fullName, resetToken }) {
       </p>
     </div>
     <div class="footer">
-      <p>© ${new Date().getFullYear()} Ignito Experia. All rights reserved.</p>
+      <p>© ${new Date().getFullYear()} IgnitoExperia. All rights reserved.</p>
     </div>
   </div>
 </body>
 </html>
   `.trim();
 
-  const text = `Hi ${fullName},\n\nReset your Ignito Experia password here (expires in 15 minutes):\n${resetUrl}\n\nIf you didn't request this, ignore this email.`;
+  const text = `Hi ${fullName},\n\nReset your IgnitoExperia password here (expires in 15 minutes):\n${resetUrl}\n\nIf you didn't request this, ignore this email.`;
 
-  return sendMail({ to, subject: "🔐 Reset Your Ignito Experia Password", html, text });
+  return sendMail({ to, subject: "🔐 Reset Your IgnitoExperia Password", html, text });
 }
 
 export default { sendWelcomeEmail, sendPasswordResetEmail };

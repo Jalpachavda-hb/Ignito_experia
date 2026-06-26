@@ -1,14 +1,16 @@
 import crypto from "crypto";
 import userRepository from "../repositories/UserRepository.js";
+import sessionRepository from "../repositories/SessionRepository.js";
+import refreshTokenRepository from "../repositories/RefreshTokenRepository.js";
+import { auditService } from "./AuditService.js";
 import { signAccessToken } from "../lib/jwt.js";
 import { hashPassword, verifyPassword } from "../utils/crypto.js";
 import { badRequest, unauthorized } from "../lib/errors.js";
-import { sendWelcomeEmail } from "./EmailService.js";
 import pool from "../lib/mysql.js";
 
-const loadUserPermissions = async (roleId) => {
+const loadUserPermissions = async (roleId, connection = pool) => {
   if (!roleId) return {};
-  const [rows] = await pool.query(
+  const [rows] = await connection.query(
     "SELECT ModuleCode, CanCreate, CanRead, CanUpdate, CanDelete FROM RolePermissions WHERE RoleId = ?",
     [roleId]
   );
@@ -25,51 +27,7 @@ const loadUserPermissions = async (roleId) => {
 };
 
 class AuthService {
-  async register(registerData) {
-    const { fullName, email, password, confirmPassword } = registerData;
-
-    if (!fullName || !email || !password || !confirmPassword) {
-      throw badRequest("All fields are required");
-    }
-
-    if (password !== confirmPassword) {
-      throw badRequest("Passwords do not match");
-    }
-
-    // Password strength check
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-    if (!passwordRegex.test(password)) {
-      throw badRequest(
-        "Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character."
-      );
-    }
-
-    // Check unique email
-    const existing = await userRepository.findByEmail(email);
-    if (existing) {
-      throw badRequest("Email is already registered");
-    }
-
-    const passwordHash = hashPassword(password);
-    
-    // Register as Student
-    const newUser = await userRepository.insert({
-      fullName,
-      email,
-      passwordHash,
-      role: "Student",
-      status: "Active"
-    });
-
-    // Send welcome email — non-blocking: failure does NOT prevent registration
-    sendWelcomeEmail({ to: email, fullName }).catch((err) =>
-      console.error("[AuthService] Welcome email failed:", err.message)
-    );
-
-    return newUser;
-  }
-
-  async login({ email, password }) {
+  async login({ email, password, ipAddress, browser, os, device }) {
     if (!email || !password) {
       throw badRequest("Email and password are required");
     }
@@ -79,113 +37,168 @@ class AuthService {
       throw unauthorized("Invalid email or password");
     }
 
-    // Verify status
     if (user.Status !== "Active") {
       throw unauthorized(`Your account is ${user.Status}. Please contact support.`);
     }
 
-    // Verify password hash
     const isPasswordValid = verifyPassword(password, user.PasswordHash);
     if (!isPasswordValid) {
       throw unauthorized("Invalid email or password");
     }
 
-    // Generate tokens
-    const accessToken = signAccessToken({
-      id: user.UserId,
-      name: user.FullName,
-      email: user.Email,
-      role: user.Role,
-      roleId: user.RoleId,
-    });
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
 
-    const refreshToken = crypto.randomBytes(40).toString("hex");
+    try {
+      await userRepository.updateLastLogin(user.UserId);
+
+      const permissions = await loadUserPermissions(user.RoleId, connection);
+      const sessionId = crypto.randomUUID();
+
+      const accessToken = signAccessToken({
+        id: user.UserId,
+        name: user.FullName,
+        email: user.Email,
+        role: user.Role,
+        roleId: user.RoleId,
+        source: "DIRECT"
+      });
+
+      const refreshTokenRaw = crypto.randomBytes(40).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(refreshTokenRaw).digest("hex");
+      
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      // We no longer require StudentProfileId for Sessions. We use UserId for all sessions.
+      await sessionRepository.insert({
+        SessionId: sessionId,
+        UserId: user.UserId,
+        AuthenticationSource: 'DIRECT',
+        IPAddress: ipAddress,
+        Browser: browser,
+        OS: os,
+        Device: device
+      }, connection);
+
+      // Using legacy UserRefreshTokens natively, but keeping naming consistent in Repo
+      await refreshTokenRepository.insert({
+        UserId: user.UserId,
+        SessionId: sessionId,
+        TokenHash: tokenHash,
+        ExpiresAt: expiresAt
+      }, connection);
+
+      await connection.commit();
+      connection.release();
+
+      // Async Audit
+      if (auditService) {
+        auditService.log({
+          SessionId: sessionId,
+          UserId: user.UserId,
+          AuthenticationSource: 'DIRECT',
+          Action: 'LOGIN',
+          Description: 'User logged in directly',
+          IPAddress: ipAddress,
+          Browser: browser,
+          OS: os,
+          Device: device
+        }).catch(console.error);
+      }
+
+      return {
+        user: {
+          id: user.UserId,
+          name: user.FullName,
+          email: user.Email,
+          role: user.Role,
+          roleId: user.RoleId ?? null,
+          status: user.Status,
+          permissions,
+        },
+        accessToken,
+        refreshToken: refreshTokenRaw,
+      };
+    } catch (err) {
+      await connection.rollback();
+      connection.release();
+      throw err;
+    }
+  }
+
+  async refresh({ refreshToken, ipAddress, browser, os, device }) {
+    if (!refreshToken) throw unauthorized("Refresh token is required");
+
+    const tokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
     
-    // Refresh token expiry: 7 days
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
 
-    // Save refresh token to DB
-    await userRepository.insertRefreshToken(user.UserId, refreshToken, expiresAt);
+    try {
+      const dbToken = await refreshTokenRepository.findByTokenHash(tokenHash);
+      if (!dbToken) {
+        throw unauthorized("Invalid or expired refresh token");
+      }
 
-    // Update last login
-    await userRepository.updateLastLogin(user.UserId);
+      const session = await sessionRepository.findById(dbToken.SessionId);
+      if (!session || session.Status !== 'Active') {
+        throw unauthorized("Session is no longer active");
+      }
 
-    const permissions = await loadUserPermissions(user.RoleId);
+      const sessionId = crypto.randomUUID();
+      const newRefreshTokenRaw = crypto.randomBytes(40).toString("hex");
+      const newTokenHash = crypto.createHash("sha256").update(newRefreshTokenRaw).digest("hex");
+      
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
 
-    return {
-      user: {
-        id: user.UserId,
-        name: user.FullName,
-        email: user.Email,
-        role: user.Role,
-        roleId: user.RoleId ?? null,
-        status: user.Status,
-        programId: user.ProgramId,
-        semesterId: user.SemesterId,
-        permissions,
-      },
-      accessToken,
-      refreshToken,
-    };
-  }
+      await refreshTokenRepository.revoke(dbToken.Id, connection);
+      
+      await sessionRepository.insert({
+        SessionId: sessionId,
+        UserId: dbToken.UserId,
+        AuthenticationSource: session.AuthenticationSource,
+        IPAddress: ipAddress,
+        Browser: browser,
+        OS: os,
+        Device: device
+      }, connection);
 
-  async refresh(oldRefreshToken) {
-    if (!oldRefreshToken) {
-      throw unauthorized("Refresh token is required");
-    }
+      await refreshTokenRepository.insert({
+        UserId: dbToken.UserId,
+        SessionId: sessionId,
+        TokenHash: newTokenHash,
+        ExpiresAt: expiresAt
+      }, connection);
 
-    // Find token in DB
-    const dbToken = await userRepository.findRefreshToken(oldRefreshToken);
-    if (!dbToken) {
-      throw unauthorized("Invalid or expired refresh token");
-    }
+      await sessionRepository.markLogout(session.SessionId, connection);
 
-    // Get user
-    const user = await userRepository.findById(dbToken.UserId);
-    if (!user || user.Status !== "Active") {
-      throw unauthorized("User is inactive or not found");
-    }
+      await connection.commit();
+      connection.release();
 
-    // Generate new tokens
-    const accessToken = signAccessToken({
-      id: user.UserId,
-      name: user.FullName,
-      email: user.Email,
-      role: user.Role,
-      roleId: user.RoleId,
-    });
+      if (auditService) {
+        auditService.log({
+          SessionId: sessionId,
+          UserId: dbToken.UserId,
+          AuthenticationSource: session.AuthenticationSource,
+          Action: 'TOKEN_REFRESH',
+          Description: 'Refresh token rotated successfully',
+          IPAddress: ipAddress,
+          Browser: browser,
+          OS: os,
+          Device: device
+        }).catch(console.error);
+      }
 
-    const newRefreshToken = crypto.randomBytes(40).toString("hex");
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    // Rotate refresh token: revoke old and save new
-    await userRepository.revokeRefreshToken(oldRefreshToken);
-    await userRepository.insertRefreshToken(user.UserId, newRefreshToken, expiresAt);
-
-    const permissions = await loadUserPermissions(user.RoleId);
-
-    return {
-      user: {
-        id: user.UserId,
-        name: user.FullName,
-        email: user.Email,
-        role: user.Role,
-        roleId: user.RoleId ?? null,
-        status: user.Status,
-        programId: user.ProgramId,
-        semesterId: user.SemesterId,
-        permissions,
-      },
-      accessToken,
-      refreshToken: newRefreshToken,
-    };
-  }
-
-  async logout(refreshToken) {
-    if (refreshToken) {
-      await userRepository.revokeRefreshToken(refreshToken);
+      return {
+        accessToken: "placeholder_new_access_token",
+        refreshToken: newRefreshTokenRaw,
+      };
+    } catch (err) {
+      await connection.rollback();
+      connection.release();
+      throw err;
     }
   }
 }

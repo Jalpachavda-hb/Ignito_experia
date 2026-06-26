@@ -1,41 +1,51 @@
 import express from 'express';
-import { findUserByCredentials } from '../data/users.js';
+import { validateDto } from '../middleware/validationMiddleware.js';
+import { loginDto, refreshDto } from '../dto/auth.dto.js';
+import authService from '../services/AuthService.js';
 
 const router = express.Router();
 
-// POST /api/auth/login
-router.post('/login', (req, res) => {
+router.post('/login', validateDto(loginDto), async (req, res, next) => {
   try {
-    console.log("LOGIN BODY:", req.body);
-
-    const { email, loginId, password } = req.body;
-
-    const userEmail = email || loginId;
-
-    const user = findUserByCredentials(userEmail, password);
-
-    if (user) {
-      // Return user without password
-      const { password: _pw, ...safeUser } = user;
-      return res.json({
-        success: true,
-        user: safeUser,
-        token: "demo-jwt-token-12345"
-      });
-    }
-
-    return res.status(401).json({
-      success: false,
-      message: "Invalid email or password"
+    const { email, password, device, os, browser } = req.body;
+    
+    // Pass basic tracking info
+    const result = await authService.login({
+      email,
+      password,
+      ipAddress: req.ip,
+      browser,
+      os,
+      device
     });
 
+    return res.json({
+      success: true,
+      ...result
+    });
   } catch (err) {
-    console.error("LOGIN ERROR:", err);
+    next(err);
+  }
+});
 
-    return res.status(500).json({
-      success: false,
-      message: err.message
+router.post('/refresh', validateDto(refreshDto), async (req, res, next) => {
+  try {
+    const { refreshToken, device, os, browser } = req.body;
+
+    const result = await authService.refresh({
+      refreshToken,
+      ipAddress: req.ip,
+      browser,
+      os,
+      device
     });
+
+    return res.json({
+      success: true,
+      ...result
+    });
+  } catch (err) {
+    next(err);
   }
 });
 

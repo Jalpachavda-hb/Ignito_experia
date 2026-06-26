@@ -3,12 +3,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { StudentProfile } from '@/pages/student/dashboard/types';
 import { CheckCircle2, AlertTriangle, GraduationCap } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth-store';
 
 interface ProfileSummaryCardProps {
   student: StudentProfile;
 }
 
 export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
+  const { auth } = useAuthStore();
   const isGoodStanding = student.academicStatus === 'Good Standing';
 
   return (
@@ -20,14 +22,14 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
           <div className="w-32 h-32 rounded-full border-4 border-white dark:border-slate-950 bg-slate-100 overflow-hidden shadow-sm shrink-0 mt-4 md:mt-0">
             <img 
               src={student.avatar} 
-              alt={student.name}
+              alt={auth.user?.fullName || student.name}
               className="w-full h-full object-cover"
             />
           </div>
           
           <div className="flex-1 text-center md:text-left flex flex-col items-center md:items-start w-full">
             <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white mt-2">
-              {student.name}
+              {auth.user?.fullName || student.name}
             </h2>
             <p className="text-sm font-medium text-slate-500 mt-1 mb-4">
               {student.enrollmentNumber}

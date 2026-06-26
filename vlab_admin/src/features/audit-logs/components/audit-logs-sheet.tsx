@@ -35,9 +35,7 @@ export function AuditLogsSheet() {
               <div className="text-muted-foreground">Actor:</div>
               <div>{currentRow.user.name} <br/><span className="text-xs text-muted-foreground">{currentRow.user.email}</span></div>
               
-              <div className="text-muted-foreground">IP Address:</div>
-              <div className="font-mono text-xs">{currentRow.ipAddress}</div>
-              
+
               <div className="text-muted-foreground">User Agent:</div>
               <div className="font-mono text-xs truncate" title={currentRow.userAgent}>{currentRow.userAgent}</div>
             </div>
@@ -48,18 +46,6 @@ export function AuditLogsSheet() {
             <p className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-md border border-border/50">
               {currentRow.description}
             </p>
-          </div>
-
-          <div className="space-y-2">
-            <h4 className="text-sm font-semibold tracking-tight flex items-center justify-between">
-              Raw Payload
-              <Badge variant="outline" className="font-mono text-[9px]">JSON</Badge>
-            </h4>
-            <div className="bg-[#0d1117] text-[#c9d1d9] p-4 rounded-md overflow-x-auto text-xs font-mono border border-border/50 shadow-inner">
-              <pre>
-                {JSON.stringify(currentRow.payload, null, 2)}
-              </pre>
-            </div>
           </div>
         </div>
       </SheetContent>
