@@ -7,7 +7,8 @@ import {
   upsertFile,
   deleteFile,
 } from "../services/fileRepository.js";
-import { saveToContainer, deleteFromContainer } from "../services/containerClient.js";
+import { saveToContainer, deleteFromContainer, getContainerFiles, readFromContainer } from "../services/containerClient.js";
+import { validateFile } from "../utils/validation.js";
 
 const getSessionId = (event) =>
   event.headers?.["x-session-id"] ||
@@ -43,8 +44,30 @@ export const filesListHandler = async (event) => {
 };
 
 export const filesContentHandler = async (event) => {
-  const { sessionId } = await assertSessionAccess(event);
+  const { sessionId, session } = await assertSessionAccess(event);
   const filePath = event.queryStringParameters?.path;
+
+  if (session?.status === "running") {
+    try {
+      const containerContent = await readFromContainer(session, filePath);
+      if (containerContent !== null) {
+        return ok({
+          path: filePath,
+          content: containerContent,
+          language: filePath.endsWith('.py') ? 'python' :
+                    filePath.endsWith('.js') || filePath.endsWith('.jsx') ? 'javascript' :
+                    filePath.endsWith('.java') ? 'java' :
+                    filePath.endsWith('.html') ? 'html' :
+                    filePath.endsWith('.css') ? 'css' :
+                    filePath.endsWith('.json') ? 'json' :
+                    filePath.endsWith('.sh') ? 'shell' : 'plaintext',
+        });
+      }
+    } catch (err) {
+      console.warn("[filesContentHandler] Failed to read container file content:", err.message);
+    }
+  }
+
   const file = await getFile(sessionId, filePath);
   if (!file) throw notFound("File not found");
   return ok({
@@ -58,6 +81,12 @@ export const filesSaveHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
   const { path: filePath, content, name, language } = event.body || {};
   if (!filePath) throw badRequest("path is required");
+
+  // Enforce runtime-specific validation before saving/uploading
+  const validation = validateFile(filePath, content, session?.labType || session?.labId);
+  if (!validation.valid) {
+    throw badRequest(validation.error);
+  }
 
   await upsertFile(sessionId, { path: filePath, content, name, language });
 

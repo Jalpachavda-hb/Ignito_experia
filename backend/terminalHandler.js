@@ -244,11 +244,12 @@ export const setupTerminal = (io) => {
     if (!ptyProcess) {
       console.log('[LOCAL FALLBACK TERMINAL]');
       try {
+        const localWorkspaceRoot = path.resolve(process.cwd(), '..');
         ptyProcess = pty.spawn(LOCAL_SHELL, [], {
           name: 'xterm-color',
           cols: 120,
           rows: 30,
-          cwd: process.env.HOME || process.env.USERPROFILE || process.cwd(),
+          cwd: localWorkspaceRoot,
           useConpty: false,
           env: {
             ...process.env,

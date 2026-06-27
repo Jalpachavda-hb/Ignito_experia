@@ -1,4 +1,3 @@
-import { ENV } from "../config/env.js";
 import { getAllActiveSessions, deleteSession } from "./sessionRepository.js";
 import { isEcsEnabled, stopEcsTask } from "./ecsService.js";
 import { clearSessionFiles } from "./fileRepository.js";
@@ -8,10 +7,9 @@ export const cleanupExpiredSessions = async () => {
     const activeSessions = await getAllActiveSessions();
     const now = Date.now();
     for (const session of activeSessions) {
-      if (!session.startTime) continue;
-      const duration = session.durationMinutes || ENV.defaultSessionMinutes || 30;
+      if (!session.startTime || !session.durationMinutes) continue;
       const startMs = new Date(session.startTime).getTime();
-      const expiresMs = startMs + duration * 60 * 1000;
+      const expiresMs = startMs + session.durationMinutes * 60 * 1000;
       if (now >= expiresMs) {
         console.log(`[Auto-Stop] Session ${session.sessionId} has expired. Stopping...`);
         try {

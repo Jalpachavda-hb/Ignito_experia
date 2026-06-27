@@ -92,7 +92,7 @@ export const createSessionRecord = ({
   labId,
   labType,
   runtimeType,
-  durationMinutes = ENV.defaultSessionMinutes,
+  durationMinutes,
 }) => {
   const sessionId = createSessionId();
   const sessionToken = createSessionToken();

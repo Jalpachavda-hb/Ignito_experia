@@ -6,10 +6,9 @@ import { LabSession } from '@/services/labService';
 
 interface SessionTimeoutModalProps {
   session: LabSession | null;
-  onRestart?: () => void;
 }
 
-export function SessionTimeoutModal({ session, onRestart }: SessionTimeoutModalProps) {
+export function SessionTimeoutModal({ session }: SessionTimeoutModalProps) {
   const [isTimeOut, setIsTimeOut] = useState(false);
 
   useEffect(() => {
@@ -32,16 +31,7 @@ export function SessionTimeoutModal({ session, onRestart }: SessionTimeoutModalP
 
   const handleGoToDashboard = () => {
     setIsTimeOut(false);
-    window.location.href = '/student'; // Replace with proper route if needed
-  };
-
-  const handleRestart = () => {
-    setIsTimeOut(false);
-    if (onRestart) {
-      onRestart();
-    } else {
-      window.location.reload();
-    }
+    window.location.href = '/student/dashboard';
   };
 
   return (

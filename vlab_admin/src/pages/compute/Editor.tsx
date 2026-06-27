@@ -110,7 +110,7 @@ const buildFileTree = (filesList: any[]) => {
     const parts = cleanPath.split('/');
 
     let current = root;
-    parts.forEach((part, partIdx) => {
+    parts.forEach((part: string, partIdx: number) => {
       if (partIdx === 0 && part === 'workspace') return;
 
       const isLast = partIdx === parts.length - 1;
@@ -147,7 +147,7 @@ const buildFileTree = (filesList: any[]) => {
   return root.children || [];
 };
 
-const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: any) => {
+const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const location = useLocation();
   const editorRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -228,7 +228,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               }
               setOpenFilePaths(prev => [...prev, file.path]);
             }
-            setActiveFileIndex(i);
+            selectFile(i);
           }}
           className={`group flex items-center gap-2 py-1 cursor-pointer border-l-2 transition-all ${isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
             }`}
@@ -280,7 +280,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [cliInput, setCliInput] = useState('');
+
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(250);
   const terminalRef = useRef<any>(null);
@@ -305,6 +305,68 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     document.addEventListener('mouseup', onMouseUp);
   };
 
+  const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
+
+  const refreshFiles = async (showLoading = false) => {
+    if (!sessionId) return;
+    if (showLoading) setIsLoading(true);
+    else setIsRefreshingFiles(true);
+    try {
+      const response = await fetchFiles(sessionId);
+      if (response.success) {
+        // Track the current active file's path to restore index properly after reload
+        const activePath = activeFileIndex >= 0 && files[activeFileIndex] ? files[activeFileIndex].path : null;
+
+        // Merge existing loaded file contents into the refreshed file list to avoid clearing editor contents
+        const mergedFiles = response.files.map((newFile: any) => {
+          const existing = files.find(f => f.path === newFile.path);
+          if (existing && existing.content !== undefined) {
+            return { ...newFile, content: existing.content };
+          }
+          return newFile;
+        });
+
+        setFiles(mergedFiles);
+
+        setOpenFilePaths(prev => {
+          if (prev.length === 0 && response.files.length > 0) {
+            return response.files.map((f: any) => f.path).slice(0, 8);
+          }
+          const validPaths = response.files.map((f: any) => f.path);
+          return prev.filter(p => validPaths.includes(p));
+        });
+
+        // Clean up loaded paths for deleted files
+        setLoadedPaths(prev => {
+          const next = new Set(prev);
+          const newPaths = response.files.map((f: any) => f.path);
+          prev.forEach(p => {
+            if (!newPaths.includes(p)) {
+              next.delete(p);
+            }
+          });
+          return next;
+        });
+
+        if (activePath) {
+          const newIdx = mergedFiles.findIndex((f: any) => f.path === activePath);
+          setActiveFileIndex(newIdx);
+        }
+        return mergedFiles;
+      }
+    } catch (err) {
+      console.error('Refresh files error:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshingFiles(false);
+    }
+  };
+
+  const refreshFilesRef = useRef(refreshFiles);
+  useEffect(() => {
+    refreshFilesRef.current = refreshFiles;
+  });
+
   useEffect(() => {
     // @ts-ignore
     const searchParams = new URLSearchParams(location.search);
@@ -318,15 +380,58 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
   }, [propSession, location.search]);
 
   useEffect(() => {
-    let isMounted = true;
-    const loadFiles = async () => {
-      if (!sessionId) return;
-      setIsLoading(true);
+    refreshFiles(true);
+  }, [sessionId, labId]);
+
+  // Auto-refresh file explorer every 3 minutes
+  useEffect(() => {
+    if (!sessionId) return;
+    const interval = setInterval(() => {
+      refreshFilesRef.current(false);
+    }, 180000);
+    return () => clearInterval(interval);
+  }, [sessionId]);
+
+
+
+  const selectFile = async (newIdx: number, newFilesList?: any[]) => {
+    if (newIdx === activeFileIndex) return;
+
+    const currentFiles = newFilesList || files;
+
+    // 1. Save current active file first in the background if it exists
+    if (activeFileIndex >= 0 && files[activeFileIndex]) {
+      saveFile(files[activeFileIndex], sessionId).catch(err => {
+        console.error('Failed to save file before switching:', err);
+      });
+    }
+
+    // 2. Set active file index
+    setActiveFileIndex(newIdx);
+
+    // 3. Fetch latest content for the newly selected file if not already loaded
+    if (newIdx >= 0 && currentFiles[newIdx]) {
+      const targetFile = currentFiles[newIdx];
+      // Skip fetching if content is already populated to avoid overwriting edits or newly uploaded/created files
+      if (targetFile.content !== undefined && targetFile.content !== '') {
+        return;
+      }
+
+      const targetPath = targetFile.path;
       try {
-        const response = await fetchFiles(sessionId);
-        if (isMounted && response.success) {
-          setFiles(response.files);
-          setOpenFilePaths(response.files.map((f: any) => f.path));
+        const response = await fetchFileContent(targetPath, sessionId);
+        if (response.success) {
+          setFiles(prev => {
+            const updated = [...prev];
+            const currentIdx = updated.findIndex(f => f.path === targetPath);
+            if (currentIdx !== -1) {
+              // Only update if it wasn't edited in the meantime
+              if (updated[currentIdx].content === undefined || updated[currentIdx].content === '') {
+                updated[currentIdx].content = response.content || '';
+              }
+            }
+            return updated;
+          });
         }
       } catch (err: any) {
         console.error('Load files error:', err);
@@ -334,25 +439,50 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       } finally {
         if (isMounted) setIsLoading(false);
       }
-    };
-    loadFiles();
-    return () => { isMounted = false; };
-  }, [sessionId, labId]);
+    }
+  };
+
+  const handleTerminalCommand = async () => {
+    // Small delay to allow filesystem operations inside container/host to settle
+    setTimeout(async () => {
+      // Also reload active file in editor in case the command modified it
+      if (activeFileIndex >= 0 && files[activeFileIndex]) {
+        try {
+          const response = await fetchFileContent(files[activeFileIndex].path, sessionId);
+          if (response.success) {
+            setFiles(prev => {
+              const updated = [...prev];
+              if (updated[activeFileIndex]) {
+                updated[activeFileIndex].content = response.content || '';
+              }
+              return updated;
+            });
+          }
+        } catch (e) {
+          console.error('Failed to reload active file after command:', e);
+        }
+      }
+    }, 800);
+  };
 
   useEffect(() => {
     let isMounted = true;
     const loadActiveFile = async () => {
       if (activeFileIndex < 0 || !files[activeFileIndex] || !sessionId) return;
       const file = files[activeFileIndex];
-      if (!file || loadedPaths.has(file.path)) return;
+      if (!file || file.content !== undefined) return;
 
       try {
         const response = await fetchFileContent(file.path, sessionId);
         if (isMounted && response.success) {
-          const newFiles = [...files];
-          newFiles[activeFileIndex].content = response.content || '';
-          setFiles(newFiles);
-          setLoadedPaths(prev => new Set(prev).add(file.path));
+          setFiles(prev => {
+            const updated = [...prev];
+            const idx = updated.findIndex(f => f.path === file.path);
+            if (idx !== -1) {
+              updated[idx].content = response.content || '';
+            }
+            return updated;
+          });
         }
       } catch (err: any) {
         console.error('Content load error:', err);
@@ -360,7 +490,12 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       }
     };
     loadActiveFile();
-  }, [activeFileIndex, sessionId, loadedPaths]);
+  }, [activeFileIndex, sessionId]);
+
+  const latestSaveRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    latestSaveRef.current = () => handleSave(false);
+  });
 
   useEffect(() => {
     if (activeFileIndex === -1 || !files[activeFileIndex]) return;
@@ -443,6 +578,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     setIsSaving(true);
     try {
       await saveFile(activeFile, sessionId);
+      await refreshFiles(false);
       if (showFeedback) {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
@@ -529,6 +665,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
         : { path: activeFile.path, language: activeFile.language, content: activeFile.content };
 
       const response = await runFile(runPayload, sessionId);
+      await refreshFiles(false);
 
       if (response) {
         const runSuccess = response.success || response.status === 'COMPLETED';
@@ -567,6 +704,12 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                 .error {
                   color: #ff5555;
                   font-weight: bold;
+                }
+                pre {
+                  white-space: pre-wrap;
+                  word-wrap: break-word;
+                  margin: 0;
+                  font-family: inherit;
                 }
                 .header-success {
                   color: #50fa7b;
@@ -657,7 +800,11 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
 
     const newFile = { name: fileName, path: `/workspace/${fileName}`, type: 'file', language: detectLanguage(fileName), content: '' };
     if (sessionId) {
-      setFiles(prev => [...prev, newFile]);
+      // Optimistically add to files, open tab, and select it
+      setFiles(prev => {
+        if (prev.some(f => f.path === newFile.path)) return prev;
+        return [...prev, newFile];
+      });
       setOpenFilePaths(prev => {
         if (!prev.includes(newFile.path)) return [...prev, newFile.path];
         return prev;
@@ -673,6 +820,20 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       } catch (err) {
         console.error('Failed to save newly added file on backend:', err);
       }
+      const newIdx = newFilesList.findIndex(f => f.path === newFile.path);
+      if (newIdx !== -1) {
+        selectFile(newIdx, newFilesList);
+      }
+
+      // Save to backend and refresh in background
+      (async () => {
+        try {
+          await saveFile(newFile, sessionId);
+          await refreshFiles(false);
+        } catch (err) {
+          console.error('Failed to save newly added file on backend:', err);
+        }
+      })();
     }
   };
 
@@ -711,35 +872,43 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
       const fileContent = e.target?.result as string;
       const newFile = { name: file.name, path: `/workspace/${file.name}`, type: 'file', language: detectLanguage(file.name), content: fileContent };
       if (sessionId) {
+        // Optimistically add to files, open tab, and select it
         setFiles(prev => {
-          const existingIdx = prev.findIndex(f => f.path === newFile.path);
-          if (existingIdx !== -1) {
-            const updated = [...prev];
-            updated[existingIdx] = newFile;
-            setActiveFileIndex(existingIdx);
-            return updated;
+          const updated = [...prev];
+          const idx = updated.findIndex(f => f.path === newFile.path);
+          if (idx !== -1) {
+            updated[idx] = newFile;
+          } else {
+            updated.push(newFile);
           }
-          const updated = [...prev, newFile];
-          setActiveFileIndex(updated.length - 1);
           return updated;
         });
-
         setOpenFilePaths(prev => {
           if (prev.includes(newFile.path)) return prev;
           return [...prev, newFile.path];
         });
 
-        setLoadedPaths(prev => {
-          const next = new Set(prev);
-          next.add(newFile.path);
-          return next;
-        });
-
-        try {
-          await saveFile(newFile, sessionId);
-        } catch (err) {
-          console.error('Failed to save uploaded file on backend:', err);
+        const newFilesList = [...files];
+        const existingIdx = newFilesList.findIndex(f => f.path === newFile.path);
+        if (existingIdx !== -1) {
+          newFilesList[existingIdx] = newFile;
+        } else {
+          newFilesList.push(newFile);
         }
+        const targetIdx = newFilesList.findIndex(f => f.path === newFile.path);
+        if (targetIdx !== -1) {
+          selectFile(targetIdx, newFilesList);
+        }
+
+        // Save to backend and refresh in background
+        (async () => {
+          try {
+            await saveFile(newFile, sessionId);
+            await refreshFiles(false);
+          } catch (err) {
+            console.error('Failed to save uploaded file on backend:', err);
+          }
+        })();
       }
     };
     reader.readAsText(file);
@@ -786,7 +955,9 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
 
       {/* Sidebar Explorer */}
       {isSidebarOpen && (
-        <div className="w-[260px] bg-[#252526] border-r border-[#1f1f1f] flex flex-col shrink-0">
+        <div 
+          className="w-[260px] bg-[#252526] border-r border-[#1f1f1f] flex flex-col shrink-0"
+        >
           <div className="h-12 px-4 flex items-center justify-between border-b border-[#1f1f1f]">
             <span className="text-[10px] text-white/60 uppercase font-bold tracking-widest">Explorer</span>
             <div className="flex items-center gap-2">
@@ -822,7 +993,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                       }
                       setOpenFilePaths(prev => [...prev, file.path]);
                     }
-                    setActiveFileIndex(i);
+                    selectFile(i);
                   }}
                   className={`group flex items-center gap-2 px-4 py-1.5 cursor-pointer border-l-2 transition-all ${activeFileIndex === i ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
                     }`}
@@ -877,7 +1048,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                 return (
                   <div
                     key={path}
-                    onClick={() => setActiveFileIndex(idx)}
+                    onClick={() => selectFile(idx)}
                     className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[100px] max-w-[180px] transition-colors ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
                       }`}
                   >
@@ -905,7 +1076,10 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
               <Download size={18} />
             </button>
             <button
-              onClick={() => setIsTerminalOpen(!isTerminalOpen)}
+              onClick={() => {
+                setIsTerminalOpen(!isTerminalOpen);
+                refreshFiles(false);
+              }}
               className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white text-[11px] font-black uppercase tracking-wider transition-colors border border-white/10 shadow-xl"
             >
               <TerminalIcon size={14} className="text-slate-300" />
@@ -1025,6 +1199,7 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
                   session={propSession || { sessionId, labId }}
                   hideHeader={false}
                   onClose={() => setIsTerminalOpen(false)}
+                  onTerminalCommand={handleTerminalCommand}
                 />
               </div>
             </>

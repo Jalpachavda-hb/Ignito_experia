@@ -117,7 +117,8 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
           </body></html>`);
         }
       },
-      proxyReqWs(proxyReq, req, socket, options, head) {
+      // proxyReqWs(proxyReq, req, socket, options, head) 
+      proxyReqWs(){
         proxyReq.setHeader('Connection', 'Upgrade');
         proxyReq.setHeader('Upgrade', 'websocket');
       },

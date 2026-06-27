@@ -7,11 +7,98 @@ import {
 } from "./containerClient.js";
 import { getAllowedExtensions } from "../lib/labTypeMapper.js";
 
-const memoryFiles = new Map();
+// Dynamically resolve the parent directory of backend as the local workspace root
+const getLocalWorkspaceRoot = () => {
+  if (process.env.LAB_WORKSPACE) {
+    return path.join(process.env.LAB_WORKSPACE, "workspace");
+  }
+  return path.resolve(process.cwd(), "..");
+};
 
-const getFilesMap = () => memoryFiles;
+const getLocalFilePath = (filePath) => {
+  const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
+  return path.join(getLocalWorkspaceRoot(), cleanPath);
+};
+
+const scanLocalFiles = (dir, baseDir = dir) => {
+  let results = [];
+  if (!fs.existsSync(dir)) return results;
+  
+  let list;
+  try {
+    list = fs.readdirSync(dir);
+  } catch (err) {
+    console.error(`Error reading directory ${dir}:`, err.message);
+    return results;
+  }
+
+  // System/intermediate folders to ignore to keep explorer clean and performant
+  const ignored = [
+    ".git",
+    "node_modules",
+    "backend",
+    "vlab_admin",
+    "__pycache__",
+    ".gradle",
+    "intermediates",
+    "generated",
+    "tmp",
+    "kotlin",
+    ".tanstack"
+  ];
+
+  for (const file of list) {
+    if (ignored.includes(file)) continue;
+    const fullPath = path.join(dir, file);
+    
+    let stat;
+    try {
+      stat = fs.statSync(fullPath);
+    } catch (e) {
+      continue;
+    }
+
+    if (stat.isDirectory()) {
+      results = results.concat(scanLocalFiles(fullPath, baseDir));
+    } else {
+      const relPath = "/workspace/" + path.relative(baseDir, fullPath).replace(/\\/g, "/");
+      const ext = file.split(".").pop()?.toLowerCase();
+      
+      let language = "plaintext";
+      if (ext === "py") language = "python";
+      else if (ext === "java") language = "java";
+      else if (ext === "sh") language = "shell";
+      else if (ext === "json") language = "json";
+      else if (ext === "html") language = "html";
+      else if (ext === "css") language = "css";
+      else if (ext === "xml") language = "xml";
+      else if (ext === "gradle") language = "groovy";
+      else if (ext === "properties") language = "properties";
+
+      results.push({
+        name: file,
+        path: relPath, // e.g. /workspace/filename.py
+        type: "file",
+        language,
+      });
+    }
+  }
+  return results;
+};
 
 export const listFiles = async (sessionId) => {
+  const root = getLocalWorkspaceRoot();
+  if (fs.existsSync(root)) {
+    try {
+      const scanned = scanLocalFiles(root);
+      if (scanned && scanned.length > 0) {
+        return scanned;
+      }
+    } catch (err) {
+      console.error("[listFiles] Local scan error:", err.message);
+    }
+  }
+
   const session = await getSession(sessionId);
   if (session?.status === "running") {
     let files = await getFilesFromContainer(session);
@@ -21,7 +108,7 @@ export const listFiles = async (sessionId) => {
     return files || [];
   }
   if (session?.files) return session.files;
-  return getFilesMap().get(sessionId) || [];
+  return [];
 };
 
 export const getFile = async (sessionId, filePath) => {
@@ -80,8 +167,6 @@ export const upsertFile = async (sessionId, fileData) => {
   if (index >= 0) files[index] = { ...files[index], ...record };
   else files.push(record);
 
-  getFilesMap().set(sessionId, files);
-  await updateSession(sessionId, { files }).catch(() => {});
   return record;
 };
 
@@ -99,5 +184,6 @@ export const deleteFile = async (sessionId, filePath) => {
 };
 
 export const clearSessionFiles = (sessionId) => {
-  getFilesMap().delete(sessionId);
+  // No-op as workspace is disk-bound
 };
+

@@ -3,10 +3,13 @@ import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { getSession } from "../services/sessionRepository.js";
 import { createRun, getRun, completeRun } from "../services/runRepository.js";
 import { getFile, upsertFile } from "../services/fileRepository.js";
-import { executeInContainer, saveToContainer } from "../services/containerClient.js";
+import { executeInContainer, saveToContainer, readFromContainer } from "../services/containerClient.js";
 import { executeLocally } from "../services/localExecutor.js";
 import { resolveLabType } from "../lib/labTypeMapper.js";
 import { getContainerHost, getContainerPort } from "../lib/labTools.js";
+import { validateFile } from "../utils/validation.js";
+import fs from "fs";
+import path from "path";
 
 
 export const runsCreateHandler = async ({ body, auth }) => {
@@ -23,30 +26,62 @@ export const runsCreateHandler = async ({ body, auth }) => {
     throw forbidden("You do not own this session");
   }
 
-  let code = content;
-  if (code && filePath) {
-    const name = filePath.split("/").pop();
-    // Automatically save it so that the file is persisted and updated in the container/DB
-    await upsertFile(sessionId, { path: filePath, content: code, name, language });
+  let code = "";
+  if (filePath) {
     if (session.status === "running") {
       try {
-        await saveToContainer(session, { path: filePath, content: code });
+        code = await readFromContainer(session, filePath);
       } catch (err) {
-        console.warn(`[runsCreateHandler] container proxy save skipped: ${err.message}`);
+        console.warn(`[runsCreateHandler] Failed to read from container: ${err.message}`);
       }
     }
-  } else if (!code && filePath) {
-    const file = await getFile(sessionId, filePath);
-    if (!file) throw notFound("File not found. Save your code before running.");
-    code = file.content;
+    if (!code) {
+      const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
+      const localPath = path.join(path.resolve(process.cwd(), ".."), cleanPath);
+      if (fs.existsSync(localPath)) {
+        try {
+          code = fs.readFileSync(localPath, "utf-8");
+        } catch (err) {
+          console.warn(`[runsCreateHandler] Failed to read local file: ${err.message}`);
+        }
+      }
+    }
   }
-  if (!code) throw badRequest("content or saved file path is required");
 
   const labType = resolveLabType({
     labId: session.labId,
     language,
     labType: body?.labType,
   });
+  
+  const isAndroid = labType === "android" || session.labId === "android" || session.labId === "mobile-app-lab";
+
+  // Fallback to body content or DB file content if not found on disk
+  if (!code) {
+    code = content;
+  }
+  if (!code && filePath) {
+    const file = await getFile(sessionId, filePath);
+    if (file) code = file.content;
+  }
+
+  if (!code && !isAndroid) throw badRequest("content or saved file path is required");
+
+  // Enforce runtime-specific validation before running
+  if (filePath && !isAndroid) {
+    const validation = validateFile(filePath, code, labType);
+    if (!validation.valid) {
+      return ok({
+        runId: `run_err_${Date.now()}`,
+        status: "FAILED",
+        output: "",
+        error: validation.error,
+        syntaxError: validation.error,
+        runtimeError: validation.error,
+        success: false,
+      });
+    }
+  }
 
   const run = await createRun({ sessionId, labType });
   let payload = { path: filePath, language, content: code, labType };

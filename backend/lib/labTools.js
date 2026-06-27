@@ -147,10 +147,11 @@ export const enrichSession = async (session) => {
   session.tools = await buildSessionTools(session);
   session.apiBaseUrl = await getSessionApiBaseUrl(session);
   session.containerPort = await getContainerPort(session.labId);
-  if (session.startTime) {
-    const duration = session.durationMinutes || ENV.defaultSessionMinutes || 30;
+  if (session.startTime && session.durationMinutes) {
     const startMs = new Date(session.startTime).getTime();
-    session.expiresAt = new Date(startMs + duration * 60 * 1000).toISOString();
+    session.expiresAt = new Date(
+      startMs + session.durationMinutes * 60 * 1000,
+    ).toISOString();
   }
   return session;
 };

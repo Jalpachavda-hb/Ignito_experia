@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
+    "start": "nodemon index.js",
     "dev": "nodemon index.js",
     "lambda:local": "node -e \"import('./lambda.js').then(m => console.log('Lambda router OK'))\"",
     "db:update": "node scripts/run_db_updates.js"
