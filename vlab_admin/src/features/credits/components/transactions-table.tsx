@@ -34,9 +34,6 @@ export function TransactionsTable() {
             <TableRow>
               <TableHead>Date</TableHead>
               <TableHead>User</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Reason / Details</TableHead>
-              <TableHead>Admin</TableHead>
               <TableHead className="text-right">Amount</TableHead>
             </TableRow>
           </TableHeader>
@@ -44,16 +41,9 @@ export function TransactionsTable() {
             {filtered.slice(0, 15).map((tx) => (
               <TableRow key={tx.id}>
                 <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
-                  {tx.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {tx.date.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </TableCell>
                 <TableCell className="font-medium">{tx.userName}</TableCell>
-                <TableCell>
-                  <Badge variant={tx.type === 'allocation' ? 'default' : 'secondary'} className="capitalize">
-                    {tx.type}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-sm">{tx.reason}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{tx.admin || 'System'}</TableCell>
                 <TableCell className={`text-right font-bold ${tx.amount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                   {tx.amount > 0 ? '+' : ''}{Intl.NumberFormat('en-US').format(tx.amount)}
                 </TableCell>
@@ -61,7 +51,7 @@ export function TransactionsTable() {
             ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
                   No transactions found matching your search.
                 </TableCell>
               </TableRow>

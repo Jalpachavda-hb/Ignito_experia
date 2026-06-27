@@ -16,8 +16,8 @@ export default function SettingsView() {
         </div>
       </Header>
       
-      <Main className="bg-muted/5 pb-8">
-        <div className="max-w-4xl mx-auto h-full mt-6">
+      <Main className="bg-[#fcfcfc] dark:bg-background min-h-[calc(100vh-3.5rem)]">
+        <div className="space-y-6 max-w-[1600px] mx-auto py-6 px-6">
           <ProfileSettings />
         </div>
       </Main>

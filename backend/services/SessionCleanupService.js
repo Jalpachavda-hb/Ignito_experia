@@ -8,12 +8,12 @@ class SessionCleanupService {
    */
   async runCleanupJob() {
     const connection = await pool.getConnection();
-    
+
     try {
       console.log("[SessionCleanup] Starting background cleanup job...");
-      
+
       const now = new Date();
-      
+
       // 1. Expire Idle Sessions (LastActivity older than IdleTimeout)
       const idleThreshold = new Date(now.getTime() - sessionPolicy.IdleTimeout * 1000);
       const [idleResult] = await connection.query(
@@ -41,7 +41,7 @@ class SessionCleanupService {
       );
 
       console.log(`[SessionCleanup] Completed. Idle expired: ${idleResult.affectedRows}, Absolute expired: ${absoluteResult.affectedRows}, Old Tokens deleted: ${tokenResult.affectedRows}`);
-      
+
     } catch (err) {
       console.error("[SessionCleanup] Error during background cleanup:", err);
     } finally {

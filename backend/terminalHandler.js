@@ -31,7 +31,7 @@ export const setupTerminal = (io) => {
     // =====================================
     const sessionId = socket.handshake.query.sessionId;
     let session = null;
-    
+
     try {
       session = await getSession(sessionId);
     } catch (err) {
@@ -39,7 +39,7 @@ export const setupTerminal = (io) => {
     }
 
     const cluster = process.env.ECS_CLUSTER || session?.cluster;
-    
+
     // 1. Detailed logging for debugging
     console.log('[Terminal Debug - Detailed Flow Trace]', {
       event: 'START_LAB_TERMINAL_CONNECTION',
@@ -63,48 +63,22 @@ export const setupTerminal = (io) => {
     if (session && session.taskArn && cluster) {
       try {
         const taskId = session.taskArn.split('/').pop();
-        
+
         const containerName = 'lab-runtime';
         const interactiveShell = 'sh -c "mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && cd /tmp/workspace/workspace || cd /workspace; [ -x /bin/bash ] && exec bash || exec sh"';
-        
+
         console.log('Connecting terminal to ECS container via /bin/sh...');
 
         // =====================================
-        // AWS CLI PATH & DYNAMIC RESOLUTION
+        // AWS CLI PATH
         // =====================================
-        let awsExePath = 'C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe';
-        let localPipAwsPath = '';
-        let localPythonExe = '';
-        let isLocalWinSetup = false;
-        let awsExists = fs.existsSync(awsExePath);
-
-        if (!awsExists && os.platform() === 'win32') {
-          const userHome = os.homedir();
-          const pythonDir = path.join(userHome, 'AppData', 'Local', 'Python');
-          if (fs.existsSync(pythonDir)) {
-            try {
-              const folders = fs.readdirSync(pythonDir);
-              for (const folder of folders) {
-                const scriptsDir = path.join(pythonDir, folder, 'Scripts');
-                const checkAwsNoExt = path.join(scriptsDir, 'aws');
-                const checkPythonExe = path.join(pythonDir, folder, 'python.exe');
-                if (fs.existsSync(checkAwsNoExt) && fs.existsSync(checkPythonExe)) {
-                  localPipAwsPath = checkAwsNoExt;
-                  localPythonExe = checkPythonExe;
-                  awsExePath = localPythonExe;
-                  isLocalWinSetup = true;
-                  awsExists = true;
-                  break;
-                }
-              }
-            } catch (e) {}
+        let awsExePath = process.env.AWS_CLI_PATH || 'aws';
+        if (!process.env.AWS_CLI_PATH && os.platform() === 'win32') {
+          if (fs.existsSync('C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe')) {
+            awsExePath = 'C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe';
+          } else {
+            awsExePath = 'aws.exe';
           }
-        }
-
-        console.log('AWS CLI Exists:', awsExists);
-        
-        if (!awsExists) {
-          throw new Error('AWS CLI not installed');
         }
 
         // =====================================
@@ -117,27 +91,31 @@ export const setupTerminal = (io) => {
         console.log('[Terminal] Polling ExecuteCommandAgent readiness...');
 
         try {
-          const { describeTask } = await import('./services/ecsService.js');
-          
+          const { describeTask } = await import('./services/ecsService.js'); 
+
           // Poll for up to 180 seconds (90 iterations * 2s)
           for (let i = 0; i < 90; i++) {
             const taskDetails = await describeTask(session.taskArn);
-            
+
             if (taskDetails) {
               const container = taskDetails.containers?.find(c => c.name === 'lab-runtime') || taskDetails.containers?.[0];
               if (container && container.name) {
                 actualContainerName = container.name;
               }
-              
+
               const execAgent = container?.managedAgents?.find(a => a.name === 'ExecuteCommandAgent');
-              
+              console.log({
+                taskStatus: taskDetails.lastStatus,
+                containerStatus: container?.lastStatus,
+                execAgent
+              });
               // ECS tasks may be RUNNING but ExecuteCommandAgent takes extra time
               if (execAgent?.lastStatus === 'RUNNING' && taskDetails.lastStatus === 'RUNNING') {
                 agentReady = true;
                 break;
               }
             }
-            
+
             // Wait 2 seconds before next poll
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
@@ -154,62 +132,37 @@ export const setupTerminal = (io) => {
           socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
         }
 
-        // =====================================
-        // SESSION MANAGER PLUGIN VERIFICATION
-        // =====================================
-        const standardSsmPath = 'C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin\\session-manager-plugin.exe';
-        let localPipSsmPath = '';
-        let ssmExists = fs.existsSync(standardSsmPath);
-
-        if (!ssmExists && os.platform() === 'win32') {
-          const userHome = os.homedir();
-          const pythonDir = path.join(userHome, 'AppData', 'Local', 'Python');
-          if (fs.existsSync(pythonDir)) {
-            try {
-              const folders = fs.readdirSync(pythonDir);
-              for (const folder of folders) {
-                const checkSsm = path.join(pythonDir, folder, 'Scripts', 'session-manager-plugin.exe');
-                if (fs.existsSync(checkSsm)) {
-                  localPipSsmPath = checkSsm;
-                  ssmExists = true;
-                  break;
-                }
-              }
-            } catch (e) {}
-          }
-        }
-
-        console.log('Session Manager Plugin Exists:', ssmExists);
-        
-        if (!ssmExists) {
-          throw new Error('AWS Session Manager Plugin not installed');
-        }
-
-        const region = process.env.AWS_REGION || 'ap-south-1';
+        const region = process.env.AWS_REGION || "ap-south-1";
 
         const ptyArgs = [
-          'ecs', 'execute-command',
-          '--cluster', cluster,
-          '--task', taskId,
-          '--container', actualContainerName,
-          '--interactive',
-          '--command', interactiveShell,
-          '--region', region,
+          "ecs",
+          "execute-command",
+          "--cluster",
+          cluster,
+          "--task",
+          taskId,
+          "--container",
+          actualContainerName,
+          "--interactive",
+          "--command",
+          interactiveShell,
+          "--region",
+          region,
         ];
 
-        if (isLocalWinSetup) {
-          ptyArgs.unshift(localPipAwsPath);
-        }
+        const ptyEnv = {
+          ...process.env,
+          TERM: "xterm-256color",
+          AWS_PAGER: "",
+        };
 
-        const ptyEnv = { ...process.env };
-        const pathDelimiter = os.platform() === 'win32' ? ';' : ':';
-        const pathKey = Object.keys(ptyEnv).find(k => k.toUpperCase() === 'PATH') || 'PATH';
-
-        // Ensure both Session Manager Plugin directories (standard and local pip scripts) are explicitly in PATH
-        const additions = [
-          'C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin'
-        ];
         if (os.platform() === 'win32') {
+          const pathDelimiter = ';';
+          const pathKey = Object.keys(ptyEnv).find(k => k.toUpperCase() === 'PATH') || 'PATH';
+          const additions = [
+            'C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin',
+            'C:\\Program Files\\Amazon\\AWSCLIV2'
+          ];
           const userHome = os.homedir();
           const pythonDir = path.join(userHome, 'AppData', 'Local', 'Python');
           if (fs.existsSync(pythonDir)) {
@@ -220,40 +173,68 @@ export const setupTerminal = (io) => {
               }
             } catch (e) {}
           }
+          const pathString = additions.join(pathDelimiter);
+          ptyEnv[pathKey] = `${pathString}${pathDelimiter}${ptyEnv[pathKey] || ''}`;
         }
-        
-        const pathString = additions.join(pathDelimiter);
-        ptyEnv[pathKey] = `${pathString}${pathDelimiter}${ptyEnv[pathKey] || ''}`;
 
-        console.log('[AWS Execute-Command Config]', {
-          taskId,
-          cluster,
-          containerName: actualContainerName,
-          awsExePath,
-          ptyArgs,
-        });
+        console.log("========== AWS EXECUTE COMMAND ==========");
+        console.log("AWS CLI :", awsExePath);
+        console.log("Cluster :", cluster);
+        console.log("Task ID :", taskId);
+        console.log("Container :", actualContainerName);
+        console.log("Region :", region);
+        console.log("Command :", ptyArgs.join(" "));
+        console.log("=========================================");
 
         ptyProcess = pty.spawn(awsExePath, ptyArgs, {
-          name: 'xterm-color',
+          name: "xterm-color",
           cols: 120,
           rows: 30,
           cwd: process.cwd(),
-          useConpty: false, // Force WinPTY to prevent ConPTY from intercepting/translating VT sequences (arrow keys)
-          env: {
-            ...ptyEnv,
-            TERM: 'xterm-256color',
-            AWS_PAGER: '',
-          },
+          useConpty: false,
+          env: ptyEnv,
         });
 
         activePtys.set(socket.id, ptyProcess);
 
+        let hasSentContainerOutput = false;
+        ptyProcess.onData((data) => {
+          if (!hasSentContainerOutput && isContainer) {
+            data = stripStartupNoise(data);
+            if (!data) return;
+            hasSentContainerOutput = true;
+          }
+
+          socket.emit("terminal-output", data);
+        });
+
+        ptyProcess.onExit(({ exitCode }) => {
+          console.log("[PTY EXIT]", exitCode);
+
+          if (exitCode !== 0) {
+            socket.emit(
+              "terminal-output",
+              `\r\n\x1b[31mTerminal exited with code ${exitCode}\x1b[0m\r\n`
+            );
+          }
+        });
+
+        ptyProcess.on("error", (err) => {
+          console.error("[PTY ERROR]", err);
+
+          socket.emit(
+            "terminal-output",
+            `\r\n\x1b[31m${err.message}\x1b[0m\r\n`
+          );
+        });
+
         isContainer = true;
-        console.log('[SUCCESS] ECS terminal connected');
-        
+        console.log("[SUCCESS] ECS terminal connected");
+
       } catch (err) {
         console.error('[ECS TERMINAL FAILED]', err.message);
         socket.emit('terminal-output', `\r\n\x1b[31m[ECS TERMINAL FAILED: ${err.message}]\x1b[0m\r\n`);
+        return;
       }
     }
 
@@ -274,7 +255,7 @@ export const setupTerminal = (io) => {
             TERM: 'xterm-256color',
           },
         });
-        
+
         activePtys.set(socket.id, ptyProcess);
       } catch (err) {
         console.error('[LOCAL TERMINAL FAILED]', err.message);
@@ -305,14 +286,14 @@ export const setupTerminal = (io) => {
               .replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/g, '')
               .replace(/Starting session with SessionId:\s*[a-zA-Z0-9-]+[\r\n]*/g, '');
           }
-          
+
           // Avoid sending empty chunks if they were completely replaced
           if (!data) {
             return;
           }
           hasSentContainerOutput = true;
         }
-        
+
         socket.emit('terminal-output', data);
       });
 
@@ -346,14 +327,14 @@ export const setupTerminal = (io) => {
           const b64 = Buffer.from(content).toString('base64');
           let syncCmd;
           if (isContainer) {
-             syncCmd = `echo "${b64}" | base64 -d > "${path}"`;
+            syncCmd = `echo "${b64}" | base64 -d > "${path}"`;
           } else {
-             // local machine fallback
-             const fs = require('fs');
-             const nodePath = require('path');
-             const localPath = nodePath.join(process.cwd(), path.replace('/workspace/', ''));
-             try { fs.writeFileSync(localPath, content); } catch(e){}
-             syncCmd = `echo "Local file synced"`;
+            // local machine fallback
+            const fs = require('fs');
+            const nodePath = require('path');
+            const localPath = nodePath.join(process.cwd(), path.replace('/workspace/', ''));
+            try { fs.writeFileSync(localPath, content); } catch (e) { }
+            syncCmd = `echo "Local file synced"`;
           }
 
           let runCmd = '';

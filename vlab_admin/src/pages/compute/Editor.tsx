@@ -73,7 +73,7 @@ const getLabExtensionRules = (labName: string, labId: string) => {
   if (name.includes('mobile') || id.includes('mobile') || id.includes('android')) {
     return {
       courseName: 'Fundamental of Mobile',
-      extensions: ['java', 'xml', 'gradle', 'properties', 'sh']
+      extensions: ['java', 'kt', 'xml', 'gradle', 'properties', "sh", "json", "png", "jpg", "jpeg", "pro"]
     };
   }
   if (name.includes('java development') || id.includes('java-development')) {
@@ -472,14 +472,6 @@ const CloudEditor = ({ session: propSession, hideHeader, onStopLab, onBack }: an
     if (!sessionId || (!isAndroid && !activeFile)) return;
     setIsRunning(true);
 
-    // Auto-save the active file first if it exists and is loaded
-    if (activeFile && loadedPaths.has(activeFile.path)) {
-      try {
-        await saveFile(activeFile, sessionId);
-      } catch (err) {
-        console.error('Failed to save file before run:', err);
-      }
-    }
 
     if (!isAndroid && activeFile && activeFile.language === 'html') {
       setWebPreviewCode(activeFile.content || '');

@@ -7,7 +7,7 @@ import { exec } from "child_process";
 import util from "util";
 import os from "os";
 import { ANDROID_STARTER_FILES } from "../lib/androidStarter.js";
-
+import { describeTask } from "./ecsService.js";
 const execAsync = util.promisify(exec);
 
 const CONTAINER_TIMEOUT_MS = 35000;
@@ -61,39 +61,15 @@ const getEcsExecContext = (session) => {
 };
 
 const resolveAwsCli = () => {
-  const standardAws = "C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe";
-
-  if (os.platform() === "win32") {
-    if (fs.existsSync(standardAws)) {
-      return { awsExePath: standardAws, argsPrepend: [], isLocalWinSetup: false };
-    }
-
-    // Dynamic search inside the current user's profile AppData directory
-    const userHome = os.homedir();
-    const pythonDir = path.join(userHome, "AppData", "Local", "Python");
-    if (fs.existsSync(pythonDir)) {
-      try {
-        const folders = fs.readdirSync(pythonDir);
-        for (const folder of folders) {
-          const scriptsDir = path.join(pythonDir, folder, "Scripts");
-          const awsExe = path.join(scriptsDir, "aws.exe");
-          const awsNoExt = path.join(scriptsDir, "aws");
-          const pythonExe = path.join(pythonDir, folder, "python.exe");
-
-          if (fs.existsSync(awsExe)) {
-            return { awsExePath: awsExe, argsPrepend: [], isLocalWinSetup: false };
-          }
-          if (fs.existsSync(awsNoExt) && fs.existsSync(pythonExe)) {
-            return { awsExePath: pythonExe, argsPrepend: [awsNoExt], isLocalWinSetup: true };
-          }
-        }
-      } catch (err) {
-        console.warn("[resolveAwsCli] Error reading local Python directory:", err.message);
-      }
+  let awsExePath = process.env.AWS_CLI_PATH || "aws";
+  if (!process.env.AWS_CLI_PATH && os.platform() === "win32") {
+    if (fs.existsSync("C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe")) {
+      awsExePath = "C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe";
+    } else {
+      awsExePath = "aws.exe";
     }
   }
-
-  return { awsExePath: "aws", argsPrepend: [], isLocalWinSetup: false };
+  return { awsExePath, argsPrepend: [], isLocalWinSetup: false };
 };
 
 const getSsmEnv = () => {
@@ -113,7 +89,7 @@ const getSsmEnv = () => {
         for (const folder of folders) {
           additions.push(path.join(pythonDir, folder, "Scripts"));
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     env.PATH = [
@@ -134,13 +110,54 @@ const stripSsmNoise = (stdout) => {
   cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, "");
   return cleanOut.trim();
 };
+const waitForExecuteCommandAgent = async (session) => {
+  const MAX_RETRIES = 15;
 
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    const task = await describeTask(session.taskArn);
+
+    if (!task) {
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
+    }
+
+    const container =
+      task.containers?.find(c => c.name === "lab-runtime") ||
+      task.containers?.[0];
+
+    const agent =
+      container?.managedAgents?.find(
+        a => a.name === "ExecuteCommandAgent"
+      );
+
+    console.log({
+      taskStatus: task.lastStatus,
+      containerStatus: container?.lastStatus,
+      agentStatus: agent?.lastStatus,
+    });
+
+    if (
+      task.lastStatus === "RUNNING" &&
+      container?.lastStatus === "RUNNING" &&
+      agent?.lastStatus === "RUNNING"
+    ) {
+      console.log("ExecuteCommandAgent READY");
+      return;
+    }
+
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  throw new Error(
+    "ExecuteCommandAgent did not become RUNNING within timeout."
+  );
+};
 const runSsmShellCommand = async (session, commandValue) => {
   const ctx = getEcsExecContext(session);
   if (!ctx) {
     throw new Error("Missing ECS task info for SSM execution");
   }
-
+  await waitForExecuteCommandAgent(session);
   const region = ENV.awsRegion;
   const aws = resolveAwsCli();
   let awsPrefix = `"${aws.awsExePath}"`;
@@ -165,7 +182,7 @@ const runSsmShellCommand = async (session, commandValue) => {
 
 const executeViaSsm = async (session, payload) => {
   let lang = (payload.language || "").toLowerCase();
-  
+
   // If language is missing, infer from file path
   if (!lang && payload.path) {
     const ext = payload.path.split('.').pop().toLowerCase();
@@ -185,7 +202,7 @@ const executeViaSsm = async (session, payload) => {
     const fileName = containerPath.split('/').pop();
     const className = fileName.replace('.java', '');
     const dirName = containerPath.substring(0, containerPath.lastIndexOf('/'));
-    
+
     commandValue = `sh -c 'echo ${b64} | base64 -d > "${containerPath}" && cd "${dirName}" && javac "${fileName}" && java "${className}" 2>&1'`;
   } else {
     let ext = "py";
@@ -197,7 +214,7 @@ const executeViaSsm = async (session, payload) => {
       ext = "sh";
       runner = "bash";
     }
-    
+
     commandValue = `sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'`;
   }
 
@@ -439,11 +456,6 @@ export const getFilesFromContainer = async (session) => {
   }
 
   const isAndroid = session?.labType === 'android' || session?.labId === 'android' || session?.labId === 'mobile-app-lab';
-  let b64Json = "";
-  if (isAndroid) {
-    const jsonStr = JSON.stringify(ANDROID_STARTER_FILES);
-    b64Json = Buffer.from(jsonStr).toString("base64");
-  }
 
   const payload = {
     path: "/tmp/list_files.py",
@@ -454,7 +466,6 @@ import base64
 import shutil
 
 workspace = "/tmp/workspace/workspace"
-is_android = ${isAndroid ? 'True' : 'False'}
 
 # 1. Copy-on-Initialize: Copy from /workspace to /tmp/workspace/workspace if empty
 if os.path.exists("/workspace") and os.path.isdir("/workspace"):
@@ -471,25 +482,6 @@ if os.path.exists("/workspace") and os.path.isdir("/workspace"):
                     shutil.copy2(s, d)
     except Exception as e:
         print("COPY_ERROR: " + str(e))
-
-# 2. Seed Android Starter Files if needed
-if is_android and not os.path.exists(os.path.join(workspace, "build.gradle")):
-    try:
-        files_data = json.loads(base64.b64decode('${b64Json}').decode('utf-8'))
-        for file in files_data:
-            path = file['path'].replace('/workspace/', '/tmp/workspace/workspace/')
-            dir_name = os.path.dirname(path)
-            if dir_name:
-                os.makedirs(dir_name, exist_ok=True)
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(file['content'])
-            if file['name'] in ['gradlew', 'build.sh']:
-                try:
-                    os.chmod(path, 0o755)
-                except:
-                    pass
-    except Exception as e:
-        print("SEED_ERROR: " + str(e))
 
 # 3. List all files
 result = []
@@ -538,13 +530,30 @@ print("---FILES_START---" + json.dumps(result) + "---FILES_END---")`
       const endIdx = output.lastIndexOf(endMarker);
       if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
         const jsonStr = output.substring(startIdx + startMarker.length, endIdx).trim();
-        return JSON.parse(jsonStr);
+        const filesList = JSON.parse(jsonStr);
+
+        if (isAndroid && !filesList.some((f) => f.name === 'build.gradle')) {
+          console.log("[getFilesFromContainer] Seeding Android Starter Files via JS to prevent command length limits...");
+          for (const file of ANDROID_STARTER_FILES) {
+            await saveToContainer(session, file);
+            if (file.name === 'gradlew' || file.name === 'build.sh') {
+              await executeInContainer(session, {
+                path: "/tmp/chmod.py",
+                language: "python",
+                content: `import os\ntry: os.chmod('/tmp/workspace/workspace/${file.name}', 0o755)\nexcept: pass`
+              }, { forceSsm: true });
+            }
+          }
+          return getFilesFromContainer(session);
+        }
+
+        return filesList;
       }
     }
     throw new Error("Unable to access container workspace. Please refresh or restart the session.");
   } catch (err) {
-    console.error("[getFilesFromContainer] Error:", err.message);
-    throw new Error("Unable to access container workspace. Please refresh or restart the session.");
+    console.error("[getFilesFromContainer] Error:", err.message, err.stack);
+    throw new Error("DEBUG: " + err.message);
   }
 };
 

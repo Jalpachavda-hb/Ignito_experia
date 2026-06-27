@@ -76,23 +76,7 @@ export const sidebarData: SidebarData = {
         },
       ],
     },
-    {
-      title: 'People',
-      items: [
-        {
-          title: 'Student Management',
-          url: '/users',
-          icon: UserCheck,
-          moduleCode: 'STUDENT_MANAGEMENT',
-        },
-        {
-          title: 'Faculty Management',
-          url: '/users',
-          icon: UserCog,
-          moduleCode: 'FACULTY_MANAGEMENT',
-        },
-      ],
-    },
+
     {
       title: 'Academic',
       items: [

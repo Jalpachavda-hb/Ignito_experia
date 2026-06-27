@@ -16,11 +16,6 @@ export const listFiles = async (sessionId) => {
   if (session?.status === "running") {
     let files = await getFilesFromContainer(session);
     if (files && files.length > 0) {
-      const allowedExtensions = getAllowedExtensions(session.labId);
-      files = files.filter(f => {
-        const ext = f.path.split(".").pop()?.toLowerCase();
-        return ext && allowedExtensions.includes(ext);
-      });
       await updateSession(sessionId, { files }).catch(() => {});
     }
     return files || [];

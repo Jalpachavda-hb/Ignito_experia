@@ -30,11 +30,16 @@ const assertSessionAccess = async (event) => {
 };
 
 export const filesListHandler = async (event) => {
-  const { sessionId } = await assertSessionAccess(event);
-  const files = await listFiles(sessionId);
-  return ok({
-    files: files.map(({ content, ...meta }) => meta),
-  });
+  try {
+    const { sessionId } = await assertSessionAccess(event);
+    const files = await listFiles(sessionId);
+    return ok({
+      files: files.map(({ content, ...meta }) => meta),
+    });
+  } catch (err) {
+    console.error("[filesListHandler] FATAL ERROR:", err.message, err.stack);
+    throw err;
+  }
 };
 
 export const filesContentHandler = async (event) => {

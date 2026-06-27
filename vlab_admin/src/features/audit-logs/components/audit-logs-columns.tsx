@@ -2,8 +2,6 @@ import { Row, type ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
 import { DataTableColumnHeader } from '@/components/data-table/column-header'
 import { type AuditLog, type AuditAction } from '../data/schema'
-import { AuditLogsRowActions } from './audit-logs-row-actions'
-
 const getActionVariant = (action: string) => {
   switch (action) {
     case 'CREATE': return 'default'
@@ -26,7 +24,7 @@ export const auditLogsColumns: ColumnDef<AuditLog>[] = [
       const date = row.original.timestamp
       return (
         <div className='font-mono text-xs text-muted-foreground whitespace-nowrap'>
-          {date.toISOString().replace('T', ' ').substring(0, 19)}
+          {date.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         </div>
       )
     },
@@ -96,10 +94,5 @@ export const auditLogsColumns: ColumnDef<AuditLog>[] = [
         {row.getValue('description')}
       </div>
     ),
-  },
-
-  {
-    id: 'actions',
-    cell: ({ row }) => <AuditLogsRowActions row={row} />,
-  },
+  }
 ]

@@ -5,7 +5,6 @@ import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { AuditLogsTable } from './components/audit-logs-table'
 import { AuditLogsFilters } from './components/audit-logs-filters'
-import { AuditLogsSheet } from './components/audit-logs-sheet'
 import { AuditLogsProvider } from './context/audit-logs-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Activity, ShieldAlert, KeyRound } from 'lucide-react'
@@ -146,19 +145,10 @@ function AuditLogsViewContent() {
           {loading ? (
             <div className="flex items-center justify-center p-12 text-muted-foreground">Loading audit logs...</div>
           ) : (
-            <>
-              <AuditLogsTable data={logs} />
-              {/* DEBUG INFO */}
-              <div className="mt-4 p-4 bg-muted rounded-md overflow-auto max-h-64">
-                <h3 className="font-bold mb-2">DEBUG: logs state</h3>
-                <pre className="text-xs">{JSON.stringify(logs, null, 2)}</pre>
-              </div>
-            </>
+            <AuditLogsTable data={logs} />
           )}
         </div>
       </Main>
-
-      <AuditLogsSheet />
     </>
   )
 }

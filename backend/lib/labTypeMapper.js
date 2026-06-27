@@ -48,7 +48,7 @@ export const getAllowedExtensions = (labId) => {
     return ["py", "java", "csv", "txt", "jar", "xml", "sh", "json", "log", "parquet", "avro", "orc"];
   }
   if (id.includes("mobile") || id.includes("android") || id.includes("mobile-app-lab")) {
-    return ["java", "xml", "gradle", "properties", "sh"];
+    return ["java", "kt", "xml", "gradle", "properties", "sh", "json", "png", "jpg", "jpeg", "pro"];
   }
   if (id.includes("java-development") || id.includes("java")) {
     return ["java"];

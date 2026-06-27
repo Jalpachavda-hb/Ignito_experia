@@ -169,47 +169,93 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
   return mountPath;
 };
 
-export const attachCodeServerProxyUpgrade = (httpServer, apiPrefix) => {
+export const attachCodeServerProxyUpgrade = (httpServer) => {
   httpServer.on("upgrade", async (req, socket, head) => {
-    const url = req.url || "";
-    if (!url.includes("/lab-sessions/") || !url.includes("/vscode")) return;
-
-    const match = url.match(/\/lab-sessions\/([^/]+)\/vscode/);
-    if (!match) return;
-
     try {
-      const sessionId = match[1];
-      const session = await getSession(sessionId);
-      const logPfx = `[${new Date().toISOString()}] UpgradeRequest: url: ${url}, sessionFound: ${!!session}, labId: ${session?.labId}, status: ${session?.status}`;
+      console.log("\n==============================");
+      console.log("[WS] Incoming Upgrade Request");
+      console.log("URL:", req.url);
+      console.log("==============================");
 
-      if (!session || !isCodeServerLab(session)) {
-        try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `${logPfx} -> Rejected (not found or not code-server)\n`); } catch (e) { }
+      const url = req.url || "";
+
+      if (!url.includes("/lab-sessions/") || !url.includes("/vscode")) {
+        console.log("[WS] Not a VS Code request.");
+        return;
+      }
+
+      const match = url.match(/\/lab-sessions\/([^/]+)\/vscode/);
+
+      if (!match) {
+        console.log("[WS] Session ID not found.");
         socket.destroy();
         return;
       }
+
+      const sessionId = match[1];
+
+      console.log("[WS] Session:", sessionId);
+
+      const session = await getSession(sessionId);
+
+      if (!session) {
+        console.log("[WS] Session not found.");
+        socket.destroy();
+        return;
+      }
+
+      console.log("[WS] Runtime:", session.runtimeType);
+      console.log("[WS] Status :", session.status);
+
+      if (!isCodeServerLab(session)) {
+        console.log("[WS] Not a code-server session.");
+        socket.destroy();
+        return;
+      }
+
+      if (session.status !== "running") {
+        console.log("[WS] Session not running.");
+        socket.destroy();
+        return;
+      }
+
       const host = getContainerHost(session);
       const runtime = await getLabRuntime(session.labId);
-      const port = runtime.port || 8080;
 
-      req.codeServerTarget = `http://${host}:${port}`;
+      req.codeServerTarget = `http://${host}:${runtime.port || 8080}`;
       req.codeServerSessionId = sessionId;
 
-      try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `${logPfx} -> target: ${req.codeServerTarget}, host: ${host}, port: ${port}\n`); } catch (e) { }
+      console.log("[WS] Target:", req.codeServerTarget);
 
-     if (global.codeServerWsProxy && typeof global.codeServerWsProxy.upgrade === "function") {
+      req.url = stripProxyPrefix(req.url, req);
 
-  req.url = stripProxyPrefix(req.url, req);
+      console.log("[WS] Rewritten URL:", req.url);
 
-  console.log("[WS REWRITE]", req.url);
-
-  global.codeServerWsProxy.upgrade(req, socket, head);
-} else {
-        try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `${logPfx} -> Rejected (global.codeServerWsProxy not ready)\n`); } catch (e) { }
+      if (!global.codeServerWsProxy) {
+        console.log("[WS] Proxy not initialized.");
         socket.destroy();
+        return;
       }
+
+      console.log(
+        "[WS] Proxy methods:",
+        Object.keys(global.codeServerWsProxy)
+      );
+
+      if (typeof global.codeServerWsProxy.upgrade !== "function") {
+        console.log("[WS] upgrade() method not found!");
+        socket.destroy();
+        return;
+      }
+
+      console.log("[WS] Calling proxy.upgrade()...");
+
+      global.codeServerWsProxy.upgrade(req, socket, head);
+
+      console.log("[WS] proxy.upgrade() called.");
+
     } catch (err) {
-      try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', `[${new Date().toISOString()}] UpgradeError: ${err.message}\n`); } catch (e) { }
-      console.error("[codeServerProxyUpgrade error]", err);
+      console.error("[WS ERROR]", err);
       socket.destroy();
     }
   });

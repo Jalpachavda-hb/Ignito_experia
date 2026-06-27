@@ -318,13 +318,13 @@ export function LabActionDialog({
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Created Date</p>
                       <p className="font-semibold mt-1">
-                        {currentRow.createdAt ? new Date(currentRow.createdAt).toLocaleString() : 'N/A'}
+                        {currentRow.createdAt ? new Date(currentRow.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                       </p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Last Updated</p>
                       <p className="font-semibold mt-1">
-                        {currentRow.updatedAt ? new Date(currentRow.updatedAt).toLocaleString() : 'N/A'}
+                        {currentRow.updatedAt ? new Date(currentRow.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                       </p>
                     </div>
                   </div>

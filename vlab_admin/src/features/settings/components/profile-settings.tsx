@@ -3,20 +3,36 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Upload, Save, RefreshCcw } from 'lucide-react'
+import { Upload, Save, RefreshCcw, User } from 'lucide-react'
 import { toast } from 'sonner'
 import { sleep } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
+import { useEffect } from 'react'
 
 export function ProfileSettings() {
+  const { auth: { user, updateUser } } = useAuthStore()
+
   const { register, watch, formState: { isDirty }, reset } = useForm({
     defaultValues: {
-      fullName: 'Admin User',
-      email: 'admin@vlab.enterprise',
-      mobile: '+1 (555) 000-0000',
-      designation: 'Chief Administrator',
+      fullName: user?.fullName || '',
+      email: user?.email || '',
+      mobile: '+1 (555) 000-0000', // Placeholders for fields not in AuthUser
+      designation: user?.role || '',
       organization: 'Acme University',
     }
   })
+
+  useEffect(() => {
+    if (user) {
+      reset({
+        fullName: user.fullName || '',
+        email: user.email || '',
+        mobile: '+1 (555) 000-0000',
+        designation: user.role || '',
+        organization: 'Acme University',
+      })
+    }
+  }, [user, reset])
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,7 +56,7 @@ export function ProfileSettings() {
           
           <div className="flex flex-col md:flex-row items-start md:items-center gap-8 pb-8 border-b border-border/50">
             <div className="h-32 w-32 shrink-0 border-2 border-primary/20 rounded-xl overflow-hidden bg-muted flex items-center justify-center relative group">
-              <img src="/avatars/shadcn.jpg" alt="Profile" className="h-full w-full object-cover" />
+              <User className="h-16 w-16 text-muted-foreground" />
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                 <Upload className="h-6 w-6 text-white" />
               </div>

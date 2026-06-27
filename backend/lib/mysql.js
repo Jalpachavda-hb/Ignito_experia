@@ -23,14 +23,6 @@ export const verifyDbConnection = async () => {
     console.log("[MySQL] Connected successfully to the database.");
     connection.release();
 
-    try {
-      const [rows] = await pool.query("SELECT LabId, LabCode, Title, RuntimeType, RuntimePort, RuntimePath FROM Labs");
-      const fs = await import("fs");
-      fs.writeFileSync("scratch_out.txt", JSON.stringify(rows, null, 2));
-      console.log("[MySQL DEBUG Labs]", JSON.stringify(rows, null, 2));
-    } catch (e) {
-      console.error("[MySQL DEBUG Labs error]", e);
-    }
 
     try {
       const [columns] = await pool.query("SHOW COLUMNS FROM Labs;");
@@ -38,7 +30,7 @@ export const verifyDbConnection = async () => {
       const activeField = hasIsDeleted ? 'IsDeleted' : 'IsActive';
       const activeVal = hasIsDeleted ? 0 : 1;
 
-      console.log("[MySQL] Seeding mobile-app-lab if not exists...");
+
       await pool.query(`INSERT IGNORE INTO Labs (
           LabCode, Title, Subtitle, Semester, Logo, DurationMinutes, Credits,
           Complexity, Category, Description, Status, TaskDefinition, RuntimeType, RuntimePort,
@@ -63,15 +55,14 @@ export const verifyDbConnection = async () => {
           8080,
           ${activeVal}
       );`);
-      console.log("[MySQL] Seeding completed successfully.");
+
     } catch (dbErr) {
       console.error("[MySQL] Android Lab seeding failed:", dbErr.message);
     }
 
     // ── Roles & Permissions Migrations ──
     try {
-      console.log("[MySQL] Running Roles & Permissions Migrations...");
-      
+
       // 1. Create Roles table
       await pool.query(`
         CREATE TABLE IF NOT EXISTS \`Roles\` (
@@ -113,7 +104,7 @@ export const verifyDbConnection = async () => {
       const [userCols] = await pool.query("SHOW COLUMNS FROM Users");
       const userColNames = userCols.map(c => c.Field);
       if (!userColNames.includes("RoleId")) {
-        console.log("[MySQL] Adding RoleId column to Users table...");
+
         await pool.query(`
           ALTER TABLE \`Users\`
               ADD COLUMN \`RoleId\` BIGINT NULL
@@ -125,7 +116,7 @@ export const verifyDbConnection = async () => {
       // 4. Seed system roles if none exist
       const [roleCount] = await pool.query("SELECT COUNT(*) as count FROM Roles");
       if (roleCount[0].count === 0) {
-        console.log("[MySQL] Seeding default system roles and permissions...");
+
         await pool.query(`
           INSERT INTO \`Roles\` (\`Name\`, \`Description\`, \`IsSystem\`, \`IsActive\`) VALUES
           ('Super Admin',  'Full access to all features and system configuration.',            1, 1),
@@ -412,10 +403,10 @@ export const verifyDbConnection = async () => {
       for (const proc of procedures) {
         await pool.query(`DROP PROCEDURE IF EXISTS \`${proc.name}\`;`);
         await pool.query(proc.sql);
-        console.log(`[MySQL] Setup procedure: ${proc.name}`);
+
       }
 
-      console.log("[MySQL] Roles & Permissions Migrations completed successfully!");
+
     } catch (migErr) {
       console.error("[MySQL] Roles & Permissions Migrations failed:", migErr.message);
     }
