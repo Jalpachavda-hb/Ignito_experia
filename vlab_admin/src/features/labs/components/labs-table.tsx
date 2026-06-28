@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState} from 'react'
 import {
   type SortingState,
   type VisibilityState,
+  type ColumnFiltersState,
+  type RowSelectionState,
   flexRender,
   getCoreRowModel,
   getFacetedRowModel,
@@ -22,21 +24,20 @@ import {
 } from '@/components/ui/table'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
 import { type Lab } from '../data/schema'
-import { labsColumns as activeColumns, deletedLabsColumns } from './labs-columns'
+import { labsColumns as activeColumns } from './labs-columns'
 
 type DataTableProps = {
   data: Lab[]
-  isDeletedTab?: boolean
 }
 
-export function LabsTable({ data, isDeletedTab }: DataTableProps) {
-  const [rowSelection, setRowSelection] = useState({})
+export function LabsTable({ data }: DataTableProps) {
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const [columnFilters, setColumnFilters] = useState([])
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 
-  const columns = isDeletedTab ? deletedLabsColumns : activeColumns
+  const columns = activeColumns
 
   const programs = Array.from(new Set(data.map(l => l.program).filter(Boolean)))
   const semesters = Array.from(new Set(data.map(l => l.semester).filter(Boolean)))
@@ -60,7 +61,7 @@ export function LabsTable({ data, isDeletedTab }: DataTableProps) {
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onGlobalFilterChange: setGlobalFilter,
-    globalFilterFn: (row, columnId, filterValue) => {
+    globalFilterFn: (row, _columnId, filterValue) => {
       const search = filterValue.toLowerCase()
       const title = (row.original.title || '').toLowerCase()
       const code = (row.original.id || '').toLowerCase()
@@ -81,7 +82,7 @@ export function LabsTable({ data, isDeletedTab }: DataTableProps) {
       <DataTableToolbar
         table={table}
         searchPlaceholder='Search labs...'
-        filters={isDeletedTab ? [] : [
+        filters={[
           {
             columnId: 'status',
             title: 'Status',

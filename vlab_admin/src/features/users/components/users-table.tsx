@@ -29,11 +29,14 @@ import { usersColumns as columns } from './users-columns'
 
 type DataTableProps = {
   data: User[]
+  total: number
+  isLoading: boolean
+  isError: boolean
   search: Record<string, unknown>
   navigate: NavigateFn
 }
 
-export function UsersTable({ data, search, navigate }: DataTableProps) {
+export function UsersTable({ data, total, isLoading, isError, search, navigate }: DataTableProps) {
   // Local UI-only states
   const [rowSelection, setRowSelection] = useState({})
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
@@ -56,11 +59,8 @@ export function UsersTable({ data, search, navigate }: DataTableProps) {
     pagination: { defaultPage: 1, defaultPageSize: 10 },
     globalFilter: { enabled: true },
     columnFilters: [
-      // username per-column text filter
-      { columnId: 'username', searchKey: 'username', type: 'string' },
-      { columnId: 'status', searchKey: 'status', type: 'array' },
-      { columnId: 'role', searchKey: 'role', type: 'array' },
-      { columnId: 'course', searchKey: 'course', type: 'array' },
+      { columnId: 'Role', searchKey: 'role', type: 'array' },
+      { columnId: 'ProgramId', searchKey: 'course', type: 'array' },
     ],
   })
 
@@ -81,12 +81,11 @@ export function UsersTable({ data, search, navigate }: DataTableProps) {
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
-    getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: true,
+    manualFiltering: true,
+    manualSorting: true,
+    rowCount: total,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFacetedRowModel: getFacetedRowModel(),
-    getFacetedUniqueValues: getFacetedUniqueValues(),
   })
 
   useEffect(() => {
@@ -105,22 +104,12 @@ export function UsersTable({ data, search, navigate }: DataTableProps) {
         searchPlaceholder='Search all columns...'
         filters={[
           {
-            columnId: 'status',
-            title: 'Status',
-            options: [
-              { label: 'Active', value: 'active' },
-              { label: 'Inactive', value: 'inactive' },
-              { label: 'Invited', value: 'invited' },
-              { label: 'Suspended', value: 'suspended' },
-            ],
-          },
-          {
-            columnId: 'role',
+            columnId: 'Role',
             title: 'Role',
             options: roles.map((role) => ({ ...role })),
           },
           {
-            columnId: 'course',
+            columnId: 'ProgramId',
             title: 'Course/Program',
             options: courses.map((course) => ({ ...course })),
           },
@@ -179,6 +168,24 @@ export function UsersTable({ data, search, navigate }: DataTableProps) {
                   ))}
                 </TableRow>
               ))
+            ) : isLoading ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className='h-24 text-center'
+                >
+                  Loading users...
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className='h-24 text-center text-destructive'
+                >
+                  Error loading users.
+                </TableCell>
+              </TableRow>
             ) : (
               <TableRow>
                 <TableCell

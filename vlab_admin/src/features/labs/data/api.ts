@@ -153,16 +153,4 @@ export function useDeleteLabMutation() {
   })
 }
 
-export function useRestoreLabMutation() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (labId: string) => {
-      return await apiRequest(`/admin/labs/${labId}/restore`, {
-        method: 'POST'
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['labs'] })
-    }
-  })
-}
+

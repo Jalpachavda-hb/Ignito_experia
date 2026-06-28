@@ -9,13 +9,16 @@ import { UsersDialogs } from './components/users-dialogs'
 import { UsersPrimaryButtons } from './components/users-primary-buttons'
 import { UsersProvider } from './components/users-provider'
 import { UsersTable } from './components/users-table'
-import { users } from './data/users'
+import { useUsers } from './api/useUsers'
 
 const route = getRouteApi('/_authenticated/users/')
 
 export function Users() {
   const search = route.useSearch()
   const navigate = route.useNavigate()
+  const { data: usersData, isLoading, isError } = useUsers(search)
+  const users = usersData?.data || []
+  const total = usersData?.pagination?.total || 0
 
   return (
     <UsersProvider>
@@ -36,7 +39,14 @@ export function Users() {
           </div>
           <UsersPrimaryButtons />
         </div>
-        <UsersTable data={users} search={search} navigate={navigate} />
+        <UsersTable 
+          data={users} 
+          total={total} 
+          isLoading={isLoading} 
+          isError={isError} 
+          search={search} 
+          navigate={navigate} 
+        />
       </Main>
 
       <UsersDialogs />

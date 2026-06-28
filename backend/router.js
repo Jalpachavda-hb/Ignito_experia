@@ -17,7 +17,6 @@ import {
   updateLabHandler,
   updateLabStatusHandler,
   deleteLabHandler,
-  restoreLabHandler,
 } from "./handlers/labs.js";
 import {
   sessionsStartHandler,
@@ -36,8 +35,14 @@ import { submitHandler } from "./handlers/submit.js";
 import { jupyterHealthHandler } from "./handlers/jupyterHealth.js";
 import {
   usersListHandler,
+  usersGetByIdHandler,
   usersCreateHandler,
+  usersUpdateHandler,
   usersUpdateStatusHandler,
+  usersDeleteHandler,
+  usersResetPasswordHandler,
+  usersImportHandler,
+  usersAddCreditsHandler,
 } from "./handlers/users.js";
 import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
 import {
@@ -98,8 +103,14 @@ export const ROUTES = [
 
 
   { method: "GET", path: "/users", handler: usersListHandler, auth: true },
+  { method: "GET", path: "/users/:userId", handler: usersGetByIdHandler, auth: true },
   { method: "POST", path: "/users", handler: usersCreateHandler, auth: true },
+  { method: "PUT", path: "/users/:userId", handler: usersUpdateHandler, auth: true },
   { method: "PATCH", path: "/users/:userId/status", handler: usersUpdateStatusHandler, auth: true },
+  { method: "DELETE", path: "/users/:userId", handler: usersDeleteHandler, auth: true },
+  { method: "POST", path: "/users/:userId/reset-password", handler: usersResetPasswordHandler, auth: true },
+  { method: "POST", path: "/users/:userId/credits", handler: usersAddCreditsHandler, auth: true },
+  { method: "POST", path: "/users/import", handler: usersImportHandler, auth: true },
 
   { method: "GET", path: "/roles", handler: rolesListHandler, auth: true },
   { method: "GET", path: "/roles/:roleId", handler: rolesGetHandler, auth: true },
@@ -123,7 +134,6 @@ export const ROUTES = [
   { method: "PUT", path: "/admin/labs/:labId", handler: updateLabHandler, auth: true },
   { method: "PATCH", path: "/admin/labs/:labId/status", handler: updateLabStatusHandler, auth: true },
   { method: "DELETE", path: "/admin/labs/:labId", handler: deleteLabHandler, auth: true },
-  { method: "POST", path: "/admin/labs/:labId/restore", handler: restoreLabHandler, auth: true },
   
 
 

@@ -75,14 +75,6 @@ class LabService {
     return result;
   }
 
-  async restoreLab(labId, userId) {
-    const result = await labRepository.restore(labId, userId);
-    if (result && result.Status === "Error") {
-      throw new Error(result.Message);
-    }
-    return result;
-  }
-
   async updateLabStatus(labId, status, userId) {
     const result = await labRepository.updateStatus(labId, status, userId);
     if (result && result.Status === "Error") {

@@ -87,9 +87,6 @@ function LabsViewContent() {
                 <TabsTrigger value="inactive" className="gap-2">
                   Inactive Labs {activeTab === 'inactive' && `(${labsData.length})`}
                 </TabsTrigger>
-                <TabsTrigger value="deleted" className="gap-2">
-                  Deleted Labs {activeTab === 'deleted' && `(${labsData.length})`}
-                </TabsTrigger>
               </TabsList>
 
               <div className="flex items-center space-x-2 bg-muted p-1 rounded-md">
@@ -128,10 +125,6 @@ function LabsViewContent() {
               ) : (
                 <LabsTable data={labsData} />
               )}
-            </TabsContent>
-
-            <TabsContent value="deleted" className="flex-1 m-0 border-none outline-none data-[state=active]:flex flex-col min-h-0 overflow-hidden">
-              <LabsTable data={labsData} isDeletedTab={true} />
             </TabsContent>
           </Tabs>
         )}

@@ -1,10 +1,9 @@
 import { type ColumnDef } from '@tanstack/react-table'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DataTableColumnHeader } from '@/components/data-table'
 import { LongText } from '@/components/long-text'
-import { callTypes, roles } from '../data/data'
+import { roles } from '../data/data'
 import { type User } from '../data/schema'
 import { DataTableRowActions } from './data-table-row-actions'
 
@@ -37,12 +36,12 @@ export const usersColumns: ColumnDef<User>[] = [
     enableHiding: false,
   },
   {
-    accessorKey: 'username',
+    accessorKey: 'FullName',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Username' />
+      <DataTableColumnHeader column={column} title='Name' />
     ),
     cell: ({ row }) => (
-      <LongText className='max-w-36 ps-3'>{row.getValue('username')}</LongText>
+      <LongText className='max-w-36 ps-3'>{row.getValue('FullName')}</LongText>
     ),
     meta: {
       className: cn(
@@ -50,70 +49,35 @@ export const usersColumns: ColumnDef<User>[] = [
         'inset-s-6 ps-0.5 max-md:sticky @4xl/content:table-cell @4xl/content:drop-shadow-none'
       ),
     },
-    enableHiding: false,
   },
   {
-    id: 'fullName',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Name' />
-    ),
-    cell: ({ row }) => {
-      const { firstName, lastName } = row.original
-      const fullName = `${firstName} ${lastName}`
-      return <LongText className='max-w-36'>{fullName}</LongText>
-    },
-    meta: { className: 'w-36' },
-  },
-  {
-    accessorKey: 'email',
+    accessorKey: 'Email',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Email' />
     ),
     cell: ({ row }) => (
-      <div className='w-fit ps-2 text-nowrap'>{row.getValue('email')}</div>
+      <div className='w-fit ps-2 text-nowrap'>{row.getValue('Email')}</div>
     ),
   },
   {
-    accessorKey: 'phoneNumber',
+    accessorKey: 'PhoneNumber',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Phone Number' />
     ),
-    cell: ({ row }) => <div>{row.getValue('phoneNumber')}</div>,
+    cell: ({ row }) => <div>{row.getValue('PhoneNumber') || '-'}</div>,
     enableSorting: false,
   },
   {
-    accessorKey: 'status',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Status' />
-    ),
-    cell: ({ row }) => {
-      const { status } = row.original
-      const badgeColor = callTypes.get(status)
-      return (
-        <div className='flex space-x-2'>
-          <Badge variant='outline' className={cn('capitalize', badgeColor)}>
-            {row.getValue('status')}
-          </Badge>
-        </div>
-      )
-    },
-    filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id))
-    },
-    enableHiding: false,
-    enableSorting: false,
-  },
-  {
-    accessorKey: 'role',
+    accessorKey: 'Role',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Role' />
     ),
     cell: ({ row }) => {
-      const { role } = row.original
-      const userType = roles.find(({ value }) => value === role)
+      const roleValue = row.getValue('Role') as string;
+      const userType = roles.find(({ value }) => value.toLowerCase() === roleValue.toLowerCase())
 
       if (!userType) {
-        return null
+        return <span className='text-sm capitalize'>{roleValue}</span>
       }
 
       return (
@@ -121,7 +85,7 @@ export const usersColumns: ColumnDef<User>[] = [
           {userType.icon && (
             <userType.icon size={16} className='text-muted-foreground' />
           )}
-          <span className='text-sm capitalize'>{row.getValue('role')}</span>
+          <span className='text-sm capitalize'>{roleValue}</span>
         </div>
       )
     },
@@ -132,39 +96,43 @@ export const usersColumns: ColumnDef<User>[] = [
     enableHiding: false,
   },
   {
-    accessorKey: 'enrollmentNumber',
+    accessorKey: 'EnrollmentNumber',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Enrollment No.' />
     ),
-    cell: ({ row }) => <div className="font-mono text-xs font-semibold">{row.getValue('enrollmentNumber') || '-'}</div>,
+    cell: ({ row }) => <div className="font-mono text-xs font-semibold">{row.getValue('EnrollmentNumber') || '-'}</div>,
   },
   {
-    accessorKey: 'course',
+    accessorKey: 'ProgramId',
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Course' />
+      <DataTableColumnHeader column={column} title='Program' />
     ),
-    cell: ({ row }) => <div>{row.getValue('course') || '-'}</div>,
+    cell: ({ row }) => <div>{row.getValue('ProgramId') || '-'}</div>,
     filterFn: (row, id, value) => {
       return value.includes(row.getValue(id))
     },
   },
   {
-    accessorKey: 'semester',
+    accessorKey: 'SemesterId',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Semester' />
     ),
-    cell: ({ row }) => <div>{row.getValue('semester') || '-'}</div>,
+    cell: ({ row }) => <div>{row.getValue('SemesterId') || '-'}</div>,
   },
   {
-    accessorKey: 'credits',
+    accessorKey: 'CreditBalance',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Credits' />
     ),
-    cell: ({ row }) => (
-      <div className='font-medium text-amber-600 dark:text-amber-500'>
-        {Intl.NumberFormat('en-US').format(row.getValue('credits'))}
-      </div>
-    ),
+    cell: ({ row }) => {
+      const credits = row.getValue('CreditBalance') as string | number;
+      const parsedCredits = typeof credits === 'string' ? parseFloat(credits) : credits;
+      return (
+        <div className='font-medium text-amber-600 dark:text-amber-500'>
+          {isNaN(parsedCredits) ? '-' : Intl.NumberFormat('en-US').format(parsedCredits)}
+        </div>
+      )
+    },
   },
   {
     id: 'actions',

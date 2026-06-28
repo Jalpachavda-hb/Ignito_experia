@@ -23,7 +23,7 @@ type UserProfileDrawerProps = {
 export function UserProfileDrawer({ user, open, onOpenChange }: UserProfileDrawerProps) {
   if (!user) return null
 
-  const initials = `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+  const initials = user.FullName ? user.FullName.substring(0, 2).toUpperCase() : 'U'
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -31,34 +31,31 @@ export function UserProfileDrawer({ user, open, onOpenChange }: UserProfileDrawe
         <SheetHeader className="p-6 pb-0 border-b border-border/50 bg-muted/20">
           <div className="flex items-start gap-4 mb-6">
             <Avatar className="h-16 w-16 border-2 border-primary/20">
-              <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${user.username}`} />
+              <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${user.FullName}`} />
               <AvatarFallback>{initials}</AvatarFallback>
             </Avatar>
             <div className="flex-1 space-y-1.5">
               <div className="flex items-center justify-between">
-                <SheetTitle className="text-2xl font-bold">{user.firstName} {user.lastName}</SheetTitle>
-                <Badge variant={user.status === 'active' ? 'default' : 'secondary'} className="capitalize">
-                  {user.status}
-                </Badge>
+                <SheetTitle className="text-2xl font-bold">{user.FullName}</SheetTitle>
               </div>
-              <SheetDescription className="text-base font-medium text-muted-foreground">
-                {user.email}
-              </SheetDescription>
+              <div className="text-sm text-muted-foreground mt-1">
+                {user.Email}
+              </div>
               <div className="flex items-center gap-2 pt-2">
                 <Badge variant="outline" className="bg-primary/5 capitalize">
                   <UserIcon className="h-3 w-3 mr-1" />
                   {user.role}
                 </Badge>
-                {user.course && (
-                  <Badge variant="outline" className="bg-blue-500/5 text-blue-700 border-blue-200 dark:border-blue-800 dark:text-blue-300">
-                    <BookOpen className="h-3 w-3 mr-1" />
-                    {user.course}
+                {user.ProgramId && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <BookOpen size={12} />
+                    {user.ProgramId}
                   </Badge>
                 )}
-                {user.semester && (
-                  <Badge variant="outline" className="bg-emerald-500/5 text-emerald-700 border-emerald-200 dark:border-emerald-800 dark:text-emerald-300">
-                    <GraduationCap className="h-3 w-3 mr-1" />
-                    {user.semester}
+                {user.SemesterId && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <GraduationCap size={12} />
+                    {user.SemesterId}
                   </Badge>
                 )}
               </div>
@@ -83,19 +80,15 @@ export function UserProfileDrawer({ user, open, onOpenChange }: UserProfileDrawe
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-y-4 gap-x-8">
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">Username</p>
-                      <p className="font-semibold mt-1">@{user.username}</p>
-                    </div>
-                    <div>
                       <p className="text-sm font-medium text-muted-foreground">Phone Number</p>
                       <p className="font-semibold mt-1">{user.phoneNumber || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Available Credits</p>
-                      <p className="font-semibold mt-1 text-amber-600 flex items-center">
+                      <div className="text-2xl font-bold mt-1 text-amber-600 flex items-center">
                         <Database className="h-4 w-4 mr-1.5" />
-                        {Intl.NumberFormat('en-US').format(user.credits)}
-                      </p>
+                        {Intl.NumberFormat('en-US').format(user.CreditBalance as number)}
+                      </div>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Member Since</p>

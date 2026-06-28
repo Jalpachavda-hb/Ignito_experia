@@ -26,22 +26,22 @@ import { PasswordInput } from '@/components/password-input'
 import { SelectDropdown } from '@/components/select-dropdown'
 import { roles, courses, semesters } from '../data/data'
 import { type User } from '../data/schema'
+import { useUserMutations } from '../api/useUsersMutations'
+import { toast } from 'sonner'
 
 const formSchema = z
   .object({
-    firstName: z.string().min(1, 'First Name is required.'),
-    lastName: z.string().min(1, 'Last Name is required.'),
-    username: z.string().min(1, 'Username is required.'),
-    phoneNumber: z.string().min(1, 'Phone number is required.'),
-    enrollmentNumber: z.string().optional(),
-    email: z.email({
+    FullName: z.string().min(1, 'Full Name is required.'),
+    PhoneNumber: z.string().optional(),
+    EnrollmentNumber: z.string().optional(),
+    Email: z.email({
       error: (iss) => (iss.input === '' ? 'Email is required.' : undefined),
     }),
     password: z.string().transform((pwd) => pwd.trim()),
-    role: z.string().min(1, 'Role is required.'),
-    course: z.string().optional(),
-    semester: z.string().optional(),
-    credits: z.coerce.number().default(0),
+    Role: z.string().min(1, 'Role is required.'),
+    ProgramId: z.coerce.number().optional(),
+    SemesterId: z.coerce.number().optional(),
+    CreditBalance: z.coerce.number().default(0),
     confirmPassword: z.string().transform((pwd) => pwd.trim()),
     isEdit: z.boolean(),
   })
@@ -119,26 +119,42 @@ export function UsersActionDialog({
           isEdit,
         }
       : {
-          firstName: '',
-          lastName: '',
-          username: '',
-          enrollmentNumber: '',
-          email: '',
-          role: '',
-          course: '',
-          semester: '',
-          credits: 0,
-          phoneNumber: '',
+          FullName: '',
+          EnrollmentNumber: '',
+          Email: '',
+          Role: '',
+          ProgramId: undefined,
+          SemesterId: undefined,
+          CreditBalance: 0,
+          PhoneNumber: '',
           password: '',
           confirmPassword: '',
           isEdit,
         },
   })
 
+  const { createUser, updateUser } = useUserMutations()
+
   const onSubmit = (values: UserForm) => {
-    form.reset()
-    showSubmittedData(values)
-    onOpenChange(false)
+    if (isEdit && currentRow) {
+      updateUser.mutate({ userId: currentRow.UserId, data: values }, {
+        onSuccess: () => {
+          toast.success('User updated successfully')
+          form.reset()
+          onOpenChange(false)
+        },
+        onError: (err: any) => toast.error(err.message || 'Failed to update user')
+      })
+    } else {
+      createUser.mutate(values, {
+        onSuccess: () => {
+          toast.success('User created successfully')
+          form.reset()
+          onOpenChange(false)
+        },
+        onError: (err: any) => toast.error(err.message || 'Failed to create user')
+      })
+    }
   }
 
   const isPasswordTouched = !!form.formState.dirtyFields.password
@@ -166,53 +182,15 @@ export function UsersActionDialog({
               onSubmit={form.handleSubmit(onSubmit)}
               className='space-y-4 px-0.5'
             >
-              <div className='grid grid-cols-2 gap-4'>
-                <FormField
-                  control={form.control}
-                  name='firstName'
-                  render={({ field }) => (
-                    <FormItem className='space-y-1'>
-                      <FormLabel>First Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder='John'
-                          autoComplete='off'
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name='lastName'
-                  render={({ field }) => (
-                    <FormItem className='space-y-1'>
-                      <FormLabel>Last Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder='Doe'
-                          autoComplete='off'
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
               <FormField
                 control={form.control}
-                name='username'
+                name='FullName'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
-                    <FormLabel className='col-span-2 text-end'>
-                      Username
-                    </FormLabel>
+                    <FormLabel className='col-span-2 text-end'>Full Name</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='john_doe'
+                        placeholder='John Doe'
                         className='col-span-4'
                         {...field}
                       />
@@ -223,7 +201,7 @@ export function UsersActionDialog({
               />
               <FormField
                 control={form.control}
-                name='enrollmentNumber'
+                name='EnrollmentNumber'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
                     <FormLabel className='col-span-2 text-end'>Enrollment No.</FormLabel>
@@ -240,7 +218,7 @@ export function UsersActionDialog({
               />
               <FormField
                 control={form.control}
-                name='email'
+                name='Email'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
                     <FormLabel className='col-span-2 text-end'>Email</FormLabel>
@@ -257,7 +235,7 @@ export function UsersActionDialog({
               />
               <FormField
                 control={form.control}
-                name='phoneNumber'
+                name='PhoneNumber'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
                     <FormLabel className='col-span-2 text-end'>
@@ -276,7 +254,7 @@ export function UsersActionDialog({
               />
               <FormField
                 control={form.control}
-                name='role'
+                name='Role'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
                     <FormLabel className='col-span-2 text-end'>Role</FormLabel>
@@ -297,20 +275,18 @@ export function UsersActionDialog({
               
               <FormField
                 control={form.control}
-                name='course'
+                name='ProgramId'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
-                    <FormLabel className='col-span-2 text-end'>Course</FormLabel>
-                    <SelectDropdown
-                      defaultValue={field.value}
-                      onValueChange={field.onChange}
-                      placeholder='Select a course'
-                      className='col-span-4'
-                      items={courses.map(({ label, value }) => ({
-                        label,
-                        value,
-                      }))}
-                    />
+                    <FormLabel className='col-span-2 text-end'>Program ID</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        placeholder='1'
+                        className='col-span-4'
+                        {...field}
+                      />
+                    </FormControl>
                     <FormMessage className='col-span-4 col-start-3' />
                   </FormItem>
                 )}
@@ -318,20 +294,18 @@ export function UsersActionDialog({
 
               <FormField
                 control={form.control}
-                name='semester'
+                name='SemesterId'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
-                    <FormLabel className='col-span-2 text-end'>Semester</FormLabel>
-                    <SelectDropdown
-                      defaultValue={field.value}
-                      onValueChange={field.onChange}
-                      placeholder='Select a semester'
-                      className='col-span-4'
-                      items={semesters.map(({ label, value }) => ({
-                        label,
-                        value,
-                      }))}
-                    />
+                    <FormLabel className='col-span-2 text-end'>Semester ID</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        placeholder='1'
+                        className='col-span-4'
+                        {...field}
+                      />
+                    </FormControl>
                     <FormMessage className='col-span-4 col-start-3' />
                   </FormItem>
                 )}
@@ -339,7 +313,7 @@ export function UsersActionDialog({
 
               <FormField
                 control={form.control}
-                name='credits'
+                name='CreditBalance'
                 render={({ field }) => (
                   <FormItem className='grid grid-cols-6 items-center space-y-0 gap-x-4 gap-y-1'>
                     <FormLabel className='col-span-2 text-end'>Credits</FormLabel>

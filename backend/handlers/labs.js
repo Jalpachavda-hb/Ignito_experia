@@ -175,17 +175,3 @@ export const deleteLabHandler = async (parsed) => {
     throw error;
   }
 };
-
-export const restoreLabHandler = async (parsed) => {
-  try {
-    await requirePermission(parsed, "LAB_MANAGEMENT", "delete");
-    const { pathParameters, auth } = parsed;
-    const labId = pathParameters?.labId;
-    if (!labId) return { statusCode: 400, body: { success: false, message: "labId is required" } };
-
-    const result = await labService.restoreLab(labId, auth?.userId);
-    return ok({ message: "Lab restored successfully", data: result });
-  } catch (error) {
-    throw error;
-  }
-};

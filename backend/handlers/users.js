@@ -4,41 +4,56 @@ import userService from "../services/UserService.js";
 import requirePermission from "../middleware/PermissionMiddleware.js";
 
 /**
- * GET /users — list all users (passwords excluded).
+ * GET /users — list all users
  */
 export const usersListHandler = async (parsed) => {
   await requirePermission(parsed, "USER_MANAGEMENT", "read");
-  const users = await userService.getAllUsers();
-  return ok({ success: true, users });
+  const params = parsed.queryStringParameters || {};
+  const result = await userService.getAllUsers(params);
+  
+  return ok({
+    success: true,
+    message: "Users retrieved successfully",
+    data: result.data,
+    pagination: result.pagination
+  });
 };
 
 /**
- * POST /users — create a new user who can immediately log in.
+ * GET /users/:userId — get user by id
+ */
+export const usersGetByIdHandler = async (parsed) => {
+  await requirePermission(parsed, "USER_MANAGEMENT", "read");
+  const { userId } = parsed.pathParameters || {};
+  const user = await userService.getUserById(userId);
+  if (!user) throw notFound("User not found");
+
+  return ok({
+    success: true,
+    message: "User retrieved successfully",
+    data: user
+  });
+};
+
+/**
+ * POST /users — create a new user
  */
 export const usersCreateHandler = async (parsed) => {
   await requirePermission(parsed, "USER_MANAGEMENT", "create");
-  const { name, email, password, role, programId, semesterId } = parsed.body || {};
+  const { fullName, email, password, roleId, programId, semesterId, phoneNumber, enrollmentNumber, status } = parsed.body || {};
   if (!email) throw badRequest("email is required");
-
-  // Enforce creator permissions: Only Super Admin can create Super Admin or Tenant Admin
-  const creatorRole = parsed.auth.role;
-  const targetRole = role || "Student";
-  
-  if (targetRole === "Super Admin" && creatorRole !== "Super Admin") {
-    throw forbidden("Only Super Admins can create Super Admin accounts.");
-  }
-  
-  if (targetRole === "Tenant Admin" && creatorRole !== "Super Admin") {
-    throw forbidden("Only Super Admins can create Tenant Admin accounts.");
-  }
+  if (!roleId) throw badRequest("roleId is required");
 
   const creatorId = parsed.auth.userId;
 
   const newUser = await userService.createUser({
-    name,
+    fullName,
     email,
     password,
-    role: targetRole,
+    roleId,
+    phoneNumber,
+    enrollmentNumber,
+    status,
     programId,
     semesterId,
     createdBy: creatorId
@@ -47,20 +62,32 @@ export const usersCreateHandler = async (parsed) => {
   return ok({
     success: true,
     message: "User created successfully",
-    user: {
-      id: newUser.UserId,
-      fullName: newUser.FullName,
-      email: newUser.Email,
-      role: newUser.Role,
-      status: newUser.Status,
-      programId: newUser.ProgramId,
-      semesterId: newUser.SemesterId,
-    }
+    data: newUser
   });
 };
 
 /**
- * PATCH /users/:userId/status — enable / disable a user.
+ * PUT /users/:userId — update user
+ */
+export const usersUpdateHandler = async (parsed) => {
+  await requirePermission(parsed, "USER_MANAGEMENT", "update");
+  const { userId } = parsed.pathParameters || {};
+  const updatedBy = parsed.auth.userId;
+
+  const updatedUser = await userService.updateUser(userId, {
+    ...parsed.body,
+    updatedBy
+  });
+
+  return ok({
+    success: true,
+    message: "User updated successfully",
+    data: updatedUser
+  });
+};
+
+/**
+ * PATCH /users/:userId/status — update user status
  */
 export const usersUpdateStatusHandler = async (parsed) => {
   await requirePermission(parsed, "USER_MANAGEMENT", "update");
@@ -72,6 +99,64 @@ export const usersUpdateStatusHandler = async (parsed) => {
   const user = await userService.updateUserStatus(userId, status, updatedBy);
   if (!user) throw notFound("User not found");
 
-  return ok({ success: true, message: `User ${userId} status updated to ${status}` });
+  return ok({ success: true, message: `User status updated to ${status}`, data: user });
 };
 
+/**
+ * DELETE /users/:userId — soft delete a user
+ */
+export const usersDeleteHandler = async (parsed) => {
+  await requirePermission(parsed, "USER_MANAGEMENT", "delete");
+  const { userId } = parsed.pathParameters || {};
+  const deletedBy = parsed.auth.userId;
+
+  await userService.deleteUser(userId, deletedBy);
+  return ok({ success: true, message: "User deleted successfully" });
+};
+
+/**
+ * POST /users/:userId/reset-password — reset user password
+ */
+export const usersResetPasswordHandler = async (parsed) => {
+  await requirePermission(parsed, "USER_MANAGEMENT", "update");
+  const { userId } = parsed.pathParameters || {};
+  const { newPassword } = parsed.body || {};
+  
+  const result = await userService.resetPassword(userId, newPassword);
+  return ok({ success: true, message: result.message });
+};
+
+/**
+ * POST /users/import — bulk import users
+ */
+export const usersImportHandler = async (parsed) => {
+  await requirePermission(parsed, "USER_MANAGEMENT", "create");
+  const { users } = parsed.body || {};
+  if (!users || !Array.isArray(users)) throw badRequest("users array is required");
+
+  const createdBy = parsed.auth.userId;
+  const result = await userService.importUsers(users, createdBy);
+
+  return ok({
+    success: true,
+    message: "Import completed",
+    data: result
+  });
+};
+
+/**
+ * POST /users/:userId/credits — add credits to user
+ */
+export const usersAddCreditsHandler = async (parsed) => {
+  await requirePermission(parsed, "USER_MANAGEMENT", "update");
+  const { userId } = parsed.pathParameters || {};
+  const { amount } = parsed.body || {};
+  if (!amount || amount <= 0) throw badRequest("Amount must be greater than zero");
+
+  const updatedUser = await userService.addCredits(userId, amount);
+  return ok({
+    success: true,
+    message: `Added ${amount} credits successfully`,
+    data: updatedUser
+  });
+};
