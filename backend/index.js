@@ -53,14 +53,7 @@ app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 const upload = multer({ dest: "uploads/" });
 app.use(upload.any());
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(`[REQ] ${req.method} ${req.url} | Status: ${res.statusCode} | IP: ${req.ip} | Time: ${duration}ms | CorrID: ${req.correlationId}`);
-  });
-  next();
-});
+
 
 for (const route of ROUTES) {
   expressRoute(app, route, ENV.apiPrefix);

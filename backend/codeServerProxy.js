@@ -26,14 +26,14 @@ const authMiddleware = async (req, res, next) => {
       return res.status(503).json({ success: false, message: "Container is not ready yet." });
     }
 
-  const host = getContainerHost(session);
+    const host = getContainerHost(session);
 
-if (!host) {
-  return res.status(503).json({
-    success: false,
-    message: "Container host unavailable."
-  });
-}
+    if (!host) {
+      return res.status(503).json({
+        success: false,
+        message: "Container host unavailable."
+      });
+    }
     const runtime = await getLabRuntime(session.labId);
     req.codeServerTarget = `http://${host}:${runtime.port || 8080}`;
     req.codeServerSessionId = sessionId;
@@ -46,19 +46,12 @@ if (!host) {
 
 
 /** Strip the prefix so /api/lab-sessions/:id/vscode/some/path → /some/path */
-const stripProxyPrefix = (path, req) => {
-  const urlStr = req ? (req.originalUrl || req.url || path) : path;
-  const url = new URL(urlStr, "http://localhost");
-
-  const match = url.pathname.match(/\/lab-sessions\/[^/]+\/vscode/);
-  if (!match) {
-    return path;
-  }
-
-  const prefixEndIndex = url.pathname.indexOf(match[0]) + match[0].length;
-  const rewrittenPath = url.pathname.slice(prefixEndIndex) || "/";
-  return rewrittenPath + url.search;
-};
+function stripProxyPrefix(path) {
+  return path.replace(
+    /^\/api\/lab-sessions\/[^/]+\/vscode/,
+    ""
+  );
+}
 
 export const setupCodeServerProxy = (app, apiPrefix) => {
   const mountPath = `${apiPrefix}/lab-sessions/:sessionId/vscode`;
@@ -67,20 +60,20 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
     try {
       const target = req.codeServerTarget;
 
-      
+
       let codeServerRunning = false;
       try {
         const ping = await fetch(target, { method: "GET" });
         codeServerRunning = ping.ok || ping.status === 403 || ping.status === 401 || ping.status === 302;
       } catch (e) {
-        
+
       }
 
-     
+
       res.json({
         success: true,
-        workspaceExists: true,    
-        workspaceWritable: true,   
+        workspaceExists: true,
+        workspaceWritable: true,
         workspaceFiles: [],
         codeServerRunning,
         websocketStatus: codeServerRunning ? "reachable" : "unreachable",
@@ -91,7 +84,6 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
       res.status(500).json({ success: false, error: err.message });
     }
   });
-
   const proxyMiddleware = createProxyMiddleware({
     target: "http://placeholder",
     changeOrigin: true,
@@ -100,67 +92,61 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
     timeout: 300000,
     proxyTimeout: 300000,
     logger: console,
+
     router: (req) => req.codeServerTarget || "http://127.0.0.1:8080",
-    pathRewrite: stripProxyPrefix,
-    on: {
-      proxyReq: fixRequestBody,
-      error(err, req, res) {
-        const logMsg = `[${new Date().toISOString()}] ProxyError: ${err.message}, target: ${req?.codeServerTarget}, url: ${req?.url}\n`;
-        try { require('fs').appendFileSync('e:/vb-Lab Jalpa Hb/Ignito_experia/backend/scripts/proxy_debug_logs.txt', logMsg); } catch (e) { }
-        console.error("[codeServerProxy]", err.message, "target=", req?.codeServerTarget);
-        if (res?.writeHead) {
-          res.writeHead(502, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;background:#1e1e1e;color:#fff;padding:2rem">
-            <h2>VS Code could not be reached</h2>
-            <p>The backend cannot connect to the lab container on port <b>8080</b>.</p>
-            <p style="color:#aaa;font-size:12px">Target: ${req.codeServerTarget || "unknown"} — ${err.message}</p>
-          </body></html>`);
-        }
-      },
-      // proxyReqWs(proxyReq, req, socket, options, head) 
-      proxyReqWs(){
-        proxyReq.setHeader('Connection', 'Upgrade');
-        proxyReq.setHeader('Upgrade', 'websocket');
-      },
-      proxyRes(proxyRes, req, res) {
-       console.log(
-    "[CODE SERVER]",
-    proxyRes.statusCode,
-    req.originalUrl || req.url,
-    "TARGET:",
-    req.codeServerTarget
-  );
 
-  delete proxyRes.headers["x-frame-options"];
-  delete proxyRes.headers["X-Frame-Options"];
-  proxyRes.headers["content-security-policy"] = "frame-ancestors *";
-  proxyRes.headers["access-control-allow-origin"] = "*";
-       
+    pathRewrite: (path, req) => {
+      // DO NOT strip the prefix, code-server needs it to serve correct base paths!
+      const rewritten = path;
 
-        // Rewrite Location header for redirects (301, 302, 307, 308) to preserve proxy path
-        if ([301, 302, 307, 308].includes(proxyRes.statusCode)) {
-          let location = proxyRes.headers["location"];
-          if (location && req.codeServerSessionId) {
-            const apiPrefix = ENV.apiPrefix || "/api";
-            const prefix = `${apiPrefix}/lab-sessions/${req.codeServerSessionId}/vscode`;
-            if (location.startsWith("/")) {
-              if (!location.startsWith(prefix)) {
-                proxyRes.headers["location"] = `${prefix}${location}`;
-              }
-            } else {
-              try {
-                const locUrl = new URL(location);
-                if (req.codeServerTarget && locUrl.host === new URL(req.codeServerTarget).host) {
-                  proxyRes.headers["location"] = `${prefix}${locUrl.pathname}${locUrl.search}${locUrl.hash}`;
-                }
-              } catch (e) {
-                // Keep original if parsing fails
-              }
-            }
-          }
-        }
-      },
+      console.log("\n========== PATH REWRITE ==========");
+      console.log("Incoming :", path);
+      console.log("Outgoing :", rewritten);
+      console.log("==================================\n");
+
+      return rewritten;
     },
+
+    on: {
+      proxyReq(proxyReq, req) {
+        console.log("\n========== PROXY REQUEST ==========");
+        console.log("Method   :", req.method);
+        console.log("Original :", req.originalUrl);
+        console.log("Forward  :", proxyReq.path);
+        console.log("Target   :", req.codeServerTarget);
+        console.log("===================================\n");
+
+        fixRequestBody(proxyReq, req);
+      },
+      proxyRes(proxyRes, req) {
+        console.log("\n========== PROXY RESPONSE =========");
+        console.log("Status   :", proxyRes.statusCode);
+        console.log("Request  :", req.originalUrl);
+        console.log("Forward  :", req.url);
+        console.log("===================================\n");
+
+        delete proxyRes.headers["x-frame-options"];
+        delete proxyRes.headers["X-Frame-Options"];
+        proxyRes.headers["content-security-policy"] = "frame-ancestors *";
+        proxyRes.headers["access-control-allow-origin"] = "*";
+      },
+
+      error(err, req, res) {
+        console.log("\n========== PROXY ERROR ============");
+        console.log("Message  :", err.message);
+        console.log("URL      :", req.originalUrl);
+        console.log("Target   :", req.codeServerTarget);
+        console.log("===================================\n");
+
+        if (res.status && !res.headersSent) {
+          res.status(502).send(err.message);
+        } else if (res.destroy) {
+          res.destroy();
+        } else if (res.end) {
+          res.end();
+        }
+      }
+    }
   });
 
   // Store globally so the upgrade handler can use it
@@ -173,49 +159,39 @@ export const setupCodeServerProxy = (app, apiPrefix) => {
 export const attachCodeServerProxyUpgrade = (httpServer) => {
   httpServer.on("upgrade", async (req, socket, head) => {
     try {
-      console.log("\n==============================");
-      console.log("[WS] Incoming Upgrade Request");
-      console.log("URL:", req.url);
-      console.log("==============================");
-
+      console.log("\n========== WS REQUEST ==========");
+      console.log("req.url         :", req.url);
+      console.log("req.originalUrl :", req.originalUrl);
+      console.log("req.headers.host:", req.headers.host);
+      console.log("req.headers.origin:", req.headers.origin);
+      console.log("req.headers.referer:", req.headers.referer);
+      console.log("===============================\n");
       const url = req.url || "";
+      console.log("WS UPGRADE:", url);
 
-      if (!url.includes("/lab-sessions/") || !url.includes("/vscode")) {
-        console.log("[WS] Not a VS Code request.");
+      if (url.startsWith("/stable-")) {
+        console.log("❌ INVALID WS ENTRY (bypassed proxy)");
+        socket.destroy();
         return;
       }
 
       const match = url.match(/\/lab-sessions\/([^/]+)\/vscode/);
-
       if (!match) {
-        console.log("[WS] Session ID not found.");
+        console.log("❌ WS missing session context:", url);
         socket.destroy();
         return;
       }
 
       const sessionId = match[1];
-
-      console.log("[WS] Session:", sessionId);
+      if (!sessionId) {
+        console.error("WS missing sessionId");
+        socket.destroy();
+        return;
+      }
 
       const session = await getSession(sessionId);
 
-      if (!session) {
-        console.log("[WS] Session not found.");
-        socket.destroy();
-        return;
-      }
-
-      console.log("[WS] Runtime:", session.runtimeType);
-      console.log("[WS] Status :", session.status);
-
-      if (!isCodeServerLab(session)) {
-        console.log("[WS] Not a code-server session.");
-        socket.destroy();
-        return;
-      }
-
-      if (session.status !== "running") {
-        console.log("[WS] Session not running.");
+      if (!session || !isCodeServerLab(session) || session.status !== "running") {
         socket.destroy();
         return;
       }
@@ -226,37 +202,22 @@ export const attachCodeServerProxyUpgrade = (httpServer) => {
       req.codeServerTarget = `http://${host}:${runtime.port || 8080}`;
       req.codeServerSessionId = sessionId;
 
-      console.log("[WS] Target:", req.codeServerTarget);
+      console.log("WS UPGRADE URL:", req.url);
+      console.log("SESSION ID:", sessionId);
+      console.log("TARGET:", req.codeServerTarget);
 
-      req.url = stripProxyPrefix(req.url, req);
+      // We DO NOT strip the proxy prefix anymore. Code-server handles it natively.
 
-      console.log("[WS] Rewritten URL:", req.url);
 
-      if (!global.codeServerWsProxy) {
-        console.log("[WS] Proxy not initialized.");
+      if (!global.codeServerWsProxy?.upgrade) {
         socket.destroy();
         return;
       }
-
-      console.log(
-        "[WS] Proxy methods:",
-        Object.keys(global.codeServerWsProxy)
-      );
-
-      if (typeof global.codeServerWsProxy.upgrade !== "function") {
-        console.log("[WS] upgrade() method not found!");
-        socket.destroy();
-        return;
-      }
-
-      console.log("[WS] Calling proxy.upgrade()...");
 
       global.codeServerWsProxy.upgrade(req, socket, head);
 
-      console.log("[WS] proxy.upgrade() called.");
-
     } catch (err) {
-      console.error("[WS ERROR]", err);
+      console.error("[WS]", err);
       socket.destroy();
     }
   });

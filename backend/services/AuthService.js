@@ -201,7 +201,34 @@ class AuthService {
       throw err;
     }
   }
+
+  async logout(refreshToken) {
+    if (!refreshToken) return;
+    const tokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
+    
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      const dbToken = await refreshTokenRepository.findByTokenHash(tokenHash);
+      if (dbToken) {
+        await refreshTokenRepository.revoke(dbToken.Id, connection);
+        const session = await sessionRepository.findById(dbToken.SessionId);
+        if (session) {
+            await sessionRepository.markLogout(session.SessionId, connection);
+        }
+      }
+
+      await connection.commit();
+      connection.release();
+    } catch (err) {
+      await connection.rollback();
+      connection.release();
+      throw err;
+    }
+  }
 }
+
 
 export const authService = new AuthService();
 export default authService;

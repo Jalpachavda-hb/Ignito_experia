@@ -19,7 +19,7 @@ const APP_ENV = {
   apiBaseUrl: import.meta.env.VITE_API_BASE_URL || ''
 };
 
-const resolveToolUrl = (url: string) => {
+const resolveToolUrl = (url: string | null | undefined) => {
   if (!url) return null;
   if (url.startsWith('http')) return url;
   const apiBase = APP_ENV.apiBaseUrl || '';
@@ -36,12 +36,18 @@ const resolveToolUrl = (url: string) => {
 
 const getLabToolUrl = (session: any) => {
   if (!session) return null;
+  const rt = session.runtimeType?.toLowerCase();
   const isJupyter = session.tools?.main?.type === 'jupyter' || session.tools?.jupyter?.enabled;
+  const isCodeServerSession = ['codeserver', 'code-server', 'vscode', 'code server'].includes(rt || '');
 
   if (isJupyter) {
     if (session.tools?.jupyter?.url) return resolveToolUrl(session.tools.jupyter.url);
     if (session.tools?.main?.url) return resolveToolUrl(session.tools.main.url);
     return null;
+  }
+
+  if (isCodeServerSession && session.sessionId) {
+    return resolveToolUrl(`/api/lab-sessions/${session.sessionId}/vscode/`);
   }
 
   if (session.tools?.main?.url) return resolveToolUrl(session.tools.main.url);
@@ -244,6 +250,7 @@ const IframeTool = ({ url, title, onStopLab, onBack, isJupyter, sessionId }: Ifr
 };
 
 export const RemoteDesktop = () => {
+    console.log("RemoteDesktop rendered");
   const navigate = useNavigate();
   const location = useLocation();
   const [connecting, setConnecting] = useState(true);
@@ -280,9 +287,9 @@ export const RemoteDesktop = () => {
         }
         if (!activeSession?.sessionId) throw new Error('No lab session available');
         const isAndroid = labId === 'mobile-app-lab' || labId === 'android';
-        const readySession = await waitForLabSessionReady(activeSession.sessionId, { 
-          maxAttempts: isAndroid ? 300 : 90, 
-          intervalMs: 2000 
+        const readySession = await waitForLabSessionReady(activeSession.sessionId, {
+          maxAttempts: isAndroid ? 300 : 90,
+          intervalMs: 2000
         });
         setSession(readySession);
         setConnecting(false);
@@ -380,8 +387,12 @@ export const RemoteDesktop = () => {
       </div>
     );
   }
-
-  if (session && isCodeServerSession && labToolUrl?.startsWith('http')) {
+  console.log("Runtime:", rt);
+  console.log("Lab URL:", labToolUrl);
+  console.log("Session:", session);
+  console.log("tools.main.url =", session?.tools?.main?.url);
+  console.log("resolved =", resolveToolUrl(session?.tools?.main?.url));
+  if (session && isCodeServerSession && typeof labToolUrl === 'string' && labToolUrl.startsWith('http')) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <IframeTool url={labToolUrl} title="VS Code (code-server)" isJupyter={false} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
@@ -391,7 +402,7 @@ export const RemoteDesktop = () => {
     );
   }
 
-  if (isJupyterSession && labToolUrl?.startsWith('http')) {
+  if (isJupyterSession && typeof labToolUrl === 'string' && labToolUrl.startsWith('http')) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <JupyterEmbed url={labToolUrl} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />

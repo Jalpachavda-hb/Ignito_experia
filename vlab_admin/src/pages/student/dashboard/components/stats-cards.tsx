@@ -47,7 +47,7 @@ export function StatsCards({ data }: { data: DashboardData }) {
       <Card className="border-border/50 shadow-sm relative overflow-hidden transition-shadow hover:shadow-md">
         <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-bl-full -mr-4 -mt-4"></div>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-          <CardTitle className="text-sm font-medium">Used Credits</CardTitle>
+          <CardTitle className="text-sm font-medium">Credits Spent</CardTitle>
           <Clock className="h-4 w-4 text-blue-500" />
         </CardHeader>
         <CardContent className="relative z-10">
