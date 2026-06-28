@@ -154,6 +154,28 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
   };
 };
 
+const buildCodeServerTrustedOriginFlags = () => {
+  const origins = new Set();
+  const candidates = [
+    process.env.FRONTEND_URL,
+    process.env.API_PUBLIC_URL?.replace(/\/api\/?$/i, ""),
+    process.env.CORS_ORIGIN,
+    "http://localhost:5173",
+    "http://localhost:8080",
+  ];
+
+  for (const raw of candidates) {
+    if (!raw || raw === "*") continue;
+    try {
+      origins.add(new URL(raw).origin);
+    } catch {
+      // skip malformed values
+    }
+  }
+
+  return [...origins].map((o) => `--trusted-origins ${o}`).join(" ");
+};
+
 export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   const lab = await getLabById(labId);
   const labType = canonicalLabType(labId);
@@ -189,9 +211,10 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   };
 
   if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) {
+    const trustedOriginFlags = buildCodeServerTrustedOriginFlags();
     containerOverride.command = [
       "sh", "-c",
-      "mkdir -p $LAB_WORKSPACE/.vscode && echo '{\"security.workspace.trust.enabled\": false}' > $LAB_WORKSPACE/.vscode/settings.json && code-server --auth none --bind-addr 0.0.0.0:8080 $LAB_WORKSPACE"
+      `mkdir -p $LAB_WORKSPACE/.vscode && echo '{\"security.workspace.trust.enabled\": false}' > $LAB_WORKSPACE/.vscode/settings.json && code-server --auth none --bind-addr 0.0.0.0:8080 ${trustedOriginFlags} $LAB_WORKSPACE`,
     ];
   }
 
