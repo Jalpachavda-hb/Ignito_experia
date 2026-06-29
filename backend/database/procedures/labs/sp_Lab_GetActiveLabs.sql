@@ -11,7 +11,7 @@ BEGIN
     BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
-        CALL sp_LogError('Labs', 'sp_Lab_GetActiveLabs', v_ErrorMessage, v_ErrorNumber, 'No parameters');
+        CALL sp_LogError('labs', 'sp_Lab_GetActiveLabs', v_ErrorMessage, v_ErrorNumber, 'No parameters');
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 
@@ -21,7 +21,7 @@ BEGIN
         `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `DisplayOrder`, `Status`, `IsDeleted`, 
         `CreatedBy`, `UpdatedBy`, `CreatedDate`, `UpdatedDate`
-    FROM `Labs`
+    FROM `labs`
     WHERE `IsDeleted` = 0 AND `Status` = 'active'
     ORDER BY `DisplayOrder` ASC, `CreatedDate` DESC;
 END //

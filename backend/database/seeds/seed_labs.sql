@@ -1,5 +1,5 @@
 -- Insert sample lab (linux-lab)
-INSERT IGNORE INTO `Labs` (
+INSERT IGNORE INTO `labs` (
     `LabCode`, 
     `Title`, 
     `Subtitle`, 

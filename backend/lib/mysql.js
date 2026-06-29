@@ -25,13 +25,13 @@ export const verifyDbConnection = async () => {
 
 
     try {
-      const [columns] = await pool.query("SHOW COLUMNS FROM Labs;");
+      const [columns] = await pool.query("SHOW COLUMNS FROM labs;");
       const hasIsDeleted = columns.some(c => c.Field === 'IsDeleted');
       const activeField = hasIsDeleted ? 'IsDeleted' : 'IsActive';
       const activeVal = hasIsDeleted ? 0 : 1;
 
 
-      await pool.query(`INSERT IGNORE INTO Labs (
+      await pool.query(`INSERT IGNORE INTO labs (
           LabCode, Title, Subtitle, Semester, Logo, DurationMinutes, Credits,
           Complexity, Category, Description, Status, TaskDefinition, RuntimeType, RuntimePort,
           RuntimePath, ContainerApiEnabled, ContainerApiPort, ${activeField}
