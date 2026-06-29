@@ -47,8 +47,18 @@ export const appBootstrapHandler = async ({ auth }) => {
   let permissionsFlat = [];
   
   if (roleCode === 'SUPER_ADMIN') {
-    const [allPerms] = await pool.query("SELECT PermissionCode FROM Permissions_V2");
-    permissionsFlat = allPerms.map(p => p.PermissionCode);
+    // SuperAdmin gets all module permissions derived from RolePermissions CRUD flags
+    const [allModulePerms] = await pool.query(
+      "SELECT DISTINCT ModuleCode, CanCreate, CanRead, CanUpdate, CanDelete FROM RolePermissions"
+    );
+    const superAdminPerms = new Set();
+    for (const mp of allModulePerms) {
+      if (mp.CanCreate) superAdminPerms.add(`${mp.ModuleCode}.CREATE`);
+      if (mp.CanRead)   superAdminPerms.add(`${mp.ModuleCode}.READ`);
+      if (mp.CanUpdate) superAdminPerms.add(`${mp.ModuleCode}.UPDATE`);
+      if (mp.CanDelete) superAdminPerms.add(`${mp.ModuleCode}.DELETE`);
+    }
+    permissionsFlat = Array.from(superAdminPerms);
     matrix.roleAllow = permissionsFlat;
   } else {
     matrix = await permissionService.getUserPermissionMatrix(auth.userId, roleCode);

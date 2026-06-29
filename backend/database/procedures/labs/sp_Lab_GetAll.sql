@@ -11,7 +11,7 @@ BEGIN
     BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
-        CALL sp_LogError('Labs', 'sp_Lab_GetAll', v_ErrorMessage, v_ErrorNumber, CONCAT('Status: ', IFNULL(p_Status, 'ALL')));
+        CALL sp_LogError('labs', 'sp_Lab_GetAll', v_ErrorMessage, v_ErrorNumber, CONCAT('Status: ', IFNULL(p_Status, 'ALL')));
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
     SELECT 
@@ -20,7 +20,7 @@ BEGIN
         `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `DisplayOrder`, `Status`, `IsDeleted`, 
         `CreatedBy`, `UpdatedBy`, `CreatedDate`, `UpdatedDate`
-    FROM `Labs`
+    FROM `labs`
     WHERE 
         (p_Status IS NULL OR p_Status = '' OR 
          (p_Status = 'active' AND `IsDeleted` = 0 AND `Status` != 'inactive') OR

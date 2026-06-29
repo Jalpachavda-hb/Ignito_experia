@@ -57,11 +57,11 @@ DELIMITER ;
 
 
 -- =====================================================================================
--- TABLE 2: Labs
+-- TABLE 2: labs
 -- Purpose: Store all virtual lab configurations.
 -- Designed for future SaaS multi-tenancy.
 -- =====================================================================================
-CREATE TABLE IF NOT EXISTS `Labs` (
+CREATE TABLE IF NOT EXISTS `labs` (
     `LabId` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `TenantId` BIGINT NULL COMMENT 'For future SaaS multi-tenancy',
     `LabCode` VARCHAR(100) NOT NULL UNIQUE,
@@ -95,16 +95,16 @@ CREATE TABLE IF NOT EXISTS `Labs` (
     `UpdatedDate` DATETIME NULL,
 
     -- Indexes
-    INDEX `IDX_Labs_LabCode` (`LabCode`),
-    INDEX `IDX_Labs_RuntimeType` (`RuntimeType`),
-    INDEX `IDX_Labs_Status` (`Status`),
-    INDEX `IDX_Labs_Category` (`Category`),
-    INDEX `IDX_Labs_TenantId` (`TenantId`)
+    INDEX `IDX_labs_LabCode` (`LabCode`),
+    INDEX `IDX_labs_RuntimeType` (`RuntimeType`),
+    INDEX `IDX_labs_Status` (`Status`),
+    INDEX `IDX_labs_Category` (`Category`),
+    INDEX `IDX_labs_TenantId` (`TenantId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Virtual lab configurations with runtime and container API setup';
 
 
 -- =====================================================================================
--- STORED PROCEDURES FOR LABS
+-- STORED PROCEDURES FOR labs
 -- Requirements: proper MySQL syntax, transactions, exception handlers, error logging,
 -- meaningful success responses, soft deletes.
 -- =====================================================================================
@@ -147,13 +147,13 @@ BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
         ROLLBACK;
-        CALL sp_LogError('Labs', 'sp_Lab_Insert', v_ErrorMessage, v_ErrorNumber, CONCAT('LabCode: ', IFNULL(p_LabCode, 'NULL')));
+        CALL sp_LogError('labs', 'sp_Lab_Insert', v_ErrorMessage, v_ErrorNumber, CONCAT('LabCode: ', IFNULL(p_LabCode, 'NULL')));
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 
     START TRANSACTION;
 
-    INSERT INTO `Labs` (
+    INSERT INTO `labs` (
         `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `Logo`, `Rating`, `DurationMinutes`, `Credits`,
         `Complexity`, `Category`, `Description`, `Status`, `TaskDefinition`, `RuntimeType`, `RuntimePort`,
         `RuntimePath`, `ContainerApiEnabled`, `ContainerApiPort`, `CreatedBy`
@@ -208,13 +208,13 @@ BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
         ROLLBACK;
-        CALL sp_LogError('Labs', 'sp_Lab_Update', v_ErrorMessage, v_ErrorNumber, CONCAT('LabId: ', IFNULL(p_LabId, 'NULL')));
+        CALL sp_LogError('labs', 'sp_Lab_Update', v_ErrorMessage, v_ErrorNumber, CONCAT('LabId: ', IFNULL(p_LabId, 'NULL')));
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 
     START TRANSACTION;
 
-    UPDATE `Labs`
+    UPDATE `labs`
     SET
         `TenantId` = p_TenantId,
         `LabCode` = p_LabCode,
@@ -270,13 +270,13 @@ BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
         ROLLBACK;
-        CALL sp_LogError('Labs', 'sp_Lab_Delete', v_ErrorMessage, v_ErrorNumber, CONCAT('LabId: ', IFNULL(p_LabId, 'NULL')));
+        CALL sp_LogError('labs', 'sp_Lab_Delete', v_ErrorMessage, v_ErrorNumber, CONCAT('LabId: ', IFNULL(p_LabId, 'NULL')));
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 
     START TRANSACTION;
 
-    UPDATE `Labs`
+    UPDATE `labs`
     SET 
         `IsActive` = 0,
         `UpdatedBy` = p_UpdatedBy,
@@ -310,7 +310,7 @@ BEGIN
     BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
-        CALL sp_LogError('Labs', 'sp_Lab_GetAll', v_ErrorMessage, v_ErrorNumber, 'No parameters');
+        CALL sp_LogError('labs', 'sp_Lab_GetAll', v_ErrorMessage, v_ErrorNumber, 'No parameters');
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 
@@ -320,7 +320,7 @@ BEGIN
         `Status`, `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `IsActive`, `CreatedBy`, `UpdatedBy`, 
         `CreatedDate`, `UpdatedDate`
-    FROM `Labs`
+    FROM `labs`
     WHERE `IsActive` = 1;
 END //
 
@@ -344,7 +344,7 @@ BEGIN
     BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
-        CALL sp_LogError('Labs', 'sp_Lab_GetById', v_ErrorMessage, v_ErrorNumber, CONCAT('LabId: ', IFNULL(p_LabId, 'NULL')));
+        CALL sp_LogError('labs', 'sp_Lab_GetById', v_ErrorMessage, v_ErrorNumber, CONCAT('LabId: ', IFNULL(p_LabId, 'NULL')));
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 
@@ -354,7 +354,7 @@ BEGIN
         `Status`, `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `IsActive`, `CreatedBy`, `UpdatedBy`, 
         `CreatedDate`, `UpdatedDate`
-    FROM `Labs`
+    FROM `labs`
     WHERE `LabId` = p_LabId AND `IsActive` = 1;
 END //
 
@@ -366,7 +366,7 @@ DELIMITER ;
 
 -- Insert sample lab (linux-lab)
 -- We use INSERT IGNORE to prevent duplicate LabCode errors upon multiple script runs
-INSERT IGNORE INTO `Labs` (
+INSERT IGNORE INTO `labs` (
     `LabCode`, 
     `Title`, 
     `Subtitle`, 

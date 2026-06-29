@@ -1,12 +1,12 @@
 import mysql from "mysql2/promise";
-import { ENV } from "../config/env.js"; // Wait, I should check if ENV exists or use process.env directly.
+
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
   port: parseInt(process.env.DB_PORT || "3306", 10),
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  database: process.env.DB_NAME || "ignito_experia",
+host: process.env.DB_HOST, 
+user: process.env.DB_USER,
+password: process.env.DB_PASSWORD,
+database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

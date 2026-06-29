@@ -15,8 +15,8 @@ INSERT IGNORE INTO `RuntimeTypes` (`Value`, `Label`) VALUES
 ('jupyter', 'Jupyter Notebook'),
 ('codeserver', 'Code Server');
 
--- 3. Modify Labs.RuntimeType to be VARCHAR
-ALTER TABLE `Labs` MODIFY `RuntimeType` VARCHAR(50) DEFAULT 'ide';
+-- 3. Modify labs.RuntimeType to be VARCHAR
+ALTER TABLE `labs` MODIFY `RuntimeType` VARCHAR(50) DEFAULT 'ide';
 
 -- 4. Update sp_Lab_GetAll to handle IsDeleted correctly
 DROP PROCEDURE IF EXISTS `sp_Lab_GetAll`;
@@ -43,7 +43,7 @@ BEGIN
         `Status`, `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `IsDeleted`,
         `CreatedBy`, `UpdatedBy`, `CreatedDate`, `UpdatedDate`
-    FROM `Labs`
+    FROM `labs`
     WHERE 
         (p_Status IS NULL OR p_Status = '' OR 
          (p_Status = 'active' AND `IsDeleted` = 0 AND `Status` != 'inactive') OR
@@ -78,7 +78,7 @@ BEGIN
 
     START TRANSACTION;
 
-    UPDATE `Labs`
+    UPDATE `labs`
     SET 
         `IsDeleted` = 1,
         `Status` = 'deleted',
@@ -121,7 +121,7 @@ BEGIN
 
     START TRANSACTION;
 
-    UPDATE `Labs`
+    UPDATE `labs`
     SET 
         `Status` = p_Status,
         `UpdatedBy` = p_UpdatedBy,
@@ -162,7 +162,7 @@ BEGIN
 
     START TRANSACTION;
 
-    UPDATE `Labs`
+    UPDATE `labs`
     SET 
         `IsDeleted` = 0,
         `Status` = 'inactive',
@@ -182,4 +182,4 @@ END //
 DELIMITER ;
 
 -- 8. Migrate any old deleted records to have Status = 'deleted'
-UPDATE `Labs` SET `Status` = 'deleted' WHERE `IsDeleted` = 1;
+UPDATE `labs` SET `Status` = 'deleted' WHERE `IsDeleted` = 1;

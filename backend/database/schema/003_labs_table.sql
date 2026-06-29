@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS `Labs` (
+CREATE TABLE IF NOT EXISTS `labs` (
     `LabId` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `TenantId` BIGINT NULL  ,
     `LabCode` VARCHAR(100) NOT NULL UNIQUE,
@@ -29,10 +29,10 @@ CREATE TABLE IF NOT EXISTS `Labs` (
     `CreatedDate` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `UpdatedDate` DATETIME NULL,
 
-    INDEX `IDX_Labs_LabCode` (`LabCode`),
-    INDEX `IDX_Labs_RuntimeType` (`RuntimeType`),
-    INDEX `IDX_Labs_Status` (`Status`),
-    INDEX `IDX_Labs_Category` (`Category`),
-    INDEX `IDX_Labs_TenantId` (`TenantId`),
-    INDEX `IDX_Labs_IsDeleted` (`IsDeleted`)
+    INDEX `IDX_labs_LabCode` (`LabCode`),
+    INDEX `IDX_labs_RuntimeType` (`RuntimeType`),
+    INDEX `IDX_labs_Status` (`Status`),
+    INDEX `IDX_labs_Category` (`Category`),
+    INDEX `IDX_labs_TenantId` (`TenantId`),
+    INDEX `IDX_labs_IsDeleted` (`IsDeleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ;

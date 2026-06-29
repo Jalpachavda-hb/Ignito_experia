@@ -11,14 +11,14 @@ class PermissionService {
     if (roleCode === 'SUPER_ADMIN') return true;
 
     const matrix = await this.getUserPermissionMatrix(userId, roleCode);
-    
+
     // Explicit User Deny
     if (matrix.userDeny.has(permissionCode)) return false;
-    
+
     // Explicit User Allow
     if (matrix.userAllow.has(permissionCode)) return true;
-    
-    // Role or Inherited Allow
+
+    // Role Allow
     if (matrix.roleAllow.has(permissionCode)) return true;
 
     // Default Deny
@@ -27,11 +27,13 @@ class PermissionService {
 
   /**
    * Retrieves the fully resolved permission matrix for a user.
+   * Uses the Roles + RolePermissions tables (module-based CRUD flags).
+   * Permission codes are generated as "MODULE_CODE.CREATE" / ".READ" / ".UPDATE" / ".DELETE".
    */
   async getUserPermissionMatrix(userId, roleCode) {
     const cacheKey = `permissions:user:${userId}`;
     const cached = await cacheProvider.get(cacheKey);
-    
+
     if (cached) {
       return {
         userAllow: new Set(cached.userAllow),
@@ -46,59 +48,39 @@ class PermissionService {
       roleAllow: new Set()
     };
 
-    // 1. Fetch User Overrides
-    const [userPerms] = await pool.query(
-      `SELECT p.PermissionCode, up.IsAllow 
-       FROM UserPermissions up
-       JOIN Permissions_V2 p ON up.PermissionId = p.PermissionId
-       WHERE up.UserId = ?`,
-      [userId]
-    );
-
-    for (const up of userPerms) {
-      if (up.IsAllow) matrix.userAllow.add(up.PermissionCode);
-      else matrix.userDeny.add(up.PermissionCode);
-    }
-
-    // 2. Resolve Role and Inheritance
+    // Resolve Role permissions from RolePermissions (module CRUD flags)
     if (roleCode) {
-      const [roleData] = await pool.query("SELECT RoleId, ParentRoleId FROM Roles_V2 WHERE RoleCode = ?", [roleCode]);
+      const [roleData] = await pool.query(
+        "SELECT RoleId FROM Roles WHERE Name = ? AND IsActive = 1",
+        [roleCode]
+      );
+
       if (roleData.length > 0) {
-        let currentRoleId = roleData[0].RoleId;
-        let parentRoleId = roleData[0].ParentRoleId;
-        
-        // Loop upwards to collect all inherited permissions (prevent infinite loops with a seen set)
-        const seenRoles = new Set([currentRoleId]);
-        const roleIdsToFetch = [currentRoleId];
+        const roleId = roleData[0].RoleId;
 
-        while (parentRoleId && !seenRoles.has(parentRoleId)) {
-          roleIdsToFetch.push(parentRoleId);
-          seenRoles.add(parentRoleId);
-          const [parentData] = await pool.query("SELECT ParentRoleId FROM Roles_V2 WHERE RoleId = ?", [parentRoleId]);
-          parentRoleId = parentData.length > 0 ? parentData[0].ParentRoleId : null;
-        }
-
-        // Fetch all permissions for this role hierarchy
         const [rolePerms] = await pool.query(
-          `SELECT p.PermissionCode 
-           FROM RolePermissions_V2 rp
-           JOIN Permissions_V2 p ON rp.PermissionId = p.PermissionId
-           WHERE rp.RoleId IN (?)`,
-          [roleIdsToFetch]
+          `SELECT ModuleCode, CanCreate, CanRead, CanUpdate, CanDelete
+           FROM RolePermissions
+           WHERE RoleId = ?`,
+          [roleId]
         );
 
+        // Build permission codes: e.g. "USER_MANAGEMENT.CREATE"
         for (const rp of rolePerms) {
-          matrix.roleAllow.add(rp.PermissionCode);
+          if (rp.CanCreate) matrix.roleAllow.add(`${rp.ModuleCode}.CREATE`);
+          if (rp.CanRead)   matrix.roleAllow.add(`${rp.ModuleCode}.READ`);
+          if (rp.CanUpdate) matrix.roleAllow.add(`${rp.ModuleCode}.UPDATE`);
+          if (rp.CanDelete) matrix.roleAllow.add(`${rp.ModuleCode}.DELETE`);
         }
       }
     }
 
-    // Store array representations in cache
+    // Store array representations in cache (1 hour TTL)
     await cacheProvider.set(cacheKey, {
       userAllow: Array.from(matrix.userAllow),
-      userDeny: Array.from(matrix.userDeny),
+      userDeny:  Array.from(matrix.userDeny),
       roleAllow: Array.from(matrix.roleAllow)
-    }, 3600); // 1 hour cache
+    }, 3600);
 
     return matrix;
   }
@@ -108,9 +90,7 @@ class PermissionService {
   }
 
   async clearRoleCache(roleId) {
-    // A role change could affect many users.
-    // In a sophisticated environment, we would use Redis SETs to track users per role.
-    // Here we clear the entire cache prefix natively if possible, or flush all.
+    // A role change could affect many users — flush all permission caches
     await cacheProvider.clear();
   }
 }

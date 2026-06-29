@@ -102,13 +102,13 @@ async function runUpdates() {
         ('jupyter', 'Jupyter Notebook'),
         ('codeserver', 'Code Server');`);
 
-        await pool.query(`ALTER TABLE Labs MODIFY RuntimeType VARCHAR(50) DEFAULT 'ide';`);
+        await pool.query(`ALTER TABLE labs MODIFY RuntimeType VARCHAR(50) DEFAULT 'ide';`);
 
         console.log("Replacing sp_Lab_GetAll...");
         await pool.query(`DROP PROCEDURE IF EXISTS sp_Lab_GetAll;`);
 
         // Let's dynamically check if IsDeleted or IsActive is used in Labs table
-        const [columns] = await pool.query("SHOW COLUMNS FROM Labs;");
+        const [columns] = await pool.query("SHOW COLUMNS FROM labs;");
         const hasIsDeleted = columns.some(c => c.Field === 'IsDeleted');
 
         const condition = hasIsDeleted
@@ -135,7 +135,7 @@ async function runUpdates() {
           BEGIN
               GET DIAGNOSTICS CONDITION 1
                   v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
-              CALL sp_LogError('Labs', 'sp_Lab_GetAll', v_ErrorMessage, v_ErrorNumber, CONCAT('Status: ', IFNULL(p_Status, 'ALL')));
+              CALL sp_LogError('labs', 'sp_Lab_GetAll', v_ErrorMessage, v_ErrorNumber, CONCAT('Status: ', IFNULL(p_Status, 'ALL')));
               SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
           END;
 
@@ -145,7 +145,7 @@ async function runUpdates() {
               Status, TaskDefinition, RuntimeType, RuntimePort, RuntimePath, 
               ContainerApiEnabled, ContainerApiPort, ${activeColumn}, CreatedBy, UpdatedBy, 
               CreatedDate, UpdatedDate
-          FROM Labs
+          FROM labs
           WHERE ${condition}
           ORDER BY UpdatedDate DESC, CreatedDate DESC;
       END
@@ -154,7 +154,7 @@ async function runUpdates() {
         console.log("Seeding mobile-app-lab...");
         const activeField = hasIsDeleted ? 'IsDeleted' : 'IsActive';
         const activeVal = hasIsDeleted ? 0 : 1;
-        await pool.query(`INSERT IGNORE INTO Labs (
+        await pool.query(`INSERT IGNORE INTO labs (
             LabCode, Title, Subtitle, Semester, Logo, DurationMinutes, Credits,
             Complexity, Category, Description, Status, TaskDefinition, RuntimeType, RuntimePort,
             RuntimePath, ContainerApiEnabled, ContainerApiPort, ${activeField}
