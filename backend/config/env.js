@@ -6,6 +6,11 @@ export const ENV = {
   port: Number(process.env.PORT || 8080),
   nodeEnv: process.env.NODE_ENV || "development",
   apiPrefix: process.env.API_PREFIX || "/api",
+  DB_HOST: process.env.DB_HOST,
+DB_USER: process.env.DB_USER,
+DB_PASSWORD: process.env.DB_PASSWORD,
+DB_NAME: process.env.DB_NAME,
+  
   jwtSecret: process.env.JWT_SECRET || "change-me-in-production",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "24h",
   awsRegion: process.env.AWS_REGION || "ap-south-1",
