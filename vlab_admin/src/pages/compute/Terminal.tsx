@@ -2,12 +2,9 @@ import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 're
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { io } from 'socket.io-client';
+import { getApiOrigin } from '@/config/env';
 import '@xterm/xterm/css/xterm.css';
 import { Terminal as TerminalIcon, X, Plus, Power, ArrowLeft, RefreshCw } from 'lucide-react';
-
-const APP_ENV = {
-  apiBaseUrl: import.meta.env.VITE_API_BASE_URL || ''
-};
 
 const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: { session: any, isActive: boolean, onTerminalCommand?: () => void }, ref) => {
   const [terminalState, setTerminalState] = useState('initializing');
@@ -37,7 +34,7 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
     if (socketRef.current) {
       socketRef.current.disconnect();
     }
-    const socketUrl = APP_ENV.apiBaseUrl ? APP_ENV.apiBaseUrl.replace(/\/api$/, '') : `${window.location.protocol}//${window.location.hostname}:8080`;
+    const socketUrl = getApiOrigin();
     const socket = io(socketUrl, {
       query: {
         sessionId: session?.sessionId || '',

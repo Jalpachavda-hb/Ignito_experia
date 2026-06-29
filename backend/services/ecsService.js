@@ -157,11 +157,9 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
 const buildCodeServerTrustedOriginFlags = () => {
   const origins = new Set();
   const candidates = [
-    process.env.FRONTEND_URL,
-    process.env.API_PUBLIC_URL?.replace(/\/api\/?$/i, ""),
-    process.env.CORS_ORIGIN,
-    "http://localhost:5173",
-    "http://localhost:8080",
+    ENV.frontendUrl,
+    ENV.apiOrigin,
+    ENV.corsOrigin,
   ];
 
   for (const raw of candidates) {
@@ -188,7 +186,6 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   }
 
   const port = await getContainerPort(labId);
-  const apiPrefix = process.env.API_PREFIX || "/api";
   const environment = [
     { name: "SESSION_ID", value: sessionId },
     { name: "SESSION_TOKEN", value: sessionToken },
@@ -201,7 +198,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   if (rt === "jupyter" || rt === "datascience") {
     environment.push({
       name: "JUPYTER_BASE_URL",
-      value: `${apiPrefix}/lab-sessions/${sessionId}/jupyter`,
+      value: `${ENV.apiPrefix}/lab-sessions/${sessionId}/jupyter`,
     });
   }
 

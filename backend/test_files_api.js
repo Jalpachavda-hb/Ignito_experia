@@ -1,8 +1,9 @@
 import fetch from 'node-fetch';
+import { ENV } from './config/env.js';
 
 async function test() {
   try {
-    const res = await fetch("http://localhost:8080/api/files", {
+    const res = await fetch(`${ENV.apiPublicUrl}/files`, {
       headers: { "x-session-id": "sess_3d17023a" } // using the user's session ID from screenshot
     });
     const text = await res.text();

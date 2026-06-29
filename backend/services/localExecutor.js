@@ -2,6 +2,29 @@ import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { ENV } from "../config/env.js";
+
+const getAgileLabLocationMocks = () => {
+  try {
+    const parsed = new URL(ENV.frontendUrl);
+    const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+    return {
+      href: `${parsed.origin}/vlab/agile-lab`,
+      hostname: parsed.hostname,
+      protocol: parsed.protocol,
+      pathname: "/vlab/agile-lab",
+      port,
+    };
+  } catch {
+    return {
+      href: `${ENV.frontendUrl}/vlab/agile-lab`,
+      hostname: "localhost",
+      protocol: "http:",
+      pathname: "/vlab/agile-lab",
+      port: "5173",
+    };
+  }
+};
 
 const runPython = (content) =>
   new Promise((resolve) => {
@@ -81,18 +104,13 @@ const runJavascript = (content) =>
     const tempFile = path.join(os.tmpdir(), `vlab_${Date.now()}.js`);
 
     // Inject mock browser globals so that scripts using window/navigator/document do not crash in Node.js
+    const locationMocks = getAgileLabLocationMocks();
     const browserMocks = `
 // --- Mock Browser Globals for Agile Lab ---
 if (typeof global !== 'undefined') {
   if (!global.window) {
     global.window = {
-      location: {
-        href: "http://localhost:8080/vlab/agile-lab",
-        hostname: "localhost",
-        protocol: "http:",
-        pathname: "/vlab/agile-lab",
-        port: "8080"
-      }
+      location: ${JSON.stringify(locationMocks)}
     };
   }
   if (!global.navigator) {

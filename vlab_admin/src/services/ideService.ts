@@ -1,3 +1,4 @@
+import { getWsOrigin } from '@/config/env';
 import { apiRequest } from '../lib/apiClient';
 
 export interface TerminalConnection {
@@ -42,10 +43,8 @@ export async function deleteFile(path: string, sessionId: string) {
 }
 
 export function connectTerminalStream({ sessionId, runId, onMessage }: TerminalConnection): WebSocket {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // Use current window host (with port 8080) for websocket
-  const host = `${window.location.hostname}:8080`; 
-  const socket = new WebSocket(`${protocol}//${host}/ws/terminal?sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId || '')}`);
+  const wsOrigin = getWsOrigin();
+  const socket = new WebSocket(`${wsOrigin}/ws/terminal?sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId || '')}`);
 
   socket.onmessage = (event: MessageEvent) => {
     try {

@@ -10,29 +10,13 @@ import {
   waitForLabSessionReady,
   fetchJupyterHealth,
 } from '@/services/labService';
+import { resolveApiRelativeUrl } from '@/config/env';
 import CloudEditor from './Editor';
 import Terminal from './Terminal';
 import { SessionTimeoutModal } from '../student/my-labs/components/session-timeout-modal';
 import { ArrowLeft, Power } from 'lucide-react';
 
-const APP_ENV = {
-  apiBaseUrl: import.meta.env.VITE_API_BASE_URL || ''
-};
-
-const resolveToolUrl = (url: string | null | undefined) => {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const apiBase = APP_ENV.apiBaseUrl || '';
-  if (apiBase) {
-    try {
-      const parsed = new URL(apiBase);
-      return `${parsed.origin}${url}`;
-    } catch {
-      return url;
-    }
-  }
-  return `${window.location.protocol}//${window.location.hostname}:8080${url}`;
-};
+const resolveToolUrl = (url: string | null | undefined) => resolveApiRelativeUrl(url);
 
 const getLabToolUrl = (session: any) => {
   if (!session) return null;

@@ -28,7 +28,7 @@ verifyDbConnection();
 
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: ENV.corsOrigin,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   },
 });
@@ -92,7 +92,7 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 httpServer.listen(ENV.port, () => {
-  console.log(`VLab API server: http://localhost:${ENV.port}${ENV.apiPrefix}`);
+  console.log(`VLab API server: ${ENV.apiPublicUrl}`);
   console.log(`Storage: ${ENV.sessionsTable ? `DynamoDB (${ENV.sessionsTable})` : "in-memory"}`);
   console.log(`ECS: ${ENV.ecsCluster || "disabled (mock sessions)"}`);
   console.log(`Container access: ${ENV.containerHostMode} (8080=IDE, 8888=Jupyter)`);
