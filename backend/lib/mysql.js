@@ -90,10 +90,10 @@ export const verifyDbConnection = async () => {
 
       // 2. Create RolePermissions table (skip if table or FK already exists)
       const [rpTables] = await pool.query(
-        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'RolePermissions'"
+        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = 'rolepermissions'"
       );
       const [rpFk] = await pool.query(
-        "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'FK_RolePermissions_RoleId'"
+        "SELECT CONSTRAINT_NAME, TABLE_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'FK_RolePermissions_RoleId'"
       );
       if (rpTables.length === 0 && rpFk.length === 0) {
         await pool.query(`
@@ -114,6 +114,11 @@ export const verifyDbConnection = async () => {
             INDEX \`IDX_RolePermissions_ModuleCode\` (\`ModuleCode\`)
           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
+      } else if (rpTables.length === 0 && rpFk.length > 0) {
+        console.warn(
+          `[MySQL] RolePermissions table missing but FK '${rpFk[0].CONSTRAINT_NAME}' exists on '${rpFk[0].TABLE_NAME}'. ` +
+          "Drop the orphan constraint or conflicting table, then restart."
+        );
       }
 
       // 3. Add RoleId to Users table if not exists
