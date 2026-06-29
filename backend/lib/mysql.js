@@ -25,13 +25,20 @@ export const verifyDbConnection = async () => {
 
 
     try {
-      const [columns] = await pool.query("SHOW COLUMNS FROM labs;");
+      const [labTables] = await pool.query(
+        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = 'labs'"
+      );
+      if (labTables.length === 0) {
+        console.warn("[MySQL] Android Lab seeding skipped: labs table does not exist. Run backend/database/Ignito_Experia_Full_Setup.sql first.");
+      } else {
+      const labsTable = labTables[0].TABLE_NAME;
+      const [columns] = await pool.query(`SHOW COLUMNS FROM \`${labsTable}\`;`);
       const hasIsDeleted = columns.some(c => c.Field === 'IsDeleted');
       const activeField = hasIsDeleted ? 'IsDeleted' : 'IsActive';
       const activeVal = hasIsDeleted ? 0 : 1;
 
 
-      await pool.query(`INSERT IGNORE INTO labs (
+      await pool.query(`INSERT IGNORE INTO \`${labsTable}\` (
           LabCode, Title, Subtitle, Semester, Logo, DurationMinutes, Credits,
           Complexity, Category, Description, Status, TaskDefinition, RuntimeType, RuntimePort,
           RuntimePath, ContainerApiEnabled, ContainerApiPort, ${activeField}
@@ -55,6 +62,7 @@ export const verifyDbConnection = async () => {
           8080,
           ${activeVal}
       );`);
+      }
 
     } catch (dbErr) {
       console.error("[MySQL] Android Lab seeding failed:", dbErr.message);
@@ -80,25 +88,33 @@ export const verifyDbConnection = async () => {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
       `);
 
-      // 2. Create RolePermissions table
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS \`RolePermissions\` (
-          \`PermissionId\` BIGINT        AUTO_INCREMENT PRIMARY KEY,
-          \`RoleId\`       BIGINT        NOT NULL,
-          \`ModuleCode\`   VARCHAR(100)  NOT NULL COMMENT 'e.g. ROLE_MANAGEMENT, USER_MANAGEMENT',
-          \`CanCreate\`    TINYINT(1)    NOT NULL DEFAULT 0,
-          \`CanRead\`      TINYINT(1)    NOT NULL DEFAULT 0,
-          \`CanUpdate\`    TINYINT(1)    NOT NULL DEFAULT 0,
-          \`CanDelete\`    TINYINT(1)    NOT NULL DEFAULT 0,
-          CONSTRAINT \`FK_RolePermissions_RoleId\`
-              FOREIGN KEY (\`RoleId\`) REFERENCES \`Roles\`(\`RoleId\`)
-              ON DELETE CASCADE
-              ON UPDATE CASCADE,
-          UNIQUE KEY \`UQ_RolePermissions_RoleId_ModuleCode\` (\`RoleId\`, \`ModuleCode\`),
-          INDEX \`IDX_RolePermissions_RoleId\`     (\`RoleId\`),
-          INDEX \`IDX_RolePermissions_ModuleCode\` (\`ModuleCode\`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-      `);
+      // 2. Create RolePermissions table (skip if table or FK already exists)
+      const [rpTables] = await pool.query(
+        "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'RolePermissions'"
+      );
+      const [rpFk] = await pool.query(
+        "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'FK_RolePermissions_RoleId'"
+      );
+      if (rpTables.length === 0 && rpFk.length === 0) {
+        await pool.query(`
+          CREATE TABLE \`RolePermissions\` (
+            \`PermissionId\` BIGINT        AUTO_INCREMENT PRIMARY KEY,
+            \`RoleId\`       BIGINT        NOT NULL,
+            \`ModuleCode\`   VARCHAR(100)  NOT NULL COMMENT 'e.g. ROLE_MANAGEMENT, USER_MANAGEMENT',
+            \`CanCreate\`    TINYINT(1)    NOT NULL DEFAULT 0,
+            \`CanRead\`      TINYINT(1)    NOT NULL DEFAULT 0,
+            \`CanUpdate\`    TINYINT(1)    NOT NULL DEFAULT 0,
+            \`CanDelete\`    TINYINT(1)    NOT NULL DEFAULT 0,
+            CONSTRAINT \`FK_RolePermissions_RoleId\`
+                FOREIGN KEY (\`RoleId\`) REFERENCES \`Roles\`(\`RoleId\`)
+                ON DELETE CASCADE
+                ON UPDATE CASCADE,
+            UNIQUE KEY \`UQ_RolePermissions_RoleId_ModuleCode\` (\`RoleId\`, \`ModuleCode\`),
+            INDEX \`IDX_RolePermissions_RoleId\`     (\`RoleId\`),
+            INDEX \`IDX_RolePermissions_ModuleCode\` (\`ModuleCode\`)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+      }
 
       // 3. Add RoleId to Users table if not exists
       const [userCols] = await pool.query("SHOW COLUMNS FROM Users");
