@@ -144,13 +144,16 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
   }, [isActive]);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setTimeout>;
     if (terminalState === 'initializing' || terminalState === 'polling') {
       timer = setTimeout(() => {
-        if (terminalState !== 'ready') {
-          setTerminalState('timeout');
-          setStatusMessage('Lab is taking longer than expected.');
-        }
+        setTerminalState((prev) => {
+          if (prev === 'initializing' || prev === 'polling') {
+            setStatusMessage('Lab is taking longer than expected.');
+            return 'timeout';
+          }
+          return prev;
+        });
       }, 65000);
     }
     return () => clearTimeout(timer);

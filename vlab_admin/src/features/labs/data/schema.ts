@@ -30,7 +30,9 @@ export const labSchema = z.object({
   durationMinutes: z.number().min(15, 'Duration must be at least 15 minutes.'),
   complexity: z.string().optional(),
   runtimeType: z.string().min(1, 'Runtime Type is required.'),
-  runtimePort: z.number({ required_error: 'Port is required.' }),
+  runtimePort: z.coerce
+    .number()
+    .min(1, 'Port is required.'),
   runtimePath: z.string().min(1, 'Runtime Path is required.'),
   containerApiPath: z.string().optional(),
   taskDefinition: z.string().min(1, 'Task Definition is required.'),

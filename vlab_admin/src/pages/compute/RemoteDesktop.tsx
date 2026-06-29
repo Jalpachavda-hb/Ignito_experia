@@ -84,7 +84,7 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack }: EmbedProps) => {
           if (cancelled) return;
           try {
             const health = await fetchJupyterHealth(sessionId);
-            if (health.ready) {
+            if (health.status === 'ok') {
               // Wait an additional 3 seconds after health passes to ensure nginx proxy is fully bound
               await new Promise((r) => setTimeout(r, 3000));
               break;
@@ -155,8 +155,8 @@ const IframeTool = ({ url, title, onStopLab, onBack, isJupyter, sessionId }: Ifr
           if (cancelled) return;
           try {
             const health = await fetchJupyterHealth(sessionId);
-            if (health.ready) { reachable = true; break; }
-            lastErrorMsg = health.message;
+            if (health.status === 'ok') { reachable = true; break; }
+            lastErrorMsg = health.message || '';
           } catch (err: any) {
             if (err?.status === 404) { reachable = true; break; }
             lastErrorMsg = err.message;
@@ -269,7 +269,7 @@ export const RemoteDesktop = () => {
   useEffect(() => {
     const initializeSession = async () => {
       if (!labId || initStartedRef.current) return;
-      if (!sessionIdParam && !user?.id) return; // Need user ID to fetch or start session
+      if (!sessionIdParam && !user?.userId) return; // Need user ID to fetch or start session
 
       initStartedRef.current = true;
 
@@ -277,12 +277,12 @@ export const RemoteDesktop = () => {
         let activeSession = null;
         if (sessionIdParam) {
           activeSession = await fetchLabSessionStatus(sessionIdParam);
-        } else if (user?.id) {
-          const activeRes = await fetchUserActiveSession(user.id, labId);
+        } else if (user?.userId) {
+          const activeRes = await fetchUserActiveSession(String(user.userId), labId);
           if (activeRes.session && activeRes.session.labId === labId) {
             activeSession = activeRes.session;
           } else {
-            activeSession = await startLabSession({ labId, userId: user.id });
+            activeSession = await startLabSession({ labId });
           }
         }
         if (!activeSession?.sessionId) throw new Error('No lab session available');
@@ -299,7 +299,7 @@ export const RemoteDesktop = () => {
       }
     };
     initializeSession();
-  }, [location.search, user?.id, sessionIdParam]);
+  }, [location.search, user?.userId, sessionIdParam]);
 
   const handleStopLab = async () => {
     setIsStopping(true);
@@ -372,7 +372,7 @@ export const RemoteDesktop = () => {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <Terminal session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );
@@ -382,7 +382,7 @@ export const RemoteDesktop = () => {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <CloudEditor session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );
@@ -396,7 +396,7 @@ export const RemoteDesktop = () => {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <IframeTool url={labToolUrl} title="VS Code (code-server)" isJupyter={false} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );
@@ -406,7 +406,7 @@ export const RemoteDesktop = () => {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <JupyterEmbed url={labToolUrl} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );

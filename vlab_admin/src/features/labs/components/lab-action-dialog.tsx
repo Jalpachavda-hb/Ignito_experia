@@ -37,7 +37,8 @@ const formSchema = labSchema.omit({
   isEdit: z.boolean(),
 })
 
-type LabForm = z.infer<typeof formSchema>
+type LabFormInput = z.input<typeof formSchema>
+type LabFormOutput = z.output<typeof formSchema>
 
 type LabActionDialogProps = {
   currentRow?: Lab
@@ -58,7 +59,7 @@ export function LabActionDialog({
   const updateMutation = useUpdateLabMutation()
   const { data: runtimeTypes = [], isLoading: isLoadingRuntimes } = useRuntimeTypesQuery()
 
-  const form = useForm<LabForm>({
+  const form = useForm<LabFormInput, any, LabFormOutput>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       id: '',
@@ -130,7 +131,7 @@ export function LabActionDialog({
     }
   }, [open, currentRow, isEdit, form])
 
-  const onSubmit = async (values: LabForm) => {
+  const onSubmit = async (values: LabFormOutput) => {
     try {
       if (isEdit && currentRow) {
         await updateMutation.mutateAsync({ labId: currentRow.id, payload: values })
@@ -235,14 +236,35 @@ export function LabActionDialog({
                   <FormField control={form.control} name='credits' render={({ field }) => (
                     <FormItem>
                       <FormLabel>Credit Cost</FormLabel>
-                      <FormControl><Input type="number" min={0} {...field} onChange={e => field.onChange(parseInt(e.target.value))} /></FormControl>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={typeof field.value === 'number' ? field.value : 0}
+                          onChange={(e) => field.onChange(e.currentTarget.valueAsNumber)}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
                   <FormField control={form.control} name='durationMinutes' render={({ field }) => (
                     <FormItem>
                       <FormLabel>Duration (Minutes)</FormLabel>
-                      <FormControl><Input type="number" min={15} step={15} {...field} onChange={e => field.onChange(parseInt(e.target.value))} /></FormControl>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={15}
+                          step={15}
+                          value={typeof field.value === 'number' ? field.value : 0}
+                          onChange={(e) => field.onChange(e.currentTarget.valueAsNumber)}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -266,7 +288,16 @@ export function LabActionDialog({
                   <FormField control={form.control} name='runtimePort' render={({ field }) => (
                     <FormItem>
                       <FormLabel>Port</FormLabel>
-                      <FormControl><Input type="number" {...field} value={field.value || ''} onChange={e => field.onChange(e.target.value ? parseInt(e.target.value) : null)} /></FormControl>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          value={typeof field.value === 'number' ? field.value : 0}
+                          onChange={(e) => field.onChange(e.currentTarget.valueAsNumber)}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />

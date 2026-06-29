@@ -37,8 +37,8 @@ export default function MyLabs() {
 
   // 1. Check Active Session on mount
   useEffect(() => {
-    if (!user?.accountNo && !user?.email) return;
-    const userId = user.accountNo || user.email;
+    if (!user?.userId && !user?.email) return;
+    const userId = String(user.userId ?? user.email);
     loadActiveSession(userId);
   }, [user, loadActiveSession]);
 

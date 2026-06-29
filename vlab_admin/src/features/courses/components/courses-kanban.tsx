@@ -63,10 +63,10 @@ export function CoursesKanban({ data }: CoursesKanbanProps) {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem asChild>
-                            <Link to={`/courses/${course.id}`} className="flex items-center cursor-pointer">
+                            <a href={`/courses/${course.id}`} className="flex items-center cursor-pointer">
                               <Eye className="mr-2 h-4 w-4" />
                               View Details
-                            </Link>
+                            </a>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleAction(course, 'edit')}>
                             <Edit className="mr-2 h-4 w-4" />

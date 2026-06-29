@@ -40,7 +40,11 @@ export function SubjectProgress({ courses, semester }: SubjectProgressProps) {
                   {course.progressPercentage}%
                 </span>
               </div>
-              <Progress value={course.progressPercentage} className="h-2 bg-slate-100 dark:bg-slate-800" indicatorClassName="bg-indigo-500" />
+              <Progress
+                value={course.progressPercentage}
+                className="h-2 bg-slate-100 dark:bg-slate-800"
+                indicatorColor="bg-indigo-500"
+              />
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span className="font-medium">Modules: {course.completedModules} / {course.totalModules}</span>
                 <Badge variant="outline" className={`text-[10px] uppercase font-bold tracking-wider ${

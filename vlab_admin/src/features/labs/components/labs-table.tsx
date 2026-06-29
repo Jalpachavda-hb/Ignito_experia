@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
+  type ColumnFiltersState,
   type SortingState,
   type VisibilityState,
   flexRender,
@@ -34,7 +35,7 @@ export function LabsTable({ data, isDeletedTab }: DataTableProps) {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
-  const [columnFilters, setColumnFilters] = useState([])
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 
   const columns = isDeletedTab ? deletedLabsColumns : activeColumns
 

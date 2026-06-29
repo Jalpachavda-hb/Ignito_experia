@@ -60,7 +60,7 @@ export function TransactionBreakdownChart({ transactions }: TransactionBreakdown
                   ))}
                 </Pie>
                 <Tooltip 
-                  formatter={(value: number) => [`${value} Credits`, 'Volume']}
+                  formatter={(value) => [`${Number(value ?? 0)} Credits`, 'Volume']}
                   contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                 />
                 <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '12px' }}/>

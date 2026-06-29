@@ -40,31 +40,37 @@ const generateStudentPermissions = () => {
 
 export const roles: Role[] = [
   {
-    id: faker.string.uuid(),
+    roleId: 1,
     name: 'Super Admin',
     description: 'System administrator with full access to all features across the platform.',
+    isSystem: true,
+    isActive: true,
     userCount: 2,
     permissions: generateFullPermissions(),
-    createdAt: faker.date.past(),
-    updatedAt: faker.date.recent(),
+    createdDate: faker.date.past(),
+    updatedDate: faker.date.recent(),
   },
 
   {
-    id: faker.string.uuid(),
+    roleId: 2,
     name: 'Faculty',
     description: 'Instructors who can manage labs, courses, and monitor their students.',
+    isSystem: true,
+    isActive: true,
     userCount: 145,
     permissions: generateFacultyPermissions(),
-    createdAt: faker.date.past(),
-    updatedAt: faker.date.recent(),
+    createdDate: faker.date.past(),
+    updatedDate: faker.date.recent(),
   },
   {
-    id: faker.string.uuid(),
+    roleId: 3,
     name: 'Student',
     description: 'Standard end-user who can view assigned courses and launch lab environments.',
+    isSystem: true,
+    isActive: true,
     userCount: 4200,
     permissions: generateStudentPermissions(),
-    createdAt: faker.date.past(),
-    updatedAt: faker.date.recent(),
+    createdDate: faker.date.past(),
+    updatedDate: faker.date.recent(),
   }
 ]

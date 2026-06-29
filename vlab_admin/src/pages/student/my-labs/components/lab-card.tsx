@@ -94,7 +94,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         </div>
         
         <div className="w-full sm:w-64 p-6 border-t sm:border-t-0 sm:border-l border-border/40 flex flex-col justify-center bg-slate-50/50 dark:bg-slate-900/20 shrink-0">
-           {(labStatus === 'In Progress' || labStatus === 'active') && (
+           {labStatus === 'In Progress' && (
              <div className="mb-5 w-full">
                <div className="flex justify-between text-xs mb-2 text-slate-500">
                  <span className="font-semibold uppercase tracking-wider">Progress</span>
