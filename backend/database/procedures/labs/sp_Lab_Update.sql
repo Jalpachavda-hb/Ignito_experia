@@ -39,7 +39,7 @@ BEGIN
 
     START TRANSACTION;
 
-    UPDATE `labs`
+    UPDATE `Labs`
     SET
         `TenantId` = p_TenantId,
         `LabCode` = p_LabCode,

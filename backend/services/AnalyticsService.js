@@ -15,22 +15,23 @@ class AnalyticsService {
       // 0. Total Direct Students vs LMS
       pool.query(`
         SELECT AuthenticationSource, COUNT(*) as Count 
-        FROM StudentProfiles 
+        FROM Users 
+        WHERE Role = 'Student' AND IsDeleted = 0
         GROUP BY AuthenticationSource
       `),
       
       // 1. Daily Active Users (Unique Students logged in today)
       pool.query(`
-        SELECT COUNT(DISTINCT StudentProfileId) as DAU 
+        SELECT COUNT(DISTINCT UserId) as DAU 
         FROM StudentSessions 
-        WHERE DATE(LoginTime) = CURDATE() AND StudentProfileId IS NOT NULL
+        WHERE DATE(LoginTime) = CURDATE() AND UserId IS NOT NULL
       `),
       
       // 2. Monthly Active Users
       pool.query(`
-        SELECT COUNT(DISTINCT StudentProfileId) as MAU 
+        SELECT COUNT(DISTINCT UserId) as MAU 
         FROM StudentSessions 
-        WHERE LoginTime >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND StudentProfileId IS NOT NULL
+        WHERE LoginTime >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND UserId IS NOT NULL
       `),
       
       // 3. Failed Logins (From Audit)
@@ -46,13 +47,13 @@ class AnalyticsService {
         FROM StudentSessions 
         WHERE LogoutTime IS NOT NULL AND LoginTime >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
       `),
-
+ 
       // 5. University Usage Distribution
       pool.query(`
-        SELECT u.Name as University, COUNT(p.StudentProfileId) as Students 
-        FROM Universities u
-        LEFT JOIN StudentProfiles p ON u.UniversityId = p.UniversityId
-        GROUP BY u.UniversityId
+        SELECT UniversityId as University, COUNT(*) as Students 
+        FROM Users
+        WHERE Role = 'Student' AND IsDeleted = 0
+        GROUP BY UniversityId
         ORDER BY Students DESC
         LIMIT 5
       `),

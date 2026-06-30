@@ -12,9 +12,9 @@ class RefreshTokenRepository {
 
     const [result] = await connection.query(
       `INSERT INTO RefreshTokens (
-        UserId, StudentProfileId, SessionId, TokenHash, ExpiresAt
-      ) VALUES (?, ?, ?, ?, ?)`,
-      [UserId, StudentProfileId, SessionId, TokenHash, ExpiresAt]
+        UserId, SessionId, TokenHash, ExpiresAt
+      ) VALUES (?, ?, ?, ?)`,
+      [UserId || StudentProfileId, SessionId, TokenHash, ExpiresAt]
     );
 
     return result.insertId;
@@ -37,7 +37,7 @@ class RefreshTokenRepository {
 
   async revokeAllForProfile(profileId, connection = pool) {
     await connection.query(
-      "UPDATE RefreshTokens SET RevokedAt = NOW() WHERE StudentProfileId = ? AND RevokedAt IS NULL",
+      "UPDATE RefreshTokens SET RevokedAt = NOW() WHERE UserId = ? AND RevokedAt IS NULL",
       [profileId]
     );
   }

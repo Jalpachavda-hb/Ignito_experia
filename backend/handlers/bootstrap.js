@@ -73,16 +73,12 @@ export const appBootstrapHandler = async ({ auth }) => {
 
   // 5. Fetch Settings and Flags
   const settings = await navigationService.getApplicationSettings();
-  
-  let flagsQuery = "SELECT FlagCode, IsEnabled FROM FeatureFlags WHERE UniversityId IS NULL";
-  let flagsParams = [];
-  if (profile.UniversityId) {
-     flagsQuery += " OR UniversityId = ?";
-     flagsParams.push(profile.UniversityId);
-  }
-  const [flagsRows] = await pool.query(flagsQuery, flagsParams);
-  const flags = {};
-  for (const row of flagsRows) flags[row.FlagCode] = Boolean(row.IsEnabled);
+  const flags = {
+    VIRTUAL_LABS: true,
+    COMPILER: true,
+    REPORTS: true,
+    CONTAINER_MONITORING: false
+  };
 
   // 6. Return Monolithic Payload
   return ok({

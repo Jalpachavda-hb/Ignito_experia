@@ -23,7 +23,7 @@ BEGIN
         `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `DisplayOrder`, `Status`, `IsDeleted`, 
         `CreatedBy`, `UpdatedBy`, `CreatedDate`, `UpdatedDate`
-    FROM `labs`
+    FROM `Labs`
     WHERE `LabId` = p_LabId AND `IsDeleted` = 0;
 END //
 

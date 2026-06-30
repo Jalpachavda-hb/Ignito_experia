@@ -20,7 +20,7 @@ BEGIN
         `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `DisplayOrder`, `Status`, `IsDeleted`, 
         `CreatedBy`, `UpdatedBy`, `CreatedDate`, `UpdatedDate`
-    FROM `labs`
+    FROM `Labs`
     WHERE 
         (p_Status IS NULL OR p_Status = '' OR 
          (p_Status = 'active' AND `IsDeleted` = 0 AND `Status` != 'inactive') OR

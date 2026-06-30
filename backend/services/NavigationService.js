@@ -79,20 +79,13 @@ class NavigationService {
     const denied = new Set(Array.isArray(permissionMatrix.userDeny) ? permissionMatrix.userDeny : []);
     for (const d of denied) granted.delete(d);
 
-    // Fetch feature flags to potentially hide sections entirely even if permitted
-    let query = "SELECT FlagCode, IsEnabled FROM FeatureFlags WHERE UniversityId IS NULL";
-    let params = [];
-    if (universityId) {
-       query += " OR UniversityId = ?";
-       params.push(universityId);
-    }
-    const [flagsRows] = await pool.query(query, params);
-    
-    // Flatten flags (University overrides GLOBAL)
-    const flags = {};
-    for (const row of flagsRows) {
-      flags[row.FlagCode] = Boolean(row.IsEnabled);
-    }
+    // Hardcode feature flags in memory
+    const flags = {
+      VIRTUAL_LABS: true,
+      COMPILER: true,
+      REPORTS: true,
+      CONTAINER_MONITORING: false
+    };
 
     // Builder recursive function
     const evaluateNode = (node) => {
@@ -131,12 +124,9 @@ class NavigationService {
   }
 
   async getApplicationSettings() {
-    const [settings] = await pool.query("SELECT SettingKey, SettingValue FROM SystemSettings");
-    const result = {};
-    for (const s of settings) {
-      result[s.SettingKey] = s.SettingValue;
-    }
-    return result;
+    return {
+      MAINTENANCE_MODE: "false"
+    };
   }
 }
 

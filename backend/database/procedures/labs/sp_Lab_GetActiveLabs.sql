@@ -21,7 +21,7 @@ BEGIN
         `TaskDefinition`, `RuntimeType`, `RuntimePort`, `RuntimePath`, 
         `ContainerApiEnabled`, `ContainerApiPort`, `DisplayOrder`, `Status`, `IsDeleted`, 
         `CreatedBy`, `UpdatedBy`, `CreatedDate`, `UpdatedDate`
-    FROM `labs`
+    FROM `Labs`
     WHERE `IsDeleted` = 0 AND `Status` = 'active'
     ORDER BY `DisplayOrder` ASC, `CreatedDate` DESC;
 END //

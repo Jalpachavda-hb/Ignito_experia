@@ -22,7 +22,7 @@ BEGIN
 
     START TRANSACTION;
 
-    UPDATE `labs`
+    UPDATE `Labs`
     SET 
         `Status` = p_Status,
         `UpdatedBy` = p_UpdatedBy,
