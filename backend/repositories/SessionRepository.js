@@ -20,11 +20,11 @@ class SessionRepository {
 
     await connection.query(
       `INSERT INTO StudentSessions (
-        SessionId, UserId, StudentProfileId, LoginSource, UniversityId,
+        SessionId, UserId, LoginSource, UniversityId,
         AccessTokenId, RefreshTokenId, IPAddress, DeviceId, Status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        SessionId, UserId, StudentProfileId, source, UniversityId,
+        SessionId, UserId || StudentProfileId, source, UniversityId,
         AccessTokenId, RefreshTokenId, IPAddress, DeviceId, Status
       ]
     );

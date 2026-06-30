@@ -23,7 +23,7 @@ class AnalyticsCronService {
           ?, 
           0,
           COUNT(*),
-          COUNT(DISTINCT StudentProfileId)
+          COUNT(DISTINCT UserId)
         FROM StudentSessions
         WHERE DATE(LoginTime) = ?
         ON DUPLICATE KEY UPDATE 

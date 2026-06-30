@@ -21,7 +21,7 @@ BEGIN
 
     START TRANSACTION;
 
-    UPDATE `labs`
+    UPDATE `Labs`
     SET 
         `IsDeleted` = 1,
         `Status` = 'inactive',

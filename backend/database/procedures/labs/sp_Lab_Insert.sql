@@ -38,7 +38,7 @@ BEGIN
 
     START TRANSACTION;
 
-    INSERT INTO `labs` (
+    INSERT INTO `Labs` (
         `TenantId`, `LabCode`, `Title`, `Subtitle`, `Semester`, `Logo`, `DurationMinutes`, `Credits`,
         `Complexity`, `Category`, `Description`, `TaskDefinition`, `RuntimeType`, `RuntimePort`,
         `RuntimePath`, `ContainerApiEnabled`, `ContainerApiPort`, `DisplayOrder`, `Status`, `IsDeleted`, `CreatedBy`

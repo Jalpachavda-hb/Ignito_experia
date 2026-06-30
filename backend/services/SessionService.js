@@ -11,7 +11,7 @@ class SessionService {
     const deviceFingerprint = crypto.createHash("sha256").update(fingerprintString).digest("hex");
 
     const [existing] = await connection.query(
-      "SELECT DeviceId FROM RegisteredDevices WHERE DeviceFingerprint = ? AND StudentProfileId = ?",
+      "SELECT DeviceId FROM RegisteredDevices WHERE DeviceFingerprint = ? AND UserId = ?",
       [deviceFingerprint, profileId]
     );
 
@@ -26,7 +26,7 @@ class SessionService {
       deviceId = crypto.randomUUID();
       await connection.query(
         `INSERT INTO RegisteredDevices 
-         (DeviceId, StudentProfileId, DeviceFingerprint, DeviceName, Browser, BrowserVersion, OperatingSystem, OperatingSystemVersion, Platform, IPAddress, Timezone) 
+         (DeviceId, UserId, DeviceFingerprint, DeviceName, Browser, BrowserVersion, OperatingSystem, OperatingSystemVersion, Platform, IPAddress, Timezone) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           deviceId, profileId, deviceFingerprint, deviceData.deviceName || 'Unknown Device',
@@ -43,7 +43,7 @@ class SessionService {
     
     // Find active sessions
     const [activeSessions] = await connection.query(
-      "SELECT SessionId FROM StudentSessions WHERE StudentProfileId = ? AND Status = 'ACTIVE' ORDER BY LoginTime ASC",
+      "SELECT SessionId FROM StudentSessions WHERE UserId = ? AND Status = 'ACTIVE' ORDER BY LoginTime ASC",
       [profileId]
     );
 
@@ -62,12 +62,12 @@ class SessionService {
 
   async revokeSession(sessionId, reasonStatus = 'REVOKED', connection = pool) {
     const [sessionData] = await connection.query(
-      "SELECT StudentProfileId FROM StudentSessions WHERE SessionId = ?",
+      "SELECT UserId FROM StudentSessions WHERE SessionId = ?",
       [sessionId]
     );
 
     if (!sessionData || sessionData.length === 0) return;
-    const profileId = sessionData[0].StudentProfileId;
+    const profileId = sessionData[0].UserId;
 
     // Update status
     await connection.query(
@@ -82,12 +82,12 @@ class SessionService {
     );
 
     // Log Event
-    await auditService.log({ StudentProfileId: profileId, Action: reasonStatus, Module: 'Sessions', Status: 'Success' });
+    await auditService.log({ UserId: profileId, Action: reasonStatus, Module: 'Sessions', Status: 'Success' });
   }
 
   async revokeAllUserSessions(profileId, reasonStatus = 'FORCE_LOGOUT', connection = pool) {
     const [activeSessions] = await connection.query(
-      "SELECT SessionId FROM StudentSessions WHERE StudentProfileId = ? AND Status = 'ACTIVE'",
+      "SELECT SessionId FROM StudentSessions WHERE UserId = ? AND Status = 'ACTIVE'",
       [profileId]
     );
 
@@ -102,7 +102,7 @@ class SessionService {
 
     try {
       const [sessionData] = await connection.query(
-        "SELECT StudentProfileId FROM StudentSessions WHERE SessionId = ?",
+        "SELECT UserId FROM StudentSessions WHERE SessionId = ?",
         [sessionId]
       );
 
@@ -113,7 +113,7 @@ class SessionService {
       await this.revokeSession(sessionId, 'FORCE_LOGOUT', connection);
 
       // Explicitly log the admin who forced the logout
-      await auditService.log({ StudentProfileId: sessionData[0].StudentProfileId, Action: 'FORCE_LOGOUT_BY_ADMIN', UserId: adminUserId, Module: 'Sessions', Status: 'Success' });
+      await auditService.log({ UserId: sessionData[0].UserId, Action: 'FORCE_LOGOUT_BY_ADMIN', UserId: adminUserId, Module: 'Sessions', Status: 'Success' });
 
       await connection.commit();
       connection.release();

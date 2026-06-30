@@ -41,13 +41,13 @@ class AuditRepository {
 
     const [result] = await connection.query(
       `INSERT INTO AuditLogs (
-        RequestId, CorrelationId, TraceId, SessionId, UserId, StudentProfileId, 
+        RequestId, CorrelationId, TraceId, SessionId, UserId, 
         UniversityId, DepartmentId, ProgramId, SemesterId, Source, Category, Severity, 
         Action, Module, Entity, EntityId, Description, OldValues, NewValues, 
         IPAddress, Browser, Device, OperatingSystem, Country, City, Status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        RequestId, CorrelationId, TraceId, SessionId, UserId, StudentProfileId,
+        RequestId, CorrelationId, TraceId, SessionId, UserId || StudentProfileId,
         UniversityId, DepartmentId, ProgramId, SemesterId, finalSource, Category, Severity,
         Action, Module, Entity, EntityId, Description, oldVals, newVals,
         IPAddress, Browser, Device, finalOS, Country, City, Status
@@ -57,6 +57,10 @@ class AuditRepository {
     return result.insertId;
   }
   async search(filters, offset, limit) {
+    if (filters.StudentProfileId !== undefined && filters.UserId === undefined) {
+      filters.UserId = filters.StudentProfileId;
+    }
+
     let query = `
       SELECT a.*, u.FullName AS UserFullName, u.Email AS UserEmail 
       FROM AuditLogs a
@@ -67,7 +71,7 @@ class AuditRepository {
 
     const allowedFilters = [
       'Category', 'Severity', 'Action', 'Source', 'Status', 
-      'UniversityId', 'DepartmentId', 'StudentProfileId', 'CorrelationId'
+      'UniversityId', 'DepartmentId', 'UserId', 'CorrelationId'
     ];
 
     for (const field of allowedFilters) {
