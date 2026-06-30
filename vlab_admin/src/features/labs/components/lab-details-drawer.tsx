@@ -1,4 +1,4 @@
-import React from 'react'
+
 import {
   Sheet,
   SheetContent,
@@ -13,13 +13,13 @@ import { Button } from '@/components/ui/button'
 import { type Lab } from '../data/schema'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  Activity,
+
   Database,
-  Server,
+  
   Clock,
   MonitorPlay,
-  PlayCircle,
-  Copy,
+
+
   Edit,
   Trash,
   Code
@@ -50,12 +50,7 @@ export function LabDetailsDrawer({ lab, open, onOpenChange, onEdit, onDelete }: 
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-xl md:max-w-2xl overflow-hidden flex flex-col p-0">
         <SheetHeader className="p-6 pb-0 border-b border-border/50 bg-muted/20 relative">
-          <div className="absolute top-6 right-12 z-10 hidden sm:block">
-            <Button variant="outline" size="sm" onClick={() => { onOpenChange(false); onEdit(); }}>
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Lab
-            </Button>
-          </div>
+
           <div className="flex items-start gap-4 mb-6 pt-2">
             <div className="h-16 w-16 rounded-xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center shrink-0">
               {lab.logoUrl ? (

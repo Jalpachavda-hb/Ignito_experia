@@ -13,10 +13,6 @@ import {
   labsGetHandler,
   subLabsHandler,
   labsAdminListHandler,
-  createLabHandler,
-  updateLabHandler,
-  updateLabStatusHandler,
-  deleteLabHandler,
 } from "./handlers/labs.js";
 import {
   sessionsStartHandler,
@@ -129,11 +125,7 @@ export const ROUTES = [
   // Labs 
   
   { method: "GET", path: "/admin/labs", handler: labsAdminListHandler, auth: true },
-  { method: "POST", path: "/admin/labs", handler: createLabHandler, auth: true },
   { method: "GET", path: "/admin/labs/:labId", handler: labsGetHandler, auth: true },
-  { method: "PUT", path: "/admin/labs/:labId", handler: updateLabHandler, auth: true },
-  { method: "PATCH", path: "/admin/labs/:labId/status", handler: updateLabStatusHandler, auth: true },
-  { method: "DELETE", path: "/admin/labs/:labId", handler: deleteLabHandler, auth: true },
   
 
 

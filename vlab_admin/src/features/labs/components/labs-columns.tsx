@@ -5,28 +5,13 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header'
 import { type Lab } from '../data/schema'
 import { LabsRowActions } from './labs-row-actions'
 
-import { Switch } from '@/components/ui/switch'
-import { useUpdateLabStatusMutation } from '../data/api'
-
 
 const StatusCell = ({ lab }: { lab: Lab }) => {
-  const updateStatusMutation = useUpdateLabStatusMutation()
-  const handleStatusToggle = (checked: boolean) => {
-    updateStatusMutation.mutate({
-      labId: lab.id,
-      status: checked ? 'active' : 'inactive'
-    })
-  }
   return (
-    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-      <Switch 
-        checked={lab.status === 'active'}
-        onCheckedChange={handleStatusToggle}
-        className="scale-75 origin-left"
-      />
-      <span className="text-xs text-muted-foreground font-medium">
-        {lab.status === 'active' ? '[ ON ] Active' : '[ OFF ] Inactive'}
-      </span>
+    <div className="flex items-center gap-2">
+      <Badge variant={lab.status === 'active' ? 'default' : 'secondary'} className="capitalize">
+        {lab.status}
+      </Badge>
     </div>
   )
 }

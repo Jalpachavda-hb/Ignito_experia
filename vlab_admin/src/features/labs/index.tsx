@@ -10,8 +10,6 @@ import { Plus, LayoutGrid, List } from 'lucide-react'
 import { LabsTable } from './components/labs-table'
 import { LabsKanban } from './components/labs-kanban'
 import { LabsProvider, useLabs } from './context/labs-context'
-import { LabActionDialog } from './components/lab-action-dialog'
-import { LabDeleteDialog } from './components/lab-delete-dialog'
 import { LabDetailsDrawer } from './components/lab-details-drawer'
 import { useLabsQuery } from './data/api'
 
@@ -58,15 +56,11 @@ function LabsViewContent() {
       <Main>
         <div className='mb-6 flex flex-col items-start justify-between gap-y-4 sm:flex-row sm:items-center'>
           <div>
-            <h1 className='text-3xl font-bold tracking-tight'>Lab Management</h1>
+            <h1 className='text-3xl font-bold tracking-tight'>Lab Catalog</h1>
             <p className='text-muted-foreground mt-1'>
-              Manage virtual lab environments, docker images, and technology configurations.
+              Browse available virtual lab environments, workspace containers, and technology configurations.
             </p>
           </div>
-          <Button onClick={handleCreate} className="shadow-sm">
-            <Plus className='mr-2 h-4 w-4' />
-            Create Lab
-          </Button>
         </div>
 
         {isLoading ? (
@@ -130,38 +124,15 @@ function LabsViewContent() {
         )}
       </Main>
 
-      <LabActionDialog
-        open={dialogOpen === 'create'}
-        mode='create'
-        onOpenChange={(open) => !open && handleDialogChange(false)}
-      />
-
       {currentRow && (
-        <>
-          <LabActionDialog
-            key={`edit-${currentRow.id}`}
-            currentRow={currentRow}
-            mode='edit'
-            open={dialogOpen === 'edit'}
-            onOpenChange={handleDialogChange}
-          />
-          <LabDetailsDrawer
-            key={`view-${currentRow.id}`}
-            lab={currentRow}
-            open={dialogOpen === 'view'}
-            onOpenChange={handleDialogChange}
-            onEdit={() => setDialogOpen('edit')}
-
-            onDelete={() => setDialogOpen('delete')}
-          />
-
-          <LabDeleteDialog
-            key={`delete-${currentRow.id}`}
-            currentRow={currentRow}
-            open={dialogOpen === 'delete'}
-            onOpenChange={handleDialogChange}
-          />
-        </>
+        <LabDetailsDrawer
+          key={`view-${currentRow.id}`}
+          lab={currentRow}
+          open={dialogOpen === 'view'}
+          onOpenChange={handleDialogChange}
+          onEdit={() => {}}
+          onDelete={() => {}}
+        />
       )}
     </>
   )
