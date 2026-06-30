@@ -27,6 +27,33 @@ const loadUserPermissions = async (roleId, connection = pool) => {
 };
 
 class AuthService {
+  async register(userData) {
+    const { fullName, email, password, role } = userData;
+    if (!email || !password) {
+      throw badRequest("Email and password are required");
+    }
+ 
+    const existingUser = await userRepository.findByEmail(email);
+    if (existingUser) {
+      throw badRequest("Email is already registered");
+    }
+ 
+    const passwordHash = hashPassword(password);
+   
+    const user = await userRepository.insert({
+      fullName: fullName || "New User",
+      email,
+      passwordHash,
+      role: role || "Student",
+      status: "Active"
+    });
+ 
+    return user;
+  }
+
+
+  
+
   async login({ email, password, ipAddress, browser, os, device }) {
     if (!email || !password) {
       throw badRequest("Email and password are required");
