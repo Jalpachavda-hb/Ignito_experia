@@ -1,5 +1,6 @@
 import { useState} from 'react'
 import {
+  type ColumnFiltersState,
   type SortingState,
   type VisibilityState,
   type ColumnFiltersState,

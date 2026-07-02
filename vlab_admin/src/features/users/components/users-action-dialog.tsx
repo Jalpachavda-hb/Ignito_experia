@@ -95,7 +95,8 @@ const formSchema = z
       path: ['confirmPassword'],
     }
   )
-type UserForm = z.infer<typeof formSchema>
+type UserFormInput = z.input<typeof formSchema>
+type UserFormOutput = z.output<typeof formSchema>
 
 type UserActionDialogProps = {
   currentRow?: User
@@ -109,7 +110,7 @@ export function UsersActionDialog({
   onOpenChange,
 }: UserActionDialogProps) {
   const isEdit = !!currentRow
-  const form = useForm<UserForm>({
+  const form = useForm<UserFormInput, any, UserFormOutput>({
     resolver: zodResolver(formSchema),
     defaultValues: isEdit
       ? {
@@ -155,6 +156,10 @@ export function UsersActionDialog({
         onError: (err: any) => toast.error(err.message || 'Failed to create user')
       })
     }
+  const onSubmit = (values: UserFormOutput) => {
+    form.reset()
+    showSubmittedData(values)
+    onOpenChange(false)
   }
 
   const isPasswordTouched = !!form.formState.dirtyFields.password
@@ -322,7 +327,11 @@ export function UsersActionDialog({
                         type='number'
                         placeholder='0'
                         className='col-span-4'
-                        {...field}
+                        value={typeof field.value === 'number' ? field.value : 0}
+                        onChange={(e) => field.onChange(e.currentTarget.valueAsNumber)}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                       />
                     </FormControl>
                     <FormMessage className='col-span-4 col-start-3' />

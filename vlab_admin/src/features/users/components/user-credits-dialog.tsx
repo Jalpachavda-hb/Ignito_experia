@@ -29,6 +29,9 @@ const formSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive'),
 })
 
+type UserCreditsFormInput = z.input<typeof formSchema>
+type UserCreditsFormOutput = z.output<typeof formSchema>
+
 type UserCreditsDialogProps = {
   user: User | null
   open: boolean
@@ -36,7 +39,7 @@ type UserCreditsDialogProps = {
 }
 
 export function UserCreditsDialog({ user, open, onOpenChange }: UserCreditsDialogProps) {
-  const form = useForm<z.infer<typeof formSchema>>({
+  const form = useForm<UserCreditsFormInput, any, UserCreditsFormOutput>({
     resolver: zodResolver(formSchema),
     defaultValues: { amount: 500 },
   })
@@ -54,6 +57,9 @@ export function UserCreditsDialog({ user, open, onOpenChange }: UserCreditsDialo
       },
       onError: (err: any) => toast.error(err.message || 'Failed to assign credits')
     })
+  const onSubmit = (values: UserCreditsFormOutput) => {
+    toast.success(`${values.amount} credits successfully allocated to ${user.firstName} ${user.lastName}.`)
+    onOpenChange(false)
   }
 
   return (
@@ -78,7 +84,16 @@ export function UserCreditsDialog({ user, open, onOpenChange }: UserCreditsDialo
                 <FormItem>
                   <FormLabel>Amount to Allocate</FormLabel>
                   <FormControl>
-                    <Input type='number' min={1} placeholder='500' {...field} />
+                    <Input
+                      type='number'
+                      min={1}
+                      placeholder='500'
+                      value={typeof field.value === 'number' ? field.value : 0}
+                      onChange={(e) => field.onChange(e.currentTarget.valueAsNumber)}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

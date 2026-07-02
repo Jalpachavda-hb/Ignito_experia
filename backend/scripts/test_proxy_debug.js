@@ -22,7 +22,7 @@ async function run() {
   const token = signJupyterEmbedToken(session.sessionId, session.userId);
   console.log("Generated token:", token.substring(0, 30) + "...");
   
-  const url = `http://localhost:8080/api/lab-sessions/${session.sessionId}/jupyter/lab?access_token=${encodeURIComponent(token)}`;
+  const url = `${ENV.apiPublicUrl}/lab-sessions/${session.sessionId}/jupyter/lab?access_token=${encodeURIComponent(token)}`;
   console.log("Testing URL:", url);
   
   try {

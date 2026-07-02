@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { ENV } from "../config/env.js";
 
 // ─── Build Transporter ────────────────────────────────────────────────────────
 function createTransporter() {
@@ -30,7 +31,7 @@ const transporter = createTransporter();
 // ─── Sender defaults ─────────────────────────────────────────────────────────
 const FROM_NAME  = process.env.SMTP_FROM_NAME  || "Ignito Experia";
 const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER || "noreply@ignito.app";
-const FRONTEND_URL = process.env.FRONTEND_URL  || "http://localhost:5173";
+const FRONTEND_URL = ENV.frontendUrl;
 
 // ─── Generic send helper ─────────────────────────────────────────────────────
 async function sendMail({ to, subject, html, text }) {

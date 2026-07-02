@@ -1,4 +1,7 @@
 import { useAuthStore } from '@/stores/auth-store';
+import { buildApiUrl } from '@/config/env';
+
+export { buildApiUrl } from '@/config/env';
 
 export class ApiError extends Error {
   status: number;
@@ -10,13 +13,6 @@ export class ApiError extends Error {
     this.status = status;
     this.payload = payload;
   }
-}
-
-export function buildApiUrl(path: string): string {
-  const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || `${window.location.protocol}//${window.location.hostname}:8080/api`;
-  const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
-  const baseUrl = trimTrailingSlash(rawApiBaseUrl);
-  return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 let isRefreshing = false;

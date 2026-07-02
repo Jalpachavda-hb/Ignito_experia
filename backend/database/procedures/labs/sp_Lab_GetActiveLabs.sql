@@ -11,7 +11,7 @@ BEGIN
     BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
-        CALL sp_LogError('labs', 'sp_Lab_GetActivelabs', v_ErrorMessage, v_ErrorNumber, 'No parameters');
+        CALL sp_LogError('labs', 'sp_Lab_GetActiveLabs', v_ErrorMessage, v_ErrorNumber, 'No parameters');
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 

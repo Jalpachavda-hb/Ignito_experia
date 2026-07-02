@@ -150,6 +150,7 @@ const buildFileTree = (filesList: any[]) => {
 const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const location = useLocation();
   const editorRef = useRef<any>(null);
+  const mountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<any[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(-1);
@@ -159,6 +160,15 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [restrictionMsg, setRestrictionMsg] = useState('');
+  const [showRestrictionModal, setShowRestrictionModal] = useState(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Auto-expand all folders when files load for Android
   useEffect(() => {
@@ -437,7 +447,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         console.error('Load files error:', err);
         toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
       } finally {
-        if (isMounted) setIsLoading(false);
+        if (mountedRef.current) setIsLoading(false);
       }
     }
   };
@@ -798,7 +808,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       return;
     }
 
-    const newFile = { name: fileName, path: `/workspace/${fileName}`, type: 'file', language: detectLanguage(fileName), content: '' };
+      const newFile = { name: fileName, path: `/workspace/${fileName}`, type: 'file', language: detectLanguage(fileName), content: '' };
     if (sessionId) {
       // Optimistically add to files, open tab, and select it
       setFiles(prev => {
@@ -820,10 +830,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       } catch (err) {
         console.error('Failed to save newly added file on backend:', err);
       }
-      const newIdx = newFilesList.findIndex(f => f.path === newFile.path);
-      if (newIdx !== -1) {
-        selectFile(newIdx, newFilesList);
-      }
+      // Select the newly created file (best-effort; file list is async state)
+      selectFile(files.length, [...files, newFile]).catch(() => {});
 
       // Save to backend and refresh in background
       (async () => {

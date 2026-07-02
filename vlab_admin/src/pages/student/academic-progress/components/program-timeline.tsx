@@ -40,7 +40,11 @@ export function ProgramTimeline({ program }: ProgramTimelineProps) {
             <span>Overall Degree Completion</span>
             <span className="text-red-600 dark:text-red-500">{program.overallProgress}%</span>
           </div>
-          <Progress value={program.overallProgress} className="h-3 bg-slate-100 dark:bg-slate-800" indicatorClassName="bg-gradient-to-r from-red-600 to-rose-500" />
+          <Progress
+            value={program.overallProgress}
+            className="h-3 bg-slate-100 dark:bg-slate-800"
+            indicatorColor="bg-gradient-to-r from-red-600 to-rose-500"
+          />
         </div>
 
         <div className="relative">

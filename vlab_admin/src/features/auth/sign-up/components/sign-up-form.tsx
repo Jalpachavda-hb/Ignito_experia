@@ -40,6 +40,9 @@ const formSchema = z.object({
   path: ['confirmPassword']
 });
 
+type SignUpFormInput = z.input<typeof formSchema>
+type SignUpFormOutput = z.output<typeof formSchema>
+
 export function SignUpForm({
   className,
   redirectTo,
@@ -50,7 +53,7 @@ export function SignUpForm({
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
-  const form = useForm<z.infer<typeof formSchema>>({
+  const form = useForm<SignUpFormInput, any, SignUpFormOutput>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       fullName: '',
@@ -73,7 +76,7 @@ export function SignUpForm({
   //   { regex: /.{8,}/, label: '8+ Chars' },
   // ]
 
-  async function onSubmit(data: z.infer<typeof formSchema>) {
+  async function onSubmit(data: SignUpFormOutput) {
     setIsLoading(true)
 
     try {
