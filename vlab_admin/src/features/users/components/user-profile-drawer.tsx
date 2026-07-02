@@ -44,7 +44,7 @@ export function UserProfileDrawer({ user, open, onOpenChange }: UserProfileDrawe
               <div className="flex items-center gap-2 pt-2">
                 <Badge variant="outline" className="bg-primary/5 capitalize">
                   <UserIcon className="h-3 w-3 mr-1" />
-                  {user.role}
+                  {user.Role}
                 </Badge>
                 {user.ProgramId && (
                   <Badge variant="outline" className="flex items-center gap-1">
@@ -81,19 +81,19 @@ export function UserProfileDrawer({ user, open, onOpenChange }: UserProfileDrawe
                   <div className="grid grid-cols-2 gap-y-4 gap-x-8">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Phone Number</p>
-                      <p className="font-semibold mt-1">{user.phoneNumber || 'N/A'}</p>
+                      <p className="font-semibold mt-1">{user.PhoneNumber || 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Available Credits</p>
                       <div className="text-2xl font-bold mt-1 text-amber-600 flex items-center">
                         <Database className="h-4 w-4 mr-1.5" />
-                        {Intl.NumberFormat('en-US').format(user.CreditBalance as number)}
+                        {Intl.NumberFormat('en-US').format(Number(user.CreditBalance))}
                       </div>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Member Since</p>
                       <p className="font-semibold mt-1">
-                        {new Date(user.createdAt).toLocaleDateString()}
+                        {new Date(user.CreatedAt).toLocaleDateString()}
                       </p>
                     </div>
                   </div>
@@ -107,7 +107,7 @@ export function UserProfileDrawer({ user, open, onOpenChange }: UserProfileDrawe
                   <CardTitle className="text-lg flex items-center justify-between">
                     Credit History
                     <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-200">
-                      {Intl.NumberFormat('en-US').format(user.credits)} Balance
+                      {Intl.NumberFormat('en-US').format(Number(user.CreditBalance))} Balance
                     </Badge>
                   </CardTitle>
                   <CardDescription>Recent credit allocations and deductions.</CardDescription>

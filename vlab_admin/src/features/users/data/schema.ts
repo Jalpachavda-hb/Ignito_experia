@@ -14,3 +14,4 @@ const _userSchema = z.object({
   CreatedAt: z.string(),
 })
 export type User = z.infer<typeof _userSchema>
+export type UserStatus = 'active' | 'inactive' | 'invited' | 'suspended'

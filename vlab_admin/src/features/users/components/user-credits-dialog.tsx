@@ -57,9 +57,6 @@ export function UserCreditsDialog({ user, open, onOpenChange }: UserCreditsDialo
       },
       onError: (err: any) => toast.error(err.message || 'Failed to assign credits')
     })
-  const onSubmit = (values: UserCreditsFormOutput) => {
-    toast.success(`${values.amount} credits successfully allocated to ${user.firstName} ${user.lastName}.`)
-    onOpenChange(false)
   }
 
   return (

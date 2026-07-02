@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import {
   useReactTable, getCoreRowModel, getFilteredRowModel,
   getPaginationRowModel, getSortedRowModel, flexRender,
-  type ColumnDef, type SortingState, type ColumnFiltersState,
+  type ColumnDef, type SortingState, type ColumnFiltersState
 } from '@tanstack/react-table'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search } from 'lucide-react'
 import { type Lab } from '../data/schema'

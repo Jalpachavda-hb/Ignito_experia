@@ -24,7 +24,7 @@ export function UsersDialogs() {
       {currentRow && (
         <>
           <UsersActionDialog
-            key={`user-edit-${currentRow.id}`}
+            key={`user-edit-${currentRow.UserId}`}
             open={open === 'edit'}
             onOpenChange={() => {
               setOpen('edit')
@@ -36,7 +36,7 @@ export function UsersDialogs() {
           />
 
           <UsersDeleteDialog
-            key={`user-delete-${currentRow.id}`}
+            key={`user-delete-${currentRow.UserId}`}
             open={open === 'delete'}
             onOpenChange={() => {
               setOpen('delete')
@@ -48,7 +48,7 @@ export function UsersDialogs() {
           />
           
           <UserProfileDrawer 
-            key={`user-profile-${currentRow.id}`}
+            key={`user-profile-${currentRow.UserId}`}
             user={currentRow}
             open={open === 'profile'}
             onOpenChange={() => {
@@ -60,7 +60,7 @@ export function UsersDialogs() {
           />
 
           <UserCreditsDialog
-            key={`user-credits-${currentRow.id}`}
+            key={`user-credits-${currentRow.UserId}`}
             user={currentRow}
             open={open === 'credits'}
             onOpenChange={() => {

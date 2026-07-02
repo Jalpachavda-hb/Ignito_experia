@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { showSubmittedData } from '@/lib/show-submitted-data'
+
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -34,13 +34,14 @@ const formSchema = z
     FullName: z.string().min(1, 'Full Name is required.'),
     PhoneNumber: z.string().optional(),
     EnrollmentNumber: z.string().optional(),
-    Email: z.email({
-      error: (iss) => (iss.input === '' ? 'Email is required.' : undefined),
-    }),
+    Email: z
+  .string()
+  .min(1, 'Email is required.')
+  .email('Invalid email address.'),
     password: z.string().transform((pwd) => pwd.trim()),
     Role: z.string().min(1, 'Role is required.'),
     ProgramId: z.coerce.number().optional(),
-    SemesterId: z.coerce.number().optional(),
+    SemesterId: z.coerce.number().optional(),   
     CreditBalance: z.coerce.number().default(0),
     confirmPassword: z.string().transform((pwd) => pwd.trim()),
     isEdit: z.boolean(),
@@ -114,29 +115,33 @@ export function UsersActionDialog({
     resolver: zodResolver(formSchema),
     defaultValues: isEdit
       ? {
-          ...currentRow,
-          password: '',
-          confirmPassword: '',
-          isEdit,
-        }
+        ...currentRow,
+        PhoneNumber: currentRow.PhoneNumber ?? '',
+        EnrollmentNumber: currentRow.EnrollmentNumber ?? '',
+        ProgramId: currentRow.ProgramId ?? undefined,
+        SemesterId: currentRow.SemesterId ?? undefined,
+        password: '',
+        confirmPassword: '',
+        isEdit,
+      }
       : {
-          FullName: '',
-          EnrollmentNumber: '',
-          Email: '',
-          Role: '',
-          ProgramId: undefined,
-          SemesterId: undefined,
-          CreditBalance: 0,
-          PhoneNumber: '',
-          password: '',
-          confirmPassword: '',
-          isEdit,
-        },
+        FullName: '',
+        EnrollmentNumber: '',
+        Email: '',
+        Role: '',
+        ProgramId: undefined,
+        SemesterId: undefined,
+        CreditBalance: 0,
+        PhoneNumber: '',
+        password: '',
+        confirmPassword: '',
+        isEdit,
+      },
   })
 
   const { createUser, updateUser } = useUserMutations()
 
-  const onSubmit = (values: UserForm) => {
+  const onSubmit = (values: UserFormOutput) => {
     if (isEdit && currentRow) {
       updateUser.mutate({ userId: currentRow.UserId, data: values }, {
         onSuccess: () => {
@@ -156,10 +161,6 @@ export function UsersActionDialog({
         onError: (err: any) => toast.error(err.message || 'Failed to create user')
       })
     }
-  const onSubmit = (values: UserFormOutput) => {
-    form.reset()
-    showSubmittedData(values)
-    onOpenChange(false)
   }
 
   const isPasswordTouched = !!form.formState.dirtyFields.password
@@ -277,7 +278,7 @@ export function UsersActionDialog({
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name='ProgramId'
@@ -289,7 +290,14 @@ export function UsersActionDialog({
                         type='number'
                         placeholder='1'
                         className='col-span-4'
-                        {...field}
+                        value={typeof field.value === 'number' ? field.value : ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          field.onChange(val === '' ? undefined : Number(val));
+                        }}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                       />
                     </FormControl>
                     <FormMessage className='col-span-4 col-start-3' />
@@ -308,7 +316,14 @@ export function UsersActionDialog({
                         type='number'
                         placeholder='1'
                         className='col-span-4'
-                        {...field}
+                        value={typeof field.value === 'number' ? field.value : ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          field.onChange(val === '' ? undefined : Number(val));
+                        }}
+                        onBlur={field.onBlur}
+                        name={field.name}
+                        ref={field.ref}
                       />
                     </FormControl>
                     <FormMessage className='col-span-4 col-start-3' />
@@ -328,7 +343,10 @@ export function UsersActionDialog({
                         placeholder='0'
                         className='col-span-4'
                         value={typeof field.value === 'number' ? field.value : 0}
-                        onChange={(e) => field.onChange(e.currentTarget.valueAsNumber)}
+                        onChange={(e) => {
+  const value = e.target.value;
+  field.onChange(value === '' ? 0 : Number(value));
+}}
                         onBlur={field.onBlur}
                         name={field.name}
                         ref={field.ref}

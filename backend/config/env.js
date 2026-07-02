@@ -33,7 +33,7 @@ export const ENV = {
   runsTable: process.env.RUNS_TABLE_NAME || "",
   submissionsTable: process.env.SUBMISSIONS_TABLE_NAME || "",
   resultsTable: process.env.RESULTS_TABLE_NAME || "",
-  containerHostMode: process.env.CONTAINER_HOST_MODE || "public",
+  containerHostMode: process.env.CONTAINER_HOST_MODE || "private",
   defaultSessionMinutes: Number(process.env.DEFAULT_SESSION_TIMEOUT || 120),
   corsOrigin: process.env.CORS_ORIGIN || "*",
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",

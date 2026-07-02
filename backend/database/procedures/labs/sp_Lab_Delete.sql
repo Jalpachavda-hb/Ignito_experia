@@ -3,7 +3,7 @@ DROP PROCEDURE IF EXISTS `sp_Lab_Delete`;
 DELIMITER //
 
 CREATE PROCEDURE `sp_Lab_Delete` (
-    IN p_LabId BIGINT,
+    IN p_LabCode VARCHAR(100),
     IN p_UpdatedBy BIGINT
 )
 BEGIN
@@ -15,7 +15,7 @@ BEGIN
         GET DIAGNOSTICS CONDITION 1
             v_ErrorNumber = MYSQL_ERRNO, v_ErrorMessage = MESSAGE_TEXT;
         ROLLBACK;
-        CALL sp_LogError('labs', 'sp_Lab_Delete', v_ErrorMessage, v_ErrorNumber, CONCAT('LabId: ', IFNULL(p_LabId, 'NULL')));
+        CALL sp_LogError('labs', 'sp_Lab_Delete', v_ErrorMessage, v_ErrorNumber, CONCAT('LabCode: ', IFNULL(p_LabCode, 'NULL')));
         SELECT 'Error' AS Status, v_ErrorMessage AS Message, v_ErrorNumber AS ErrorCode;
     END;
 
@@ -27,7 +27,7 @@ BEGIN
         `Status` = 'inactive',
         `UpdatedBy` = p_UpdatedBy,
         `UpdatedDate` = CURRENT_TIMESTAMP
-    WHERE `LabId` = p_LabId AND `IsDeleted` = 0;
+    WHERE `LabCode` = p_LabCode COLLATE utf8mb4_unicode_ci AND `IsDeleted` = 0;
 
     COMMIT;
     

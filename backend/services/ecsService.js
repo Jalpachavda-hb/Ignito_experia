@@ -125,11 +125,18 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
   }
 
   const taskPrivateIp = getEniPrivateIp(task);
-  const publicIp = await getTaskPublicIp(taskArn);
+  const isPrivateMode = ENV.containerHostMode === "private";
+  const publicIp = isPrivateMode ? null : await getTaskPublicIp(taskArn);
   const port = await getContainerPort(labId);
 
-  if (!publicIp) {
-    return { status: "starting" };
+  if (isPrivateMode) {
+    if (!taskPrivateIp) {
+      return { status: "starting" };
+    }
+  } else {
+    if (!publicIp) {
+      return { status: "starting" };
+    }
   }
 
   /**
@@ -225,7 +232,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
         awsvpcConfiguration: {
           subnets: ENV.ecsSubnets,
           securityGroups: ENV.ecsSecurityGroups,
-          assignPublicIp: "ENABLED",
+          assignPublicIp: ENV.containerHostMode === "private" ? "DISABLED" : "ENABLED",
         },
       },
       overrides: {

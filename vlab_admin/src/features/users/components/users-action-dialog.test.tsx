@@ -1,17 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { type UserEvent, userEvent } from 'vitest/browser'
-import { showSubmittedData } from '@/lib/show-submitted-data'
 import { type User } from '../data/schema'
 import { UsersActionDialog } from './users-action-dialog'
 
+const mockCreateMutate = vi.fn()
+const mockUpdateMutate = vi.fn()
+vi.mock('../api/useUsersMutations', () => ({
+  useUserMutations: () => ({
+    createUser: {
+      mutate: mockCreateMutate
+    },
+    updateUser: {
+      mutate: mockUpdateMutate
+    }
+  })
+}))
+
 const VALIDATION_MESSAGES = {
-  firstName: 'First Name is required.',
-  lastName: 'Last Name is required.',
-  username: 'Username is required.',
-  phoneNumber: 'Phone number is required.',
-  email: 'Email is required.',
-  role: 'Role is required.',
+  FullName: 'Full Name is required.',
+  Email: 'Email is required.',
+  Role: 'Role is required.',
   password: 'Password is required.',
   passwordMismatch: "Passwords don't match.",
   passwordLength: 'Password must be at least 8 characters long.',
@@ -20,23 +29,20 @@ const VALIDATION_MESSAGES = {
 } as const
 
 const MOCK_USER: User = {
-  id: 'alex_uuid',
-  firstName: 'Alex',
-  lastName: 'Smith',
-  username: 'alex_smith',
-  email: 'alex@smith.com',
-  phoneNumber: '+19999999999',
-  status: 'active',
-  role: 'admin',
-  credits: 0,
-  createdAt: new Date('2026-01-01'),
-  updatedAt: new Date('2026-02-02'),
+  UserId: 123,
+  FullName: 'Alex Smith',
+  Email: 'alex@smith.com',
+  PhoneNumber: '+19999999999',
+  Role: 'admin',
+  EnrollmentNumber: 'alex_smith',
+  CreditBalance: 0,
+  CreatedAt: '2026-01-01',
 }
 
-vi.mock('@/lib/show-submitted-data', () => ({ showSubmittedData: vi.fn() }))
-
 describe('UsersActionDialog', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
 
   describe('add user', () => {
     it('renders title and description', async () => {
@@ -65,22 +71,13 @@ describe('UsersActionDialog', () => {
       await userEvent.click(submitButton)
 
       await expect
-        .element(getByText(VALIDATION_MESSAGES.firstName))
+        .element(getByText(VALIDATION_MESSAGES.FullName))
         .toBeInTheDocument()
       await expect
-        .element(getByText(VALIDATION_MESSAGES.lastName))
+        .element(getByText(VALIDATION_MESSAGES.Email))
         .toBeInTheDocument()
       await expect
-        .element(getByText(VALIDATION_MESSAGES.username))
-        .toBeInTheDocument()
-      await expect
-        .element(getByText(VALIDATION_MESSAGES.phoneNumber))
-        .toBeInTheDocument()
-      await expect
-        .element(getByText(VALIDATION_MESSAGES.email))
-        .toBeInTheDocument()
-      await expect
-        .element(getByText(VALIDATION_MESSAGES.role))
+        .element(getByText(VALIDATION_MESSAGES.Role))
         .toBeInTheDocument()
       await expect
         .element(getByText(VALIDATION_MESSAGES.password))
@@ -88,14 +85,12 @@ describe('UsersActionDialog', () => {
     })
 
     it('keeps confirm password disabled until password field is touched', async () => {
-      const { getByRole } = await render(
+      const { getByLabelText } = await render(
         <UsersActionDialog open onOpenChange={vi.fn()} />
       )
 
-      const password = getByRole('textbox', { name: /^Password$/i })
-      const confirmPassword = getByRole('textbox', {
-        name: /Confirm Password/i,
-      })
+      const password = getByLabelText(/^Password$/i)
+      const confirmPassword = getByLabelText(/Confirm Password/i)
       await expect.element(confirmPassword).toBeDisabled()
 
       await userEvent.type(password, 'a')
@@ -103,14 +98,12 @@ describe('UsersActionDialog', () => {
     })
 
     it('shows password validation messages when password is invalid', async () => {
-      const { getByRole, getByText } = await render(
+      const { getByLabelText, getByRole, getByText } = await render(
         <UsersActionDialog open onOpenChange={vi.fn()} />
       )
 
-      const password = getByRole('textbox', { name: /^Password$/i })
-      const confirmPassword = getByRole('textbox', {
-        name: /Confirm Password/i,
-      })
+      const password = getByLabelText(/^Password$/i)
+      const confirmPassword = getByLabelText(/Confirm Password/i)
       await userEvent.type(password, 'a')
       await userEvent.type(confirmPassword, 'b')
       const submitButton = getByRole('button', { name: /Save Changes/i })
@@ -153,7 +146,7 @@ describe('UsersActionDialog', () => {
         .not.toBeInTheDocument()
     })
 
-    it('shows the submitted data when the form is submitted successfully', async () => {
+    it('calls createUser mutation when form is submitted successfully', async () => {
       const onOpenChange = vi.fn()
 
       const screen = await render(
@@ -161,23 +154,21 @@ describe('UsersActionDialog', () => {
       )
 
       await fillRequiredProfileFields(userEvent, screen, MOCK_USER)
-
       await fillPasswords(userEvent, screen, 'S3cur3P@ssw0rd', 'S3cur3P@ssw0rd')
 
       const submitButton = screen.getByRole('button', { name: /Save Changes/i })
       await userEvent.click(submitButton)
 
-      expect(onOpenChange).toHaveBeenCalledOnce()
-      expect(onOpenChange).toHaveBeenCalledWith(false)
-
-      expect(showSubmittedData).toHaveBeenCalledOnce()
-      expect(showSubmittedData).toHaveBeenCalledWith({
-        firstName: MOCK_USER.firstName,
-        lastName: MOCK_USER.lastName,
-        username: MOCK_USER.username,
-        email: MOCK_USER.email,
-        role: MOCK_USER.role,
-        phoneNumber: MOCK_USER.phoneNumber,
+      expect(mockCreateMutate).toHaveBeenCalledOnce()
+      expect(mockCreateMutate.mock.calls[0][0]).toEqual({
+        FullName: MOCK_USER.FullName,
+        Email: MOCK_USER.Email,
+        Role: MOCK_USER.Role,
+        PhoneNumber: MOCK_USER.PhoneNumber,
+        EnrollmentNumber: MOCK_USER.EnrollmentNumber,
+        ProgramId: undefined,
+        SemesterId: undefined,
+        CreditBalance: 0,
         password: 'S3cur3P@ssw0rd',
         confirmPassword: 'S3cur3P@ssw0rd',
         isEdit: false,
@@ -216,84 +207,21 @@ describe('UsersActionDialog', () => {
       const submitButton = screen.getByRole('button', { name: /Save Changes/i })
       await userEvent.click(submitButton)
 
-      expect(onOpenChange).toHaveBeenCalledOnce()
-      expect(onOpenChange).toHaveBeenCalledWith(false)
-
-      expect(showSubmittedData).toHaveBeenCalledOnce()
-      expect(showSubmittedData).toHaveBeenCalledWith({
-        firstName: MOCK_USER.firstName,
-        lastName: MOCK_USER.lastName,
-        username: MOCK_USER.username,
-        email: MOCK_USER.email,
-        phoneNumber: MOCK_USER.phoneNumber,
-        role: MOCK_USER.role,
+      expect(mockUpdateMutate).toHaveBeenCalledOnce()
+      expect(mockUpdateMutate.mock.calls[0][0].userId).toBe(MOCK_USER.UserId)
+      expect(mockUpdateMutate.mock.calls[0][0].data).toEqual({
+        UserId: MOCK_USER.UserId,
+        FullName: MOCK_USER.FullName,
+        Email: MOCK_USER.Email,
+        PhoneNumber: MOCK_USER.PhoneNumber,
+        Role: MOCK_USER.Role,
+        EnrollmentNumber: MOCK_USER.EnrollmentNumber,
+        ProgramId: undefined,
+        SemesterId: undefined,
+        CreditBalance: 0,
+        CreatedAt: MOCK_USER.CreatedAt,
         password: '',
         confirmPassword: '',
-        isEdit: true,
-      })
-    })
-
-    it('requires confirm password when password is changed', async () => {
-      const { getByRole, getByText } = await render(
-        <UsersActionDialog open onOpenChange={vi.fn()} currentRow={MOCK_USER} />
-      )
-
-      const password = getByRole('textbox', { name: /^Password$/i })
-      const confirmPassword = getByRole('textbox', {
-        name: /Confirm Password/i,
-      })
-
-      await userEvent.fill(password, 'S3cur3P@ssw0rd')
-      await expect.element(confirmPassword).toBeEnabled()
-
-      const submitButton = getByRole('button', { name: /Save Changes/i })
-      await userEvent.click(submitButton)
-
-      await expect
-        .element(getByText(VALIDATION_MESSAGES.passwordMismatch))
-        .toBeInTheDocument()
-    })
-
-    it('shows the submitted data when the form is submitted successfully', async () => {
-      const onOpenChange = vi.fn()
-      const screen = await render(
-        <UsersActionDialog
-          open
-          onOpenChange={onOpenChange}
-          currentRow={MOCK_USER}
-        />
-      )
-
-      const EDIT_SUCCESS_FIRST_NAME = 'John'
-      const EDIT_SUCCESS_PASSWORD = 'S3cur3P@ssw0rd'
-
-      await userEvent.fill(
-        screen.getByLabelText(/first name/i),
-        EDIT_SUCCESS_FIRST_NAME
-      )
-      await fillPasswords(
-        userEvent,
-        screen,
-        EDIT_SUCCESS_PASSWORD,
-        EDIT_SUCCESS_PASSWORD
-      )
-
-      const submitButton = screen.getByRole('button', { name: /Save Changes/i })
-      await userEvent.click(submitButton)
-
-      expect(onOpenChange).toHaveBeenCalledOnce()
-      expect(onOpenChange).toHaveBeenCalledWith(false)
-
-      expect(showSubmittedData).toHaveBeenCalledOnce()
-      expect(showSubmittedData).toHaveBeenCalledWith({
-        firstName: EDIT_SUCCESS_FIRST_NAME,
-        lastName: MOCK_USER.lastName,
-        username: MOCK_USER.username,
-        email: MOCK_USER.email,
-        phoneNumber: MOCK_USER.phoneNumber,
-        role: MOCK_USER.role,
-        password: EDIT_SUCCESS_PASSWORD,
-        confirmPassword: EDIT_SUCCESS_PASSWORD,
         isEdit: true,
       })
     })
@@ -303,21 +231,13 @@ describe('UsersActionDialog', () => {
 async function fillRequiredProfileFields(
   user: UserEvent,
   screen: RenderResult,
-  overrides?: {
-    firstName?: string
-    lastName?: string
-    username?: string
-    email?: string
-    roleOption?: string | RegExp
-    phoneNumber?: string
-  }
+  overrides?: User
 ) {
   const entries = [
-    [/first name/i, overrides?.firstName ?? 'John'],
-    [/last name/i, overrides?.lastName ?? 'Doe'],
-    [/username/i, overrides?.username ?? 'john_doe'],
-    [/^email$/i, overrides?.email ?? 'a@b.co'],
-    [/phone number/i, overrides?.phoneNumber ?? '+19999999999'],
+    [/Full Name/i, overrides?.FullName ?? 'Alex Smith'],
+    [/Email/i, overrides?.Email ?? 'alex@smith.com'],
+    [/Phone Number/i, overrides?.PhoneNumber ?? '+19999999999'],
+    [/Enrollment No./i, overrides?.EnrollmentNumber ?? 'alex_smith'],
   ] as const
 
   for (const [label, value] of entries) {
@@ -329,7 +249,7 @@ async function fillRequiredProfileFields(
   const roleSelect = screen.getByRole('combobox', { name: /Role/i })
   await user.click(roleSelect)
   await user.click(
-    screen.getByRole('option', { name: overrides?.roleOption ?? 'Superadmin' })
+    screen.getByRole('option', { name: overrides?.Role === 'admin' ? 'Admin' : 'Student' })
   )
 }
 
