@@ -1,3 +1,4 @@
+import "dotenv/config";
 import pool from "../lib/mysql.js";
 
 async function runSchemaMigrations() {

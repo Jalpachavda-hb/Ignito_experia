@@ -75,7 +75,7 @@
     "LabId": 10,
     "LabCode": "dotnet-lab",
     "Title": "Web Technology Using .NET",
-    "RuntimeType": "Code Server",
+    "RuntimeType": "ide",
     "RuntimePort": 8080,
     "RuntimePath": ""
   },

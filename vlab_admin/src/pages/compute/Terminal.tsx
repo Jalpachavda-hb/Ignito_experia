@@ -6,9 +6,9 @@ import { getApiOrigin } from '@/config/env';
 import '@xterm/xterm/css/xterm.css';
 import { Terminal as TerminalIcon, X, Plus, Power, ArrowLeft, RefreshCw } from 'lucide-react';
 
-const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: { session: any, isActive: boolean, onTerminalCommand?: () => void }, ref) => {
+const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isLabBusy }: { session: any, isActive: boolean, onTerminalCommand?: () => void, isLabBusy?: boolean }, ref) => {
   const [terminalState, setTerminalState] = useState('initializing');
-  const [statusMessage, setStatusMessage] = useState('Starting Lab Environment...');
+  const [statusMessage, setStatusMessage] = useState('Connecting to container via AWS SSM...');
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<any>(null);
@@ -28,8 +28,14 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
   }));
 
   const initConnection = () => {
+    if (isLabBusy) {
+      setTerminalState('waiting');
+      setStatusMessage('BUILD/RUN is in progress. The terminal shares one AWS connection with the container — wait for it to finish.');
+      return () => {};
+    }
+
     setTerminalState('initializing');
-    setStatusMessage('Starting Lab Environment...');
+    setStatusMessage('Connecting to container via AWS SSM...');
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -124,7 +130,25 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
     return () => {
       cleanup();
     };
-  }, []);
+  }, [isLabBusy]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    if (terminalState === 'initializing' || terminalState === 'polling') {
+      timer = setTimeout(() => {
+        setTerminalState((prev) => {
+          if (prev === 'initializing' || prev === 'polling') {
+            setStatusMessage(
+              'Could not open a shell in the container. If BUILD/RUN is active, wait for it to finish and click Retry. The lab uses AWS SSM (not a direct browser link to the container).',
+            );
+            return 'timeout';
+          }
+          return prev;
+        });
+      }, 180000);
+    }
+    return () => clearTimeout(timer);
+  }, [terminalState]);
 
   useEffect(() => {
     if (isActive && fitAddonRef.current && xtermRef.current && socketRef.current) {
@@ -139,22 +163,6 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
       }, 50);
     }
   }, [isActive]);
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    if (terminalState === 'initializing' || terminalState === 'polling') {
-      timer = setTimeout(() => {
-        setTerminalState((prev) => {
-          if (prev === 'initializing' || prev === 'polling') {
-            setStatusMessage('Lab is taking longer than expected.');
-            return 'timeout';
-          }
-          return prev;
-        });
-      }, 65000);
-    }
-    return () => clearTimeout(timer);
-  }, [terminalState]);
 
   return (
     <div
@@ -173,6 +181,10 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
               <div className="text-red-500 bg-red-500/10 p-4 rounded-full">
                 <Power size={48} />
               </div>
+            ) : terminalState === 'waiting' ? (
+              <div className="text-amber-400 bg-amber-500/10 p-4 rounded-full">
+                <RefreshCw size={48} className="animate-spin" />
+              </div>
             ) : (
               <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin" />
             )}
@@ -180,7 +192,8 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
               <h2 className="text-xl font-bold tracking-wide text-slate-200 mb-2">
                 {terminalState === 'timeout' ? 'Connection Timeout' :
                   terminalState === 'error' ? 'Connection Error' :
-                    'Connecting to Lab'}
+                    terminalState === 'waiting' ? 'Waiting for BUILD/RUN' :
+                      'Connecting to Lab'}
               </h2>
               <p className="text-sm text-slate-400 font-mono">
                 {statusMessage}
@@ -212,7 +225,7 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand }: {
   );
 });
 
-const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, onTerminalCommand }: any, ref) => {
+const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, onTerminalCommand, isLabBusy }: any, ref) => {
   const [tabs, setTabs] = useState([
     { id: 'default', name: 'bash' }
   ]);
@@ -311,6 +324,7 @@ const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, 
             isActive={activeTabId === tab.id}
             ref={activeTabId === tab.id ? activeInstanceRef : null}
             onTerminalCommand={onTerminalCommand}
+            isLabBusy={isLabBusy}
           />
         ))}
       </div>

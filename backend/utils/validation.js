@@ -27,6 +27,14 @@ export const validateFile = (filePath, content, labIdOrType) => {
   } else if (idOrType.includes('linux') || idOrType.includes('shell')) {
     allowedExtensions = ['sh', 'txt', 'text', 'bash', 'cfg', 'conf', 'json', ''];
     courseName = "Linux Lab";
+  } else if (
+    idOrType.includes('dotnet') ||
+    idOrType.includes('csharp') ||
+    idOrType === 'cs' ||
+    idOrType === 'c#'
+  ) {
+    allowedExtensions = ['cs', 'cshtml', 'razor', 'json', 'xml', 'csproj', 'sln', 'css', 'js', 'html', 'txt', 'config', 'props'];
+    courseName = ".NET Lab";
   }
 
   // If a lab group is identified, validate the extension
