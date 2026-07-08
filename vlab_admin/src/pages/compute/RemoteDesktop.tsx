@@ -9,6 +9,7 @@ import {
   stopLabSession,
   waitForLabSessionReady,
   fetchJupyterHealth,
+  fetchLabDetails,
 } from '@/services/labService';
 import { resolveApiRelativeUrl } from '@/config/env';
 import CloudEditor from './Editor';
@@ -18,11 +19,27 @@ import { ArrowLeft, Power } from 'lucide-react';
 
 const resolveToolUrl = (url: string | null | undefined) => resolveApiRelativeUrl(url);
 
-const getLabToolUrl = (session: any) => {
+const normalizeRuntimeType = (value?: string | null) => {
+  const rt = (value || '').toLowerCase().trim();
+  if (!rt) return '';
+  if (rt === 'ide' || rt.includes('custom ide')) return 'ide';
+  if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) return 'codeserver';
+  if (rt === 'jupyter' || rt === 'datascience') return 'jupyter';
+  if (rt === 'terminal') return 'terminal';
+  return rt;
+};
+
+const getEffectiveRuntimeType = (session: any, labRuntimeType?: string) => {
+  const fromCatalog = normalizeRuntimeType(labRuntimeType);
+  if (fromCatalog) return fromCatalog;
+  return normalizeRuntimeType(session?.runtimeType || session?.tools?.main?.type);
+};
+
+const getLabToolUrl = (session: any, effectiveRuntimeType?: string) => {
   if (!session) return null;
-  const rt = session.runtimeType?.toLowerCase();
+  const rt = effectiveRuntimeType || getEffectiveRuntimeType(session);
   const isJupyter = session.tools?.main?.type === 'jupyter' || session.tools?.jupyter?.enabled;
-  const isCodeServerSession = ['codeserver', 'code-server', 'vscode', 'code server'].includes(rt || '');
+  const isCodeServerSession = rt === 'codeserver';
 
   if (isJupyter) {
     if (session.tools?.jupyter?.url) return resolveToolUrl(session.tools.jupyter.url);
@@ -239,6 +256,7 @@ export const RemoteDesktop = () => {
   const location = useLocation();
   const [connecting, setConnecting] = useState(true);
   const [session, setSession] = useState<any>(null);
+  const [labRuntimeType, setLabRuntimeType] = useState('');
   const [error, setError] = useState('');
   const initStartedRef = useRef(false);
   const [showStopModal, setShowStopModal] = useState(false);
@@ -258,6 +276,15 @@ export const RemoteDesktop = () => {
       initStartedRef.current = true;
 
       try {
+        let catalogRuntimeType = '';
+        try {
+          const labDetails = await fetchLabDetails(labId);
+          catalogRuntimeType = labDetails?.runtime?.type || labDetails?.lab?.runtime?.type || '';
+          setLabRuntimeType(catalogRuntimeType);
+        } catch {
+          // Lab catalog is optional for session init; session runtime is fallback.
+        }
+
         let activeSession = null;
         if (sessionIdParam) {
           activeSession = await fetchLabSessionStatus(sessionIdParam);
@@ -275,7 +302,10 @@ export const RemoteDesktop = () => {
           maxAttempts: isAndroid ? 300 : 90,
           intervalMs: 2000
         });
-        setSession(readySession);
+        setSession({
+          ...readySession,
+          runtimeType: getEffectiveRuntimeType(readySession, catalogRuntimeType),
+        });
         setConnecting(false);
       } catch (err: any) {
         setError(err.message || 'Failed to initialize session');
@@ -313,12 +343,13 @@ export const RemoteDesktop = () => {
     }
   };
 
-  const labToolUrl = getLabToolUrl(session);
-  const rt = session?.runtimeType?.toLowerCase() || '';
+  const effectiveRuntimeType = getEffectiveRuntimeType(session, labRuntimeType);
+  const labToolUrl = getLabToolUrl(session, effectiveRuntimeType);
+  const rt = effectiveRuntimeType;
   const isJupyterSession = rt === 'jupyter';
   const isTerminalSession = rt === 'terminal';
-  const isCodeServerSession = ['codeserver', 'code-server', 'vscode', 'code server'].includes(rt);
-  const isBuiltInEditorSession = rt === 'ide' || rt === 'custom ide';
+  const isCodeServerSession = rt === 'codeserver';
+  const isBuiltInEditorSession = rt === 'ide';
 
   const stopLabDialog = showStopModal && (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">

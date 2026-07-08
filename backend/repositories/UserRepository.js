@@ -2,12 +2,20 @@ import pool from "../lib/mysql.js";
 
 class UserRepository {
   async findByEmail(email) {
-    // There is no sp_User_GetByEmail, but we can query directly or add one.
-    // For now, I'll keep the direct query for Auth flows, as requested CRUD uses SPs.
-    const [rows] = await pool.query(
-      "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
-      [email.toLowerCase()]
-    );
+    const params = [email.toLowerCase()];
+    let rows;
+    try {
+      [rows] = await pool.query(
+        "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
+        params,
+      );
+    } catch (err) {
+      if (err?.code !== "ER_BAD_FIELD_ERROR") throw err;
+      [rows] = await pool.query(
+        "SELECT * FROM Users WHERE LOWER(Email) = ?",
+        params,
+      );
+    }
     if (!rows.length) return null;
     return rows[0];
   }

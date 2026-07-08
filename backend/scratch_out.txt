@@ -1,0 +1,90 @@
+[
+  {
+    "LabId": 1,
+    "LabCode": "python-lab",
+    "Title": "Python Programming Lab",
+    "RuntimeType": "ide",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 2,
+    "LabCode": "java-lab",
+    "Title": "Java Development Lab",
+    "RuntimeType": "ide",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 3,
+    "LabCode": "linux-lab",
+    "Title": "Linux Administration Lab",
+    "RuntimeType": "terminal",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 4,
+    "LabCode": "dbms-lab",
+    "Title": "DBMS & SQL Lab",
+    "RuntimeType": "terminal",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 5,
+    "LabCode": "data-science-lab",
+    "Title": "Data Science-I",
+    "RuntimeType": "jupyter",
+    "RuntimePort": 8888,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 6,
+    "LabCode": "big-data-lab",
+    "Title": "Big Data Analytics-I",
+    "RuntimeType": "ide",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 7,
+    "LabCode": "testing-lab",
+    "Title": "Software Testing Automation",
+    "RuntimeType": "Code Server",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 8,
+    "LabCode": "agile-lab",
+    "Title": "Agile Methodology",
+    "RuntimeType": "ide",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 9,
+    "LabCode": "mobile-app-lab",
+    "Title": "Fundamental of Mobile Application",
+    "RuntimeType": "ide",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 10,
+    "LabCode": "dotnet-lab",
+    "Title": "Web Technology Using .NET",
+    "RuntimeType": "ide",
+    "RuntimePort": 8080,
+    "RuntimePath": ""
+  },
+  {
+    "LabId": 11,
+    "LabCode": "software-eng-lab",
+    "Title": "Software Engineering",
+    "RuntimeType": "Code Server",
+    "RuntimePort": 8080,
+    "RuntimePath": "/"
+  }
+]

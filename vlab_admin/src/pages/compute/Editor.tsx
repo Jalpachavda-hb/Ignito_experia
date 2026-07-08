@@ -19,6 +19,8 @@ const getFileIcon = (fileName: string) => {
     case 'html': return <Code2 className="text-orange-500 w-4 h-4 shrink-0" />;
     case 'css': return <Code2 className="text-blue-300 w-4 h-4 shrink-0" />;
     case 'java': return <Code2 className="text-[#007396] w-4 h-4 shrink-0" />;
+    case 'cs': return <Code2 className="text-[#68217A] w-4 h-4 shrink-0" />;
+    case 'cshtml': return <Code2 className="text-[#512BD4] w-4 h-4 shrink-0" />;
     case 'json': return <FileJson className="text-amber-500 w-4 h-4 shrink-0" />;
     case 'md': case 'csv': case 'txt': case 'log': return <FileText className="text-emerald-500 w-4 h-4 shrink-0" />;
     case 'xml': return <Code2 className="text-orange-400 w-4 h-4 shrink-0" />;
@@ -34,6 +36,12 @@ const detectLanguage = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
   if (ext === 'py') return 'python';
   if (ext === 'java') return 'java';
+  if (ext === 'cs') return 'csharp';
+  if (ext === 'cshtml') return 'razor';
+  if (ext === 'razor') return 'razor';
+  if (ext === 'html') return 'html';
+  if (ext === 'css') return 'css';
+  if (ext === 'csproj') return 'xml';
   if (ext === 'html') return 'html';
   if (ext === 'css') return 'css';
   if (ext === 'js' || ext === 'jsx') return 'javascript';
@@ -86,6 +94,12 @@ const getLabExtensionRules = (labName: string, labId: string) => {
     return {
       courseName: 'Python Programming Lab',
       extensions: ['py']
+    };
+  }
+  if (name.includes('.net') || id.includes('dotnet') || name.includes('csharp') || id.includes('csharp')) {
+    return {
+      courseName: 'Web Technology Using .NET',
+      extensions: ['cs', 'cshtml', 'razor', 'json', 'xml', 'csproj', 'sln', 'css', 'js', 'html', 'txt', 'config', 'props']
     };
   }
   return {
@@ -147,6 +161,162 @@ const buildFileTree = (filesList: any[]) => {
   return root.children || [];
 };
 
+const DOTNET_CONSOLE_STARTER = `using System;
+
+class Program
+{
+    static void Main()
+    {
+        // Write your code here
+    }
+}
+`;
+
+const needsConsoleInput = (code: string) =>
+  /Console\.ReadLine\s*\(/.test(code) || /Console\.Read\s*\(/.test(code);
+
+const countConsoleReads = (code: string) => {
+  const readLine = (code.match(/Console\.ReadLine\s*\(/g) || []).length;
+  const readChar = (code.match(/Console\.Read\s*\(/g) || []).length;
+  return readLine + readChar;
+};
+
+const extractConsoleOutput = (raw: string) => {
+  const marker = '--- PROGRAM OUTPUT ---';
+  const idx = raw.indexOf(marker);
+  if (idx === -1) {
+    return raw.replace(/\r?\nRUN_EXIT:\d+\s*$/i, '').trim();
+  }
+  const body = raw.slice(idx + marker.length);
+  const end = body.search(/\r?\nRUN_EXIT:/i);
+  return (end === -1 ? body : body.slice(0, end)).replace(/^\r?\n/, '').trimEnd();
+};
+
+const isDotnetMvcPath = (filePath: string, content?: string) => {
+  const normalized = (filePath || '').replace(/^\/workspace\//, '').toLowerCase();
+  const name = normalized.split('/').pop() || '';
+  const code = content || '';
+  if (name === 'program.cs') {
+    return (
+      code.includes('WebApplication.CreateBuilder') ||
+      code.includes('AddControllersWithViews') ||
+      code.includes('MapControllerRoute') ||
+      code.includes('MapControllers')
+    );
+  }
+  return (
+    normalized.endsWith('.cshtml') ||
+    normalized.endsWith('.html') ||
+    name === 'homecontroller.cs' ||
+    name === 'apicontroller.cs' ||
+    normalized.includes('/controllers/') ||
+    normalized.includes('/views/')
+  );
+};
+
+const normalizeDotnetUploadName = (fileName: string) => {
+  const lower = fileName.toLowerCase();
+  if (lower === 'index.html') return 'Index.cshtml';
+  if (lower.endsWith('.html')) return fileName.replace(/\.html$/i, '.cshtml');
+  return fileName;
+};
+
+type ConsoleSessionState = {
+  active: boolean;
+  code: string;
+  output: string;
+  stdinLines: string[];
+  isRunning: boolean;
+  success: boolean;
+  error: string | null;
+};
+
+const ConsoleInteractivePreview = ({
+  session,
+  onSubmit,
+}: {
+  session: ConsoleSessionState;
+  onSubmit: (value: string) => void;
+}) => {
+  const [inputValue, setInputValue] = useState('');
+  const outputRef = useRef<HTMLDivElement>(null);
+  const readCount = Math.max(countConsoleReads(session.code), needsConsoleInput(session.code) ? 1 : 0);
+  const needsInput = readCount > 0 && session.stdinLines.length < readCount && !session.isRunning;
+
+  useEffect(() => {
+    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' });
+  }, [session.output, session.isRunning]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (session.isRunning) return;
+    onSubmit(inputValue);
+    setInputValue('');
+  };
+
+  const statusLabel = session.isRunning
+    ? 'Running...'
+    : session.success
+      ? 'Execution Succeeded'
+      : session.error
+        ? 'Execution Failed'
+        : 'Console';
+
+  const statusClass = session.isRunning
+    ? 'text-white/60'
+    : session.success
+      ? 'text-[#50fa7b]'
+      : session.error
+        ? 'text-[#ff5555]'
+        : 'text-white/60';
+
+  return (
+    <div className="absolute inset-0 flex flex-col bg-[#1e1e1e]">
+      <div className="px-4 py-2 border-b border-[#44475a] shrink-0">
+        <span className={`text-[11px] font-bold uppercase tracking-wider ${statusClass}`}>
+          {statusLabel}
+        </span>
+      </div>
+      <div
+        ref={outputRef}
+        className="flex-1 overflow-auto p-4 font-mono text-[13px] text-[#f8f8f2] whitespace-pre-wrap leading-relaxed"
+      >
+        {session.output}
+        {session.isRunning && (
+          <span className="block mt-2 text-white/40 animate-pulse">Running...</span>
+        )}
+        {!session.output && !session.isRunning && (
+          <span className="text-white/40">(No output)</span>
+        )}
+      </div>
+      {needsInput && (
+        <form onSubmit={handleSubmit} className="border-t border-[#44475a] p-3 flex gap-2 shrink-0 bg-[#252526]">
+          <span className="text-[#f8f8f2] font-mono text-sm self-center">&gt;</span>
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            className="flex-1 bg-[#282a36] border border-[#44475a] rounded px-3 py-2 text-[#f8f8f2] font-mono text-sm focus:outline-none focus:border-[#dc2626]"
+            placeholder="Type input and press Enter"
+            autoFocus
+          />
+          <button
+            type="submit"
+            className="px-4 py-2 bg-[#dc2626] hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-wider rounded transition-colors"
+          >
+            Send
+          </button>
+        </form>
+      )}
+      {!needsInput && session.stdinLines.length > 0 && session.success && (
+        <div className="border-t border-[#44475a] px-4 py-2 text-[10px] text-white/40 uppercase tracking-wider shrink-0">
+          Program finished — click RUN to execute again
+        </div>
+      )}
+    </div>
+  );
+};
+
 const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const location = useLocation();
   const editorRef = useRef<any>(null);
@@ -158,6 +328,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
   const labType = propSession?.labType || '';
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
+  const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [restrictionMsg, setRestrictionMsg] = useState('');
@@ -282,14 +453,28 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
 
   const [loadedPaths, setLoadedPaths] = useState(new Set<string>());
+
+  const markPathLoaded = (path: string) => {
+    if (!path) return;
+    setLoadedPaths((prev) => {
+      if (prev.has(path)) return prev;
+      const next = new Set(prev);
+      next.add(path);
+      return next;
+    });
+  };
+  const lastSavedContentRef = useRef<Map<string, string>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
+  const [runningAction, setRunningAction] = useState<'build' | 'run' | null>(null);
+  const [dotnetBuildReady, setDotnetBuildReady] = useState(false);
+  const isRunning = runningAction !== null;
   const [webPreviewCode, setWebPreviewCode] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [consoleSession, setConsoleSession] = useState<ConsoleSessionState | null>(null);
 
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(250);
@@ -337,6 +522,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         });
 
         setFiles(mergedFiles);
+        mergedFiles.forEach((file: any) => {
+          if (file?.path && file.content !== undefined) {
+            markPathLoaded(file.path);
+            lastSavedContentRef.current.set(file.path, file.content ?? '');
+          }
+        });
 
         setOpenFilePaths(prev => {
           if (prev.length === 0 && response.files.length > 0) {
@@ -424,6 +615,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       const targetFile = currentFiles[newIdx];
       // Skip fetching if content is already populated to avoid overwriting edits or newly uploaded/created files
       if (targetFile.content !== undefined && targetFile.content !== '') {
+        markPathLoaded(targetFile.path);
         return;
       }
 
@@ -431,6 +623,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       try {
         const response = await fetchFileContent(targetPath, sessionId);
         if (response.success) {
+          markPathLoaded(targetPath);
+          const content = response.content || '';
+          lastSavedContentRef.current.set(targetPath, content);
           setFiles(prev => {
             const updated = [...prev];
             const currentIdx = updated.findIndex(f => f.path === targetPath);
@@ -480,11 +675,18 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     const loadActiveFile = async () => {
       if (activeFileIndex < 0 || !files[activeFileIndex] || !sessionId) return;
       const file = files[activeFileIndex];
-      if (!file || file.content !== undefined) return;
+      if (!file) return;
+      if (file.content !== undefined) {
+        markPathLoaded(file.path);
+        return;
+      }
 
       try {
         const response = await fetchFileContent(file.path, sessionId);
         if (isMounted && response.success) {
+          markPathLoaded(file.path);
+          const content = response.content || '';
+          lastSavedContentRef.current.set(file.path, content);
           setFiles(prev => {
             const updated = [...prev];
             const idx = updated.findIndex(f => f.path === file.path);
@@ -507,16 +709,170 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     latestSaveRef.current = () => handleSave(false);
   });
 
+  const activeFile = files[activeFileIndex];
+  const activeFilePath = activeFile?.path;
+  const activeFileContent = activeFile?.content;
+
   useEffect(() => {
-    if (activeFileIndex === -1 || !files[activeFileIndex]) return;
-    const file = files[activeFileIndex];
-    if (!loadedPaths.has(file.path)) return; // DO NOT auto-save if the file content is not loaded yet!
-    
+    if (activeFileIndex === -1 || !activeFilePath) return;
+    if (!loadedPaths.has(activeFilePath) || isSaving) return;
+
+    const lastSaved = lastSavedContentRef.current.get(activeFilePath);
+    if (lastSaved === activeFileContent) return;
+
     const timeout = setTimeout(() => handleSave(false), 1500);
     return () => clearTimeout(timeout);
-  }, [files, activeFileIndex, loadedPaths]);
+  }, [activeFilePath, activeFileContent, activeFileIndex, loadedPaths, isSaving]);
 
-  const activeFile = files[activeFileIndex];
+  const isDotnetBuildMode = isDotnet && activeFile && isDotnetMvcPath(activeFile.path, activeFile.content);
+
+  useEffect(() => {
+    setDotnetBuildReady(false);
+  }, [activeFile?.path, activeFile?.content]);
+
+  useEffect(() => {
+    setConsoleSession(null);
+  }, [activeFilePath]);
+
+  const isHtmlPreviewOutput = (text: string) =>
+    /^\s*</.test(text) && (/<html[\s>]/i.test(text) || /<!doctype\s+html/i.test(text));
+
+  const renderExecutionPreview = (
+    runSuccess: boolean,
+    rawOutput: string,
+    rawError: string,
+    mode: 'build' | 'run' | 'execute',
+  ) => {
+    if (runSuccess && mode === 'run' && isHtmlPreviewOutput(rawOutput)) {
+      return rawOutput;
+    }
+
+    const escapeHtml = (text: string) =>
+      text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+    const formattedOutput = escapeHtml(rawOutput);
+    const formattedError = escapeHtml(rawError);
+    const successTitle =
+      mode === 'build' ? 'Build Succeeded' : mode === 'run' ? 'Run Succeeded' : 'Execution Succeeded';
+    const failureTitle =
+      mode === 'build' ? 'Build Failed' : mode === 'run' ? 'Run Failed' : 'Execution Failed';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body {
+              background-color: #1e1e1e;
+              color: #f8f8f2;
+              font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+              padding: 16px;
+              margin: 0;
+              white-space: pre-wrap;
+              word-break: break-all;
+              font-size: 13px;
+              line-height: 1.6;
+            }
+            .error { color: #ff5555; font-weight: bold; }
+            pre {
+              white-space: pre-wrap;
+              word-wrap: break-word;
+              margin: 0;
+              font-family: inherit;
+            }
+            .header-success {
+              color: #50fa7b;
+              border-bottom: 1px solid #44475a;
+              padding-bottom: 6px;
+              margin-bottom: 12px;
+              font-weight: bold;
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .header-error {
+              color: #ff5555;
+              border-bottom: 1px solid #44475a;
+              padding-bottom: 6px;
+              margin-bottom: 12px;
+              font-weight: bold;
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+          </style>
+        </head>
+        <body>
+          ${runSuccess
+        ? `<div class="header-success">${successTitle}</div><pre>${formattedOutput || '(No output)'}</pre>`
+        : `<div class="header-error">${failureTitle}</div><pre class="error">${formattedError && formattedError !== 'Program exited with an error' ? formattedError : formattedOutput || formattedError || 'Unknown error'}</pre>`
+      }
+        </body>
+      </html>
+    `;
+  };
+
+  const getRunningPreviewMessage = (mode: 'build' | 'run' | 'execute') => {
+    if (isAndroid) return 'Building Android Project...';
+    if (isDotnet && mode === 'build') return 'Validating ASP.NET project build (first build may take a few minutes)...';
+    if (isDotnet && mode === 'run') return 'Starting ASP.NET web app and loading preview...';
+    if (isDotnet) return 'Compiling and running C# program...';
+    return 'Executing program...';
+  };
+
+  const showRunningPreview = (mode: 'build' | 'run' | 'execute') => {
+    setWebPreviewCode(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body {
+              background-color: #1e1e1e;
+              color: rgba(255,255,255,0.6);
+              font-family: monospace;
+              padding: 16px;
+              margin: 0;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              height: 80vh;
+            }
+            .spinner {
+              width: 24px;
+              height: 24px;
+              border: 3px solid rgba(255,255,255,0.1);
+              border-top: 3px solid #dc2626;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+              margin-bottom: 12px;
+            }
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+            .text {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              text-align: center;
+              max-width: 320px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="spinner"></div>
+          <div class="text">${getRunningPreviewMessage(mode)}</div>
+        </body>
+      </html>
+    `);
+  };
 
   const handleFormat = () => {
     if (!editorRef.current) return;
@@ -588,8 +944,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     setIsSaving(true);
     try {
       await saveFile(activeFile, sessionId);
-      await refreshFiles(false);
+      lastSavedContentRef.current.set(activeFile.path, activeFile.content ?? '');
       if (showFeedback) {
+        await refreshFiles(false);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
       }
@@ -614,65 +971,112 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     URL.revokeObjectURL(url);
   };
 
-  const handleRun = async () => {
-    if (!sessionId || (!isAndroid && !activeFile)) return;
-    setIsRunning(true);
+  const runConsoleInteractive = async (code: string, stdinLines: string[]) => {
+    const stdin = stdinLines.length > 0 ? `${stdinLines.join('\n')}\n` : '';
+    setConsoleSession((prev) => (prev ? { ...prev, isRunning: true, error: null } : prev));
 
+    try {
+      const response = await runFile(
+        {
+          path: activeFile!.path,
+          language: 'csharp',
+          content: code,
+          labType: 'dotnet',
+          stdin,
+        },
+        sessionId,
+      );
+
+      const rawOutput = response?.output || '';
+      const rawError = response?.error || response?.runtimeError || response?.syntaxError || '';
+      const runSuccess = response?.success || response?.status === 'COMPLETED';
+      const output = extractConsoleOutput(rawOutput);
+
+      setConsoleSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              isRunning: false,
+              output,
+              stdinLines,
+              success: runSuccess,
+              error: runSuccess ? null : rawError || 'Program exited with an error',
+            }
+          : prev,
+      );
+    } catch (err: any) {
+      setConsoleSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              isRunning: false,
+              success: false,
+              error: err.message || 'Failed to run program',
+            }
+          : prev,
+      );
+    }
+  };
+
+  const handleConsoleInputSubmit = (value: string) => {
+    if (!consoleSession) return;
+    const newLines = [...consoleSession.stdinLines, value];
+    runConsoleInteractive(consoleSession.code, newLines);
+  };
+
+  const executeCode = async (dotnetAction?: 'build' | 'run') => {
+    if (!sessionId || (!isAndroid && !activeFile)) return;
+
+    const previewMode: 'build' | 'run' | 'execute' =
+      isDotnet && dotnetAction === 'build' ? 'build' : isDotnet && dotnetAction === 'run' ? 'run' : 'execute';
+
+    setRunningAction(dotnetAction || 'run');
 
     if (!isAndroid && activeFile && activeFile.language === 'html') {
+      setConsoleSession(null);
       setWebPreviewCode(activeFile.content || '');
-      setIsRunning(false);
+      setRunningAction(null);
       return;
     }
 
+    const code = activeFile?.content || '';
+    const isConsoleInteractive =
+      isDotnet && !isDotnetBuildMode && !dotnetAction && needsConsoleInput(code);
+
+    if (isConsoleInteractive) {
+      setConsoleSession({
+        active: true,
+        code,
+        output: '',
+        stdinLines: [],
+        isRunning: true,
+        success: false,
+        error: null,
+      });
+      try {
+        await runConsoleInteractive(code, []);
+      } finally {
+        setRunningAction(null);
+      }
+      return;
+    }
+
+    setConsoleSession(null);
+
     try {
-      setWebPreviewCode(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <style>
-              body {
-                background-color: #1e1e1e;
-                color: rgba(255,255,255,0.6);
-                font-family: monospace;
-                padding: 16px;
-                margin: 0;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                height: 80vh;
-              }
-              .spinner {
-                width: 24px;
-                height: 24px;
-                border: 3px solid rgba(255,255,255,0.1);
-                border-top: 3px solid #dc2626;
-                border-radius: 50%;
-                animation: spin 1s linear infinite;
-                margin-bottom: 12px;
-              }
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
-              .text {
-                font-size: 11px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="spinner"></div>
-            <div class="text">${isAndroid ? 'Building Android Project...' : 'Executing program...'}</div>
-          </body>
-        </html>
-      `);
+      showRunningPreview(previewMode);
 
       const runPayload = isAndroid
         ? { path: '/workspace/build.sh', language: 'shell', content: '', labType: 'android' }
-        : { path: activeFile.path, language: activeFile.language, content: activeFile.content };
+        : isDotnet
+          ? {
+            path: activeFile.path,
+            language: 'csharp',
+            content: activeFile.content,
+            labType: 'dotnet',
+            ...(dotnetAction ? { action: dotnetAction } : {}),
+          }
+          : { path: activeFile.path, language: activeFile.language, content: activeFile.content };
 
       const response = await runFile(runPayload, sessionId);
       await refreshFiles(false);
@@ -682,76 +1086,14 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         const rawOutput = response.output || '';
         const rawError = response.error || response.runtimeError || response.syntaxError || '';
 
-        const escapeHtml = (text: string) => {
-          return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-        };
+        if (runSuccess && previewMode === 'build' && isDotnetBuildMode) {
+          setDotnetBuildReady(true);
+        }
+        if (/build succeeded/i.test(rawOutput)) {
+          setDotnetBuildReady(true);
+        }
 
-        const formattedOutput = escapeHtml(rawOutput);
-        const formattedError = escapeHtml(rawError);
-
-        const htmlContent = `
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="utf-8">
-              <style>
-                body {
-                  background-color: #1e1e1e;
-                  color: #f8f8f2;
-                  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
-                  padding: 16px;
-                  margin: 0;
-                  white-space: pre-wrap;
-                  word-break: break-all;
-                  font-size: 13px;
-                  line-height: 1.6;
-                }
-                .error {
-                  color: #ff5555;
-                  font-weight: bold;
-                }
-                pre {
-                  white-space: pre-wrap;
-                  word-wrap: break-word;
-                  margin: 0;
-                  font-family: inherit;
-                }
-                .header-success {
-                  color: #50fa7b;
-                  border-bottom: 1px solid #44475a;
-                  padding-bottom: 6px;
-                  margin-bottom: 12px;
-                  font-weight: bold;
-                  font-size: 11px;
-                  text-transform: uppercase;
-                  letter-spacing: 1px;
-                }
-                .header-error {
-                  color: #ff5555;
-                  border-bottom: 1px solid #44475a;
-                  padding-bottom: 6px;
-                  margin-bottom: 12px;
-                  font-weight: bold;
-                  font-size: 11px;
-                  text-transform: uppercase;
-                  letter-spacing: 1px;
-                }
-              </style>
-            </head>
-            <body>
-              ${runSuccess
-            ? `<div class="header-success">Execution Succeeded</div><pre>${formattedOutput || '(No output)'}</pre>`
-            : `<div class="header-error">Execution Failed</div><pre class="error">${formattedError || formattedOutput || 'Unknown error'}</pre>`
-          }
-            </body>
-          </html>
-        `;
-        setWebPreviewCode(htmlContent);
+        setWebPreviewCode(renderExecutionPreview(runSuccess, rawOutput, rawError, previewMode));
       } else {
         setWebPreviewCode(`
           <html>
@@ -772,9 +1114,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         </html>
       `);
     } finally {
-      setIsRunning(false);
+      setRunningAction(null);
     }
   };
+
+  const handleRun = () => executeCode();
+  const handleBuild = () => executeCode('build');
+  const handleDotnetRun = () => executeCode('run');
 
   const handleAddFile = async () => {
     if (openFilePaths.length >= 8) {
@@ -791,10 +1137,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       defaultExt = 'py';
     } else if (rules.extensions.includes('java')) {
       defaultExt = 'java';
+    } else if (rules.extensions.includes('cs')) {
+      defaultExt = 'cs';
     } else if (rules.extensions.length > 0) {
       defaultExt = rules.extensions[0];
     }
-    const defaultName = `script.${defaultExt}`;
+    const defaultName = isDotnet ? 'Program.cs' : `script.${defaultExt}`;
 
     const fileName = window.prompt(`Enter file name:`, defaultName);
     if (!fileName) return;
@@ -808,7 +1156,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       return;
     }
 
-      const newFile = { name: fileName, path: `/workspace/${fileName}`, type: 'file', language: detectLanguage(fileName), content: '' };
+      const newFile = {
+        name: fileName,
+        path: `/workspace/${fileName}`,
+        type: 'file',
+        language: detectLanguage(fileName),
+        content: isDotnet && fileName === 'Program.cs' ? DOTNET_CONSOLE_STARTER : '',
+      };
     if (sessionId) {
       // Optimistically add to files, open tab, and select it
       setFiles(prev => {
@@ -849,7 +1203,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const filePath = `/workspace/${file.name}`;
+    const uploadName = isDotnet ? normalizeDotnetUploadName(file.name) : file.name;
+    const filePath = `/workspace/${uploadName}`;
     const exists = files.some(f => f.path === filePath);
 
     if (!exists && files.length >= 5) {
@@ -866,8 +1221,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     const labName = currentLab?.name || currentLab?.title || '';
     const rules = getLabExtensionRules(labName, labId);
 
-    const hasExtension = file.name.includes('.') && file.name.split('.').pop() !== '';
-    const fileExt = hasExtension ? file.name.split('.').pop()?.toLowerCase() || '' : '';
+    const hasExtension = uploadName.includes('.') && uploadName.split('.').pop() !== '';
+    const fileExt = hasExtension ? uploadName.split('.').pop()?.toLowerCase() || '' : '';
     if (!hasExtension || !rules.extensions.includes(fileExt)) {
       toast.error(
         `Workspace Restriction: Invalid file extension. Only the following extensions are allowed for ${rules.courseName}: ${rules.extensions.map(e => `.${e}`).join(', ')}`
@@ -875,10 +1230,14 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       return;
     }
 
+    if (isDotnet && uploadName !== file.name) {
+      toast.info(`Renamed upload to ${uploadName} for .NET MVC compatibility`);
+    }
+
     const reader = new FileReader();
     reader.onload = async (e) => {
       const fileContent = e.target?.result as string;
-      const newFile = { name: file.name, path: `/workspace/${file.name}`, type: 'file', language: detectLanguage(file.name), content: fileContent };
+      const newFile = { name: uploadName, path: filePath, type: 'file', language: detectLanguage(uploadName), content: fileContent };
       if (sessionId) {
         // Optimistically add to files, open tab, and select it
         setFiles(prev => {
@@ -943,6 +1302,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
   const handleEditorChange = (value: string | undefined) => {
     if (activeFileIndex !== -1 && value !== undefined) {
+      const path = files[activeFileIndex]?.path;
+      if (path) markPathLoaded(path);
       const newFiles = [...files];
       newFiles[activeFileIndex].content = value;
       setFiles(newFiles);
@@ -1093,15 +1454,39 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
               <TerminalIcon size={14} className="text-slate-300" />
               Terminal
             </button>
-            <button
-              onClick={handleRun}
-              disabled={isRunning || !activeFile}
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isRunning || !activeFile ? 'bg-red-900/50 text-white/50 cursor-not-allowed' : 'bg-[#dc2626] hover:bg-red-600 shadow-lg shadow-red-600/20'
-                }`}
-            >
-              <Play size={12} className="fill-current" />
-              {isRunning ? 'RUNNING...' : 'RUN'}
-            </button>
+            {isDotnetBuildMode ? (
+              <>
+                <button
+                  onClick={handleBuild}
+                  disabled={isRunning || !activeFile}
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isRunning || !activeFile ? 'bg-red-900/50 text-white/50 cursor-not-allowed' : 'bg-[#dc2626] hover:bg-red-600 shadow-lg shadow-red-600/20'
+                    }`}
+                >
+                  <Play size={12} className="fill-current" />
+                  {runningAction === 'build' ? 'BUILDING...' : 'BUILD'}
+                </button>
+                <button
+                  onClick={handleDotnetRun}
+                  disabled={isRunning || !activeFile || !dotnetBuildReady}
+                  title={dotnetBuildReady ? 'Run the web app and show preview' : 'Build the project first'}
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors border border-white/10 ${isRunning || !activeFile || !dotnetBuildReady ? 'bg-[#2d2d2d] text-white/40 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20'
+                    }`}
+                >
+                  <Play size={12} className="fill-current" />
+                  {runningAction === 'run' ? 'RUNNING...' : 'RUN'}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleRun}
+                disabled={isRunning || !activeFile}
+                className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isRunning || !activeFile ? 'bg-red-900/50 text-white/50 cursor-not-allowed' : 'bg-[#dc2626] hover:bg-red-600 shadow-lg shadow-red-600/20'
+                  }`}
+              >
+                <Play size={12} className="fill-current" />
+                {isRunning ? 'RUNNING...' : 'RUN'}
+              </button>
+            )}
             <button
               onClick={onBack}
               className="text-red-500 hover:text-red-400 transition-colors p-1 ml-2"
@@ -1180,12 +1565,19 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
                 <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
               </div>
               <div className="flex-1 w-full bg-white relative">
-                <iframe
-                  srcDoc={webPreviewCode}
-                  className="absolute inset-0 w-full h-full border-0"
-                  title="Preview"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                />
+                {consoleSession?.active ? (
+                  <ConsoleInteractivePreview
+                    session={consoleSession}
+                    onSubmit={handleConsoleInputSubmit}
+                  />
+                ) : (
+                  <iframe
+                    srcDoc={webPreviewCode}
+                    className="absolute inset-0 w-full h-full border-0"
+                    title="Preview"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -1208,6 +1600,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
                   hideHeader={false}
                   onClose={() => setIsTerminalOpen(false)}
                   onTerminalCommand={handleTerminalCommand}
+                  isLabBusy={isRunning}
                 />
               </div>
             </>

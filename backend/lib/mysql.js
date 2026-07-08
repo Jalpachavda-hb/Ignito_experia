@@ -238,6 +238,22 @@ export const verifyDbConnection = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    const userColumnMigrations = [
+      "ALTER TABLE `Users` ADD COLUMN `IsDeleted` BOOLEAN DEFAULT 0",
+      "ALTER TABLE `Users` ADD COLUMN `DeletedAt` DATETIME NULL",
+      "ALTER TABLE `Users` ADD COLUMN `DeletedBy` INT NULL",
+      "ALTER TABLE `Users` ADD COLUMN `PhoneNumber` VARCHAR(50) NULL",
+    ];
+    for (const sql of userColumnMigrations) {
+      try {
+        await connection.query(sql);
+      } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+          console.warn(`[MySQL] Users column migration skipped: ${err.message}`);
+        }
+      }
+    }
+
     // UserRefreshTokens
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`UserRefreshTokens\` (

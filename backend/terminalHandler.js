@@ -118,6 +118,10 @@ export const setupTerminal = (io) => {
 
             // Wait 2 seconds before next poll
             await new Promise(resolve => setTimeout(resolve, 2000));
+            socket.emit('terminal-status', {
+              status: 'polling',
+              message: `Waiting for container shell (${i + 1}/90)...`,
+            });
           }
         } catch (err) {
           console.warn('[Readiness Check Error]', err.message);
@@ -125,7 +129,11 @@ export const setupTerminal = (io) => {
 
         if (!agentReady) {
           console.warn('[ExecuteCommandAgent NOT READY] Timeout reached.');
-          socket.emit('terminal-status', { status: 'timeout', message: 'Lab is taking longer than expected' });
+          socket.emit('terminal-status', {
+            status: 'timeout',
+            message:
+              'Could not open a shell in the container. If BUILD/RUN is using the lab, wait for it to finish and retry. Only one AWS SSM session is allowed per container at a time.',
+          });
           return; // Stop execution, don't spawn pty
         } else {
           console.log('[ExecuteCommandAgent READY] Container:', actualContainerName);
