@@ -51,7 +51,7 @@
     "LabId": 7,
     "LabCode": "testing-lab",
     "Title": "Software Testing Automation",
-    "RuntimeType": "Code Server",
+    "RuntimeType": "ide",
     "RuntimePort": 8080,
     "RuntimePath": ""
   },
@@ -75,7 +75,7 @@
     "LabId": 10,
     "LabCode": "dotnet-lab",
     "Title": "Web Technology Using .NET",
-    "RuntimeType": "Code Server",
+    "RuntimeType": "ide",
     "RuntimePort": 8080,
     "RuntimePath": ""
   },
@@ -83,7 +83,7 @@
     "LabId": 11,
     "LabCode": "software-eng-lab",
     "Title": "Software Engineering",
-    "RuntimeType": "Code Server",
+    "RuntimeType": "ide",
     "RuntimePort": 8080,
     "RuntimePath": "/"
   }
