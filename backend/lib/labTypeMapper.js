@@ -15,6 +15,9 @@ const LAB_ID_TO_TYPE = {
 const LANGUAGE_TO_TYPE = {
   python: "python",
   java: "java",
+  csharp: "dotnet",
+  "c#": "dotnet",
+  cs: "dotnet",
   shell: "linux",
   bash: "linux",
   sql: "dbms",
@@ -48,13 +51,16 @@ export const getAllowedExtensions = (labId) => {
     return ["py", "java", "csv", "txt", "jar", "xml", "sh", "json", "log", "parquet", "avro", "orc"];
   }
   if (id.includes("mobile") || id.includes("android") || id.includes("mobile-app-lab")) {
-    return ["java", "xml", "gradle", "properties", "sh"];
+    return ["java", "kt", "xml", "gradle", "properties", "sh", "json", "png", "jpg", "jpeg", "pro"];
   }
   if (id.includes("java-development") || id.includes("java")) {
     return ["java"];
   }
   if (id.includes("python")) {
     return ["py"];
+  }
+  if (id.includes("dotnet") || id.includes("csharp") || id.includes("c#")) {
+    return ["cs", "cshtml", "razor", "json", "xml", "csproj", "sln", "css", "js", "html", "txt", "config", "props"];
   }
   return ["py", "java", "js", "jsx", "html", "css", "json", "md", "csv", "txt", "log", "xml", "parquet", "avro", "orc", "sh", "jar"];
 };

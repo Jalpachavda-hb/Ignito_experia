@@ -27,6 +27,33 @@ const loadUserPermissions = async (roleId, connection = pool) => {
 };
 
 class AuthService {
+  async register(userData) {
+    const { fullName, email, password, role } = userData;
+    if (!email || !password) {
+      throw badRequest("Email and password are required");
+    }
+ 
+    const existingUser = await userRepository.findByEmail(email);
+    if (existingUser) {
+      throw badRequest("Email is already registered");
+    }
+ 
+    const passwordHash = hashPassword(password);
+   
+    const user = await userRepository.insert({
+      fullName: fullName || "New User",
+      email,
+      passwordHash,
+      role: role || "Student",
+      status: "Active"
+    });
+ 
+    return user;
+  }
+
+
+  
+
   async login({ email, password, ipAddress, browser, os, device }) {
     if (!email || !password) {
       throw badRequest("Email and password are required");
@@ -201,7 +228,34 @@ class AuthService {
       throw err;
     }
   }
+
+  async logout(refreshToken) {
+    if (!refreshToken) return;
+    const tokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
+    
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      const dbToken = await refreshTokenRepository.findByTokenHash(tokenHash);
+      if (dbToken) {
+        await refreshTokenRepository.revoke(dbToken.Id, connection);
+        const session = await sessionRepository.findById(dbToken.SessionId);
+        if (session) {
+            await sessionRepository.markLogout(session.SessionId, connection);
+        }
+      }
+
+      await connection.commit();
+      connection.release();
+    } catch (err) {
+      await connection.rollback();
+      connection.release();
+      throw err;
+    }
+  }
 }
+
 
 export const authService = new AuthService();
 export default authService;

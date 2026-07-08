@@ -5,7 +5,6 @@
   "scripts": {
     "start": "nodemon index.js",
     "dev": "nodemon index.js",
-    "lambda:local": "node -e \"import('./lambda.js').then(m => console.log('Lambda router OK'))\"",
     "db:update": "node scripts/run_db_updates.js"
   },
   "dependencies": {

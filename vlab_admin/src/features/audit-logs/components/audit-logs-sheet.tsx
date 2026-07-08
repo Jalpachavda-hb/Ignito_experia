@@ -30,7 +30,7 @@ export function AuditLogsSheet() {
             <h4 className="text-sm font-semibold tracking-tight">Event Context</h4>
             <div className="grid grid-cols-2 gap-2 text-sm bg-muted/50 p-3 rounded-md border border-border/50">
               <div className="text-muted-foreground">Timestamp:</div>
-              <div className="font-mono text-xs">{currentRow.timestamp.toISOString()}</div>
+              <div className="font-mono text-xs">{currentRow.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
               
               <div className="text-muted-foreground">Actor:</div>
               <div>{currentRow.user.name} <br/><span className="text-xs text-muted-foreground">{currentRow.user.email}</span></div>

@@ -65,7 +65,7 @@ export const semestersColumns: ColumnDef<Semester>[] = [
     cell: ({ row }) => (
       <div className='flex items-center gap-1.5 text-sm'>
         <Database className="h-4 w-4 text-muted-foreground" />
-        <span>{row.getValue('allocatedCredits').toLocaleString()} cr</span>
+        <span>{Number(row.getValue('allocatedCredits')).toLocaleString()} cr</span>
       </div>
     ),
   },

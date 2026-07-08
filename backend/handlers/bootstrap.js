@@ -47,8 +47,18 @@ export const appBootstrapHandler = async ({ auth }) => {
   let permissionsFlat = [];
   
   if (roleCode === 'SUPER_ADMIN') {
-    const [allPerms] = await pool.query("SELECT PermissionCode FROM Permissions_V2");
-    permissionsFlat = allPerms.map(p => p.PermissionCode);
+    // SuperAdmin gets all module permissions derived from RolePermissions CRUD flags
+    const [allModulePerms] = await pool.query(
+      "SELECT DISTINCT ModuleCode, CanCreate, CanRead, CanUpdate, CanDelete FROM RolePermissions"
+    );
+    const superAdminPerms = new Set();
+    for (const mp of allModulePerms) {
+      if (mp.CanCreate) superAdminPerms.add(`${mp.ModuleCode}.CREATE`);
+      if (mp.CanRead)   superAdminPerms.add(`${mp.ModuleCode}.READ`);
+      if (mp.CanUpdate) superAdminPerms.add(`${mp.ModuleCode}.UPDATE`);
+      if (mp.CanDelete) superAdminPerms.add(`${mp.ModuleCode}.DELETE`);
+    }
+    permissionsFlat = Array.from(superAdminPerms);
     matrix.roleAllow = permissionsFlat;
   } else {
     matrix = await permissionService.getUserPermissionMatrix(auth.userId, roleCode);
@@ -63,16 +73,12 @@ export const appBootstrapHandler = async ({ auth }) => {
 
   // 5. Fetch Settings and Flags
   const settings = await navigationService.getApplicationSettings();
-  
-  let flagsQuery = "SELECT FlagCode, IsEnabled FROM FeatureFlags WHERE UniversityId IS NULL";
-  let flagsParams = [];
-  if (profile.UniversityId) {
-     flagsQuery += " OR UniversityId = ?";
-     flagsParams.push(profile.UniversityId);
-  }
-  const [flagsRows] = await pool.query(flagsQuery, flagsParams);
-  const flags = {};
-  for (const row of flagsRows) flags[row.FlagCode] = Boolean(row.IsEnabled);
+  const flags = {
+    VIRTUAL_LABS: true,
+    COMPILER: true,
+    REPORTS: true,
+    CONTAINER_MONITORING: false
+  };
 
   // 6. Return Monolithic Payload
   return ok({

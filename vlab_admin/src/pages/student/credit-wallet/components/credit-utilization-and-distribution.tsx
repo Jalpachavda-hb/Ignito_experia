@@ -62,7 +62,7 @@ export function CreditUtilizationAndDistribution({ totalCredits, usedCredits, re
                   ))}
                 </Pie>
                 <RechartsTooltip 
-                  formatter={(value: number) => [`${value} Credits`, 'Used']}
+                  formatter={(value) => [`${Number(value ?? 0)} Credits`, 'Used']}
                   contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                 />
                 <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}/>

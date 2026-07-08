@@ -13,6 +13,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -22,10 +23,14 @@ import { Input } from '@/components/ui/input'
 import { type User } from '../data/schema'
 import { toast } from 'sonner'
 import { Database } from 'lucide-react'
+import { useUserMutations } from '../api/useUsersMutations'
 
 const formSchema = z.object({
-  amount: z.coerce.number().min(1, 'Amount must be at least 1 credit.'),
+  amount: z.coerce.number().positive('Amount must be positive'),
 })
+
+type UserCreditsFormInput = z.input<typeof formSchema>
+type UserCreditsFormOutput = z.output<typeof formSchema>
 
 type UserCreditsDialogProps = {
   user: User | null
@@ -34,16 +39,24 @@ type UserCreditsDialogProps = {
 }
 
 export function UserCreditsDialog({ user, open, onOpenChange }: UserCreditsDialogProps) {
-  const form = useForm<z.infer<typeof formSchema>>({
+  const form = useForm<UserCreditsFormInput, any, UserCreditsFormOutput>({
     resolver: zodResolver(formSchema),
     defaultValues: { amount: 500 },
   })
 
   if (!user) return null
 
+  const { assignCredits } = useUserMutations()
+
   const onSubmit = (values: z.infer<typeof formSchema>) => {
-    toast.success(`${values.amount} credits successfully allocated to ${user.firstName} ${user.lastName}.`)
-    onOpenChange(false)
+    assignCredits.mutate({ userId: user.UserId, amount: values.amount }, {
+      onSuccess: () => {
+        toast.success(`${values.amount} credits successfully allocated to ${user.FullName}.`)
+        onOpenChange(false)
+        form.reset()
+      },
+      onError: (err: any) => toast.error(err.message || 'Failed to assign credits')
+    })
   }
 
   return (
@@ -55,8 +68,8 @@ export function UserCreditsDialog({ user, open, onOpenChange }: UserCreditsDialo
             Assign Credits
           </DialogTitle>
           <DialogDescription>
-            Allocate compute credits to <strong>{user.firstName} {user.lastName}</strong>.
-            Current balance: {Intl.NumberFormat('en-US').format(user.credits)}
+            Allocate compute credits to <strong>{user.FullName}</strong>.
+            Current balance: {Intl.NumberFormat('en-US').format(user.CreditBalance as number)}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -68,7 +81,16 @@ export function UserCreditsDialog({ user, open, onOpenChange }: UserCreditsDialo
                 <FormItem>
                   <FormLabel>Amount to Allocate</FormLabel>
                   <FormControl>
-                    <Input type='number' min={1} placeholder='500' {...field} />
+                    <Input
+                      type='number'
+                      min={1}
+                      placeholder='500'
+                      value={typeof field.value === 'number' ? field.value : 0}
+                      onChange={(e) => field.onChange(e.currentTarget.valueAsNumber)}
+                      onBlur={field.onBlur}
+                      name={field.name}
+                      ref={field.ref}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

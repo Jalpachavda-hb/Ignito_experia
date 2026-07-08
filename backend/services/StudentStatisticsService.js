@@ -8,9 +8,9 @@ class StudentStatisticsService {
     if (cached) return cached;
 
     // Simple aggregations
-    const [totalRows] = await pool.query("SELECT COUNT(*) as count FROM StudentProfiles WHERE DeletedAt IS NULL");
-    const [sourceRows] = await pool.query("SELECT AuthenticationSource, COUNT(*) as count FROM StudentProfiles WHERE DeletedAt IS NULL GROUP BY AuthenticationSource");
-    const [statusRows] = await pool.query("SELECT Status, COUNT(*) as count FROM StudentProfiles WHERE DeletedAt IS NULL GROUP BY Status");
+    const [totalRows] = await pool.query("SELECT COUNT(*) as count FROM Users WHERE Role = 'Student' AND IsDeleted = 0");
+    const [sourceRows] = await pool.query("SELECT AuthenticationSource, COUNT(*) as count FROM Users WHERE Role = 'Student' AND IsDeleted = 0 GROUP BY AuthenticationSource");
+    const [statusRows] = await pool.query("SELECT Status, COUNT(*) as count FROM Users WHERE Role = 'Student' AND IsDeleted = 0 GROUP BY Status");
 
     const result = {
       total: totalRows[0].count,

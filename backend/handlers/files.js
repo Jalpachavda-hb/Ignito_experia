@@ -31,32 +31,16 @@ const assertSessionAccess = async (event) => {
 };
 
 export const filesListHandler = async (event) => {
-  const { sessionId, session } = await assertSessionAccess(event);
-
-  // If a remote container session is active and running, we fetch files exclusively from the container
-  if (session?.status === "running" && session.taskArn) {
-    try {
-      const containerFiles = await getContainerFiles(session);
-      return ok({
-        files: (containerFiles || []).map(({ content, ...meta }) => meta),
-      });
-    } catch (err) {
-      console.warn("[filesListHandler] Failed to fetch container files:", err.message);
-      return ok({ files: [] });
-    }
-  }
-
-  // Otherwise (local mock session or stopped session), fetch from local files
-  let localFiles = [];
   try {
-    localFiles = await listFiles(sessionId);
+    const { sessionId } = await assertSessionAccess(event);
+    const files = await listFiles(sessionId);
+    return ok({
+      files: files.map(({ content, ...meta }) => meta),
+    });
   } catch (err) {
-    console.warn("[filesListHandler] Failed to list local files:", err.message);
+    console.error("[filesListHandler] FATAL ERROR:", err.message, err.stack);
+    throw err;
   }
-
-  return ok({
-    files: localFiles.map(({ content, ...meta }) => meta),
-  });
 };
 
 export const filesContentHandler = async (event) => {

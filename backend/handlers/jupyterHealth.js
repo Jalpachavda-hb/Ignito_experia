@@ -2,6 +2,7 @@ import { ok } from "../lib/apigw.js";
 import { forbidden, notFound } from "../lib/errors.js";
 import { getSession } from "../services/sessionRepository.js";
 import { getLabRuntime, getContainerHost } from "../lib/labTools.js";
+import { ENV } from "../config/env.js";
 
 export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
   const sessionId = pathParameters?.sessionId;
@@ -26,8 +27,7 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const apiPrefix = process.env.API_PREFIX || "/api";
-    const jupyterPath = `${apiPrefix}/lab-sessions/${sessionId}/jupyter/lab`;
+    const jupyterPath = `${ENV.apiPrefix}/lab-sessions/${sessionId}/jupyter/lab`;
     const probe = await fetch(`http://${host}:${port}${jupyterPath}`, { signal: controller.signal });
     clearTimeout(timer);
 

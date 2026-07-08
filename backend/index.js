@@ -28,7 +28,7 @@ verifyDbConnection();
 
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: ENV.corsOrigin,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   },
 });
@@ -53,14 +53,7 @@ app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 const upload = multer({ dest: "uploads/" });
 app.use(upload.any());
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(`[REQ] ${req.method} ${req.url} | Status: ${res.statusCode} | IP: ${req.ip} | Time: ${duration}ms | CorrID: ${req.correlationId}`);
-  });
-  next();
-});
+
 
 for (const route of ROUTES) {
   expressRoute(app, route, ENV.apiPrefix);
@@ -99,7 +92,7 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 httpServer.listen(ENV.port, () => {
-  console.log(`VLab API server: http://localhost:${ENV.port}${ENV.apiPrefix}`);
+  console.log(`VLab API server: ${ENV.apiPublicUrl}`);
   console.log(`Storage: ${ENV.sessionsTable ? `DynamoDB (${ENV.sessionsTable})` : "in-memory"}`);
   console.log(`ECS: ${ENV.ecsCluster || "disabled (mock sessions)"}`);
   console.log(`Container access: ${ENV.containerHostMode} (8080=IDE, 8888=Jupyter)`);

@@ -8,12 +8,12 @@ class SessionCleanupService {
    */
   async runCleanupJob() {
     const connection = await pool.getConnection();
-    
+
     try {
       console.log("[SessionCleanup] Starting background cleanup job...");
-      
+
       const now = new Date();
-      
+
       // 1. Expire Idle Sessions (LastActivity older than IdleTimeout)
       const idleThreshold = new Date(now.getTime() - sessionPolicy.IdleTimeout * 1000);
       const [idleResult] = await connection.query(
@@ -40,8 +40,13 @@ class SessionCleanupService {
         [tokenThreshold, tokenThreshold]
       );
 
-      console.log(`[SessionCleanup] Completed. Idle expired: ${idleResult.affectedRows}, Absolute expired: ${absoluteResult.affectedRows}, Old Tokens deleted: ${tokenResult.affectedRows}`);
-      
+      // 4. Delete Expired Used LMS Tokens to prevent infinite accumulation
+      const [lmsTokenResult] = await connection.query(
+        "DELETE FROM UsedLmsTokens WHERE expiresAt < NOW()"
+      );
+
+      console.log(`[SessionCleanup] Completed. Idle expired: ${idleResult.affectedRows}, Absolute expired: ${absoluteResult.affectedRows}, Old Tokens deleted: ${tokenResult.affectedRows}, Expired LMS tokens deleted: ${lmsTokenResult.affectedRows}`);
+
     } catch (err) {
       console.error("[SessionCleanup] Error during background cleanup:", err);
     } finally {

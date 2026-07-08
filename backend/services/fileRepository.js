@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { getSession, updateSession } from "./sessionRepository.js";
 import {
   getFilesFromContainer,
@@ -32,19 +34,21 @@ const scanLocalFiles = (dir, baseDir = dir) => {
     return results;
   }
 
-  // System/intermediate folders to ignore to keep explorer clean and performant
+  // Repo-level folders that must never appear as student lab workspace files.
   const ignored = [
     ".git",
     "node_modules",
     "backend",
     "vlab_admin",
+    "ignito_Experia_Main_Dashboard",
+    "ignito_experia_main_dashboard",
     "__pycache__",
     ".gradle",
     "intermediates",
     "generated",
     "tmp",
     "kotlin",
-    ".tanstack"
+    ".tanstack",
   ];
 
   for (const file of list) {
@@ -67,6 +71,8 @@ const scanLocalFiles = (dir, baseDir = dir) => {
       let language = "plaintext";
       if (ext === "py") language = "python";
       else if (ext === "java") language = "java";
+      else if (ext === "cs") language = "csharp";
+      else if (ext === "cshtml") language = "razor";
       else if (ext === "sh") language = "shell";
       else if (ext === "json") language = "json";
       else if (ext === "html") language = "html";
@@ -87,31 +93,42 @@ const scanLocalFiles = (dir, baseDir = dir) => {
 };
 
 export const listFiles = async (sessionId) => {
-  const root = getLocalWorkspaceRoot();
-  if (fs.existsSync(root)) {
+  const session = await getSession(sessionId);
+  const hasLiveContainer =
+    session?.status === "running" &&
+    Boolean(session.taskArn || session.apiBaseUrl);
+
+  // Running ECS lab sessions must list the container workspace, not the dev machine repo.
+  if (hasLiveContainer) {
     try {
-      const scanned = scanLocalFiles(root);
-      if (scanned && scanned.length > 0) {
-        return scanned;
+      const files = await getFilesFromContainer(session);
+      const result = files || [];
+      if (result.length > 0) {
+        await updateSession(sessionId, { files: result }).catch(() => {});
       }
+      return result;
     } catch (err) {
-      console.error("[listFiles] Local scan error:", err.message);
+      console.error("[listFiles] Container list failed:", err.message);
+      if (session.files?.length) return session.files;
+      throw err;
     }
   }
 
-  const session = await getSession(sessionId);
-  if (session?.status === "running") {
-    let files = await getFilesFromContainer(session);
-    if (files && files.length > 0) {
-      const allowedExtensions = getAllowedExtensions(session.labId);
-      files = files.filter(f => {
-        const ext = f.path.split(".").pop()?.toLowerCase();
-        return ext && allowedExtensions.includes(ext);
-      });
-      await updateSession(sessionId, { files }).catch(() => {});
+  // Local disk fallback only for mock/offline sessions without an ECS task.
+  if (!session?.taskArn) {
+    const root = getLocalWorkspaceRoot();
+    if (fs.existsSync(root)) {
+      try {
+        const scanned = scanLocalFiles(root);
+        if (scanned?.length > 0) {
+          return scanned;
+        }
+      } catch (err) {
+        console.error("[listFiles] Local scan error:", err.message);
+      }
     }
-    return files || [];
   }
+
   if (session?.files) return session.files;
   return [];
 };
@@ -126,6 +143,8 @@ export const getFile = async (sessionId, filePath) => {
     let language = "python";
     if (["js", "jsx"].includes(ext)) language = "javascript";
     else if (ext === "java") language = "java";
+    else if (ext === "cs") language = "csharp";
+    else if (ext === "cshtml") language = "razor";
     else if (ext === "sh") language = "shell";
     else if (ext === "gradle") language = "groovy";
     else if (ext === "properties") language = "properties";
@@ -184,7 +203,6 @@ export const deleteFile = async (sessionId, filePath) => {
     return;
   }
   const files = (await listFiles(sessionId)).filter((f) => f.path !== filePath);
-  getFilesMap().set(sessionId, files);
   await updateSession(sessionId, { files }).catch(() => {});
 };
 

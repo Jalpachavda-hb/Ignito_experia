@@ -14,7 +14,7 @@ export function AccountInfoCard({ student }: AccountInfoCardProps) {
     { label: 'Username', value: student.username || 'Not Provided' },
     { label: 'Email', value: student.email },
     { label: 'Account Created Date', value: student.accountCreatedDate ? new Date(student.accountCreatedDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not Provided' },
-    { label: 'Last Login', value: student.lastLogin ? new Date(student.lastLogin).toLocaleString('en-US', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not Provided' },
+    { label: 'Last Login', value: student.lastLogin ? new Date(student.lastLogin).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not Provided' },
   ];
 
   return (

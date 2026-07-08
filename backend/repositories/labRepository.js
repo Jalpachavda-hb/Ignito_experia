@@ -122,11 +122,6 @@ class LabRepository {
     return rows[0][0];
   }
 
-  async restore(labId, updatedBy) {
-    const [rows] = await pool.query("CALL sp_Lab_Restore(?, ?)", [labId, updatedBy || null]);
-    return rows[0][0];
-  }
-
   async updateStatus(labId, status, updatedBy) {
     const [rows] = await pool.query("CALL sp_Lab_UpdateStatus(?, ?, ?)", [
       labId,

@@ -7,10 +7,833 @@ import { exec } from "child_process";
 import util from "util";
 import os from "os";
 import { ANDROID_STARTER_FILES } from "../lib/androidStarter.js";
-
+import { describeTask } from "./ecsService.js";
 const execAsync = util.promisify(exec);
 
 const CONTAINER_TIMEOUT_MS = 35000;
+const DOTNET_BUILD_TIMEOUT_SEC = 300;
+const DOTNET_BUILD_SSM_TIMEOUT_MS = DOTNET_BUILD_TIMEOUT_SEC * 1000 + 60000;
+const DOTNET_RUN_SSM_TIMEOUT_MS = 240000;
+const DOTNET_MVC_RUN_PORT = 5050;
+
+const isDotnetSession = (session) => {
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+  return labId.includes("dotnet") || labType === "dotnet";
+};
+
+const DOTNET_ALLOWED_FILE_NAMES = new Set([
+  "program.cs",
+  "homecontroller.cs",
+  "apicontroller.cs",
+  "appsettings.json",
+  "appsettings.development.json",
+]);
+
+const DOTNET_BUILD_ARTIFACT_EXTENSIONS = [
+  ".dll",
+  ".pdb",
+  ".exe",
+  ".deps.json",
+  ".runtimeconfig.json",
+  ".nuget.cache",
+  ".assets.json",
+];
+
+const isDotnetBuildArtifact = (filePath, fileName) => {
+  const normalized = (filePath || "").replace(/^\/workspace\//, "").replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  const name = (fileName || parts[parts.length - 1] || "").toLowerCase();
+
+  if (parts.some((part) => part.toLowerCase() === "bin" || part.toLowerCase() === "obj")) {
+    return true;
+  }
+  return DOTNET_BUILD_ARTIFACT_EXTENSIONS.some((ext) => name.endsWith(ext));
+};
+
+const DOTNET_ALLOWED_CSHARP_VIEW = "index.cshtml";
+
+const isDotnetAllowedCshtml = (fileName) =>
+  (fileName || "").toLowerCase() === DOTNET_ALLOWED_CSHARP_VIEW;
+
+const isDotnetWorkspaceFileAllowed = (filePath, fileName) => {
+  if (isDotnetBuildArtifact(filePath, fileName)) {
+    return false;
+  }
+  const normalized = (filePath || "").replace(/^\/workspace\//, "").replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  const name = (fileName || parts[parts.length - 1] || "").toLowerCase();
+
+  if (name.endsWith(".csproj")) return true;
+  if (name.endsWith(".cshtml")) return isDotnetAllowedCshtml(name);
+  if (DOTNET_ALLOWED_FILE_NAMES.has(name)) return true;
+  return false;
+};
+
+const filterDotnetWorkspaceFiles = (files) =>
+  (files || []).filter((file) => isDotnetWorkspaceFileAllowed(file.path, file.name));
+
+const DOTNET_LIST_FILES_SCRIPT = `import os
+import json
+import shutil
+
+workspace = "/tmp/workspace/workspace"
+
+ALLOWED_NAMES = {
+    "program.cs",
+    "homecontroller.cs",
+    "apicontroller.cs",
+    "appsettings.json",
+    "appsettings.development.json",
+}
+
+BUILD_ARTIFACT_EXTS = (
+    ".dll", ".pdb", ".exe", ".deps.json", ".runtimeconfig.json",
+    ".nuget.cache", ".assets.json",
+)
+
+def is_build_artifact(rel_path):
+    rel = rel_path.replace("\\\\", "/")
+    parts = [p.lower() for p in rel.split("/") if p]
+    if "bin" in parts or "obj" in parts:
+        return True
+    name = parts[-1] if parts else ""
+    return any(name.endswith(ext) for ext in BUILD_ARTIFACT_EXTS)
+
+def is_allowed(rel_path):
+    if is_build_artifact(rel_path):
+        return False
+    rel = rel_path.replace("\\\\", "/")
+    parts = [p for p in rel.split("/") if p]
+    if not parts:
+        return False
+    name = parts[-1].lower()
+    rel_lower = rel.lower()
+    if name.endswith(".csproj"):
+        return True
+    if name.endswith(".cshtml"):
+        return name in ("index.cshtml", "_viewimports.cshtml", "_viewstart.cshtml", "_layout.cshtml")
+    if "/models/" in rel_lower and name.endswith(".cs"):
+        return True
+    if name in ALLOWED_NAMES:
+        return True
+    return False
+
+def in_bin_or_obj(rel_path):
+    parts = [p.lower() for p in rel_path.replace("\\\\", "/").split("/") if p]
+    return "bin" in parts or "obj" in parts
+
+if os.path.exists("/workspace") and os.path.isdir("/workspace"):
+    try:
+        os.makedirs(workspace, exist_ok=True)
+        if not os.listdir(workspace):
+            for item in os.listdir("/workspace"):
+                s = os.path.join("/workspace", item)
+                d = os.path.join(workspace, item)
+                if os.path.isdir(s):
+                    if item not in [".git", "node_modules", ".gradle", ".idea", "__pycache__", "tmp"]:
+                        shutil.copytree(s, d)
+                else:
+                    shutil.copy2(s, d)
+    except Exception as e:
+        print("COPY_ERROR: " + str(e))
+
+if os.path.exists(workspace):
+    for root, dirs, files in os.walk(workspace, topdown=False):
+        rel_root = os.path.relpath(root, workspace)
+        if rel_root == ".":
+            rel_root = ""
+        rel_root_norm = rel_root.replace("\\\\", "/")
+        inside_bin_obj = in_bin_or_obj(rel_root_norm) if rel_root_norm else False
+
+        for f in files:
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, workspace).replace("\\\\", "/")
+            if inside_bin_obj or is_allowed(rel_path):
+                continue
+            try:
+                os.remove(full_path)
+            except Exception:
+                pass
+
+        if rel_root and not inside_bin_obj:
+            try:
+                if not os.listdir(root):
+                    os.rmdir(root)
+            except Exception:
+                pass
+
+result = []
+if os.path.exists(workspace):
+    for root, dirs, files in os.walk(workspace):
+        dirs[:] = [
+            d for d in dirs
+            if d not in [".git", "node_modules", ".gradle", ".idea", "__pycache__", "tmp"]
+            and d.lower() not in ("bin", "obj")
+        ]
+        for f in files:
+            if f.endswith(".pyc") or f == ".DS_Store":
+                continue
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, workspace).replace("\\\\", "/")
+            if rel_path.lower().startswith("consolerun/"):
+                continue
+            if not is_allowed(rel_path):
+                continue
+            result.append({
+                "name": f,
+                "path": "/workspace/" + rel_path,
+                "type": "file"
+            })
+
+print("---FILES_START---" + json.dumps(result) + "---FILES_END---")`;
+
+const normalizeExecutePath = (filePath) => {
+  if (!filePath) return filePath;
+  return filePath.replace(/^\/tmp\/workspace\/workspace\//, "").replace(/^\/workspace\//, "").replace(/^\/+/, "");
+};
+
+const getExecuteTimeoutMs = ({ labType, language, labId }) => {
+  const type = (labType || "").toLowerCase();
+  const lang = (language || "").toLowerCase();
+  const id = (labId || "").toLowerCase();
+
+  if (type === "big-data" || id.includes("big-data") || id.includes("bigdata")) {
+    return 120000;
+  }
+  if (
+    type === "dotnet" ||
+    type === "csharp" ||
+    type === "c#" ||
+    type === "cs" ||
+    id.includes("dotnet") ||
+    lang === "csharp" ||
+    lang === "c#"
+  ) {
+    return 90000;
+  }
+  if (type === "java" || lang === "java" || id.includes("java")) {
+    return 60000;
+  }
+  return 15000;
+};
+
+const isDotnetPayload = (session, payload) => {
+  const labType = resolveLabType({
+    labId: session?.labId,
+    language: payload?.language,
+    labType: payload?.labType,
+  }).toLowerCase();
+  if (["dotnet", "csharp", "c#", "cs"].includes(labType)) return true;
+  const lang = (payload?.language || "").toLowerCase();
+  if (["csharp", "c#", "cs"].includes(lang)) return true;
+  const filePath = (payload?.path || "").toLowerCase();
+  return filePath.endsWith(".cs") || filePath.endsWith(".cshtml");
+};
+
+const formatLabServerResult = (data) => ({
+  success: data.success !== false,
+  output: data.output || "",
+  error: data.error || data.runtimeError || data.syntaxError || null,
+  syntaxError: data.syntaxError || "",
+  runtimeError: data.runtimeError || "",
+});
+
+const parseLabServerJsonOutput = (output) => {
+  const text = (output || "").trim();
+  if (!text) {
+    return {
+      success: false,
+      output: "",
+      error: "Empty lab_server response",
+      syntaxError: "",
+      runtimeError: "Empty lab_server response",
+    };
+  }
+
+  try {
+    return formatLabServerResult(JSON.parse(text));
+  } catch {
+    // continue
+  }
+
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}");
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    try {
+      return formatLabServerResult(JSON.parse(text.substring(jsonStart, jsonEnd + 1)));
+    } catch {
+      // continue
+    }
+  }
+
+  const buildSucceeded = /build succeeded/i.test(text);
+  const hasCompileFailure =
+    /build failed/i.test(text) ||
+    /error cs\d+/i.test(text) ||
+    /BUILD_EXIT:(?!0\b)/i.test(text);
+  const connectionLost = /remote end closed connection/i.test(text);
+  const buildTimedOut = /timed out after \d+ seconds/i.test(text);
+
+  if (buildTimedOut) {
+    return {
+      success: false,
+      output: text,
+      error:
+        "Build timed out. The first build downloads NuGet packages and can take several minutes — try BUILD again.",
+      syntaxError: "",
+      runtimeError:
+        "Build timed out. The first build downloads NuGet packages and can take several minutes — try BUILD again.",
+    };
+  }
+
+  if (connectionLost) {
+    return {
+      success: false,
+      output: text,
+      error: "Build timed out or the container connection closed. Wait a moment and try BUILD again.",
+      syntaxError: "",
+      runtimeError: "Build timed out or the container connection closed.",
+    };
+  }
+
+  const pageMarker = "--- PAGE OUTPUT ---";
+  const runHttpOk = /RUN_HTTP_OK/i.test(text);
+  const runTimedOut = /RUN_TIMEOUT:/i.test(text);
+  if (runHttpOk) {
+    const pageIdx = text.indexOf(pageMarker);
+    const pageHtml = pageIdx >= 0 ? text.substring(pageIdx + pageMarker.length).trim() : text;
+    return {
+      success: true,
+      output: pageHtml,
+      error: null,
+      syntaxError: "",
+      runtimeError: "",
+    };
+  }
+  if (runTimedOut) {
+    return {
+      success: false,
+      output: text,
+      error: "Web app did not respond in time. Ensure HomeController and Index.cshtml exist, then try RUN again.",
+      syntaxError: "",
+      runtimeError: "Web app did not respond in time.",
+    };
+  }
+
+  const consoleMarker = "--- PROGRAM OUTPUT ---";
+  if (text.includes(consoleMarker)) {
+    const outputStart = text.indexOf(consoleMarker) + consoleMarker.length;
+    const outputEnd = text.indexOf("RUN_EXIT:", outputStart);
+    const programOutput = (
+      outputEnd >= 0 ? text.substring(outputStart, outputEnd) : text.substring(outputStart)
+    ).trim();
+    const exitMatch = text.match(/RUN_EXIT:(\d+)/);
+    const exitCode = exitMatch ? Number.parseInt(exitMatch[1], 10) : 1;
+    return {
+      success: exitCode === 0,
+      output: programOutput || "(No output)",
+      error: exitCode === 0 ? null : "Program exited with an error",
+      syntaxError: "",
+      runtimeError: exitCode === 0 ? "" : programOutput || "Program exited with an error",
+    };
+  }
+
+  if (buildSucceeded && !hasCompileFailure) {
+    return {
+      success: true,
+      output: text,
+      error: null,
+      syntaxError: "",
+      runtimeError: "",
+    };
+  }
+
+  return {
+    success: false,
+    output: text,
+    error: hasCompileFailure ? "Build failed" : "Execution failed",
+    syntaxError: "",
+    runtimeError: hasCompileFailure ? "Build failed" : "Execution failed",
+  };
+};
+
+const isPrivateHost = (host) =>
+  Boolean(host && /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/.test(host));
+
+const shouldPreferSsmExecution = (host, ctx) =>
+  Boolean(
+    ctx &&
+    (ENV.containerHostMode === "private" || isPrivateHost(host) || !host),
+  );
+
+const isDotnetMvcCode = (content = "") => {
+  const code = String(content || "");
+  return (
+    code.includes("WebApplication.CreateBuilder") ||
+    code.includes("AddControllersWithViews") ||
+    code.includes("MapControllerRoute") ||
+    code.includes("MapControllers")
+  );
+};
+
+const isDotnetConsoleProgram = (filePath, content = "") => {
+  const normalized = normalizeExecutePath(filePath) || "Program.cs";
+  const name = normalized.split("/").pop()?.toLowerCase() || "";
+  if (name !== "program.cs") return false;
+  return !isDotnetMvcCode(content);
+};
+
+const resolveDotnetExecutePath = (filePath, content = "") => {
+  const normalized = normalizeExecutePath(filePath) || "Program.cs";
+  const code = String(content || "");
+  const name = normalized.split("/").pop() || normalized;
+  const lowerName = name.toLowerCase();
+
+  if (lowerName === "program.cs") {
+    return isDotnetMvcCode(code) ? "MyWebApp/Program.cs" : "Program.cs";
+  }
+
+  if (normalized.startsWith("MyWebApp/")) return normalized;
+
+  if (lowerName.endsWith(".cshtml") || lowerName.endsWith(".html")) {
+    if (lowerName === "index.cshtml" || lowerName === "index.html") {
+      return "MyWebApp/Views/Home/Index.cshtml";
+    }
+    const viewName = name.replace(/\.(cshtml|html)$/i, ".cshtml");
+    return `MyWebApp/Views/Home/${viewName}`;
+  }
+
+  if (lowerName.endsWith(".cs")) {
+    if (
+      lowerName === "homecontroller.cs" ||
+      code.includes(": Controller") ||
+      code.includes("Microsoft.AspNetCore.Mvc")
+    ) {
+      return "MyWebApp/Controllers/HomeController.cs";
+    }
+    if (code.includes("DbContext")) {
+      return `MyWebApp/Data/${name}`;
+    }
+    if (code.includes("Microsoft.AspNetCore") || code.includes("AspNetCore")) {
+      return `MyWebApp/Models/${name}`;
+    }
+  }
+
+  return normalized;
+};
+
+const isDotnetBuildRequest = (filePath, content = "", action) => {
+  if (action === "run") return false;
+  if (action === "build") return true;
+  if (isDotnetConsoleProgram(filePath, content)) return false;
+
+  const normalized = normalizeExecutePath(filePath) || "";
+  const lower = normalized.toLowerCase();
+  if (lower.endsWith(".cshtml") || lower.endsWith(".html")) return true;
+  if (lower.includes("controller")) return true;
+  if (lower.endsWith("program.cs") && isDotnetMvcCode(content)) return true;
+  return normalized.startsWith("MyWebApp/") && !lower.endsWith("program.cs");
+};
+
+const isDotnetMvcProject = (filePath, content = "") => {
+  if (isDotnetConsoleProgram(filePath, content)) return false;
+  return isDotnetBuildRequest(filePath, content, "build");
+};
+
+const resolveDotnetSsmAction = (payload) => {
+  const action = (payload?.action || "").toLowerCase();
+  if (action === "build" || action === "run") return action;
+  return isDotnetBuildRequest(payload?.path, payload?.content) ? "build" : "run";
+};
+
+const writeFileViaSsm = async (session, workspacePath, content) => {
+  const containerPath = getContainerFilePath(workspacePath);
+  const safeContent = content !== undefined && content !== null ? String(content) : "";
+  const b64 = Buffer.from(safeContent).toString("base64");
+  const safePath = containerPath.replace(/'/g, "\\'");
+  const pythonScript = `import base64
+import os
+
+path = '${safePath}'
+content_b64 = '${b64}'
+
+try:
+    dir_name = os.path.dirname(path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(base64.b64decode(content_b64))
+    print('SUCCESS')
+except Exception as e:
+    print('ERROR: ' + str(e))
+`;
+  const scriptB64 = Buffer.from(pythonScript).toString("base64");
+  const commandValue = `sh -c 'echo ${scriptB64} | base64 -d | python3 2>&1'`;
+  const output = await runSsmShellCommand(session, commandValue);
+  if (!output.includes("SUCCESS")) {
+    throw new Error(output || "Failed to write file to container workspace");
+  }
+};
+
+const executeDotnetBuildViaSsm = async (session, payload) => {
+  const executePath = resolveDotnetExecutePath(payload.path, payload.content);
+  const workspacePath = executePath.startsWith("/workspace/")
+    ? executePath
+    : `/workspace/${executePath}`;
+  const containerPath = getContainerFilePath(workspacePath);
+  const projectDir = executePath.includes("MyWebApp")
+    ? "/tmp/workspace/workspace/MyWebApp"
+    : "/tmp/workspace/workspace";
+
+  const safeContent =
+    payload.content !== undefined && payload.content !== null ? String(payload.content) : "";
+  const contentB64 = Buffer.from(safeContent).toString("base64");
+  const errorViewModelB64 = Buffer.from(DOTNET_ERROR_VIEW_MODEL).toString("base64");
+  const safePath = containerPath.replace(/'/g, "\\'");
+  const safeProjectDir = projectDir.replace(/'/g, "\\'");
+
+  const pyScript = `import base64
+import os
+import subprocess
+
+path = '${safePath}'
+project_dir = '${safeProjectDir}'
+content_b64 = '${contentB64}'
+error_vm_b64 = '${errorViewModelB64}'
+build_timeout = ${DOTNET_BUILD_TIMEOUT_SEC}
+
+env = os.environ.copy()
+env['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'
+env['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'
+env['NUGET_XMLDOC_MODE'] = 'skip'
+
+def run_step(label, cmd, timeout):
+    print('STEP: ' + label)
+    result = subprocess.run(
+        cmd,
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
+    out = (result.stdout or '') + (result.stderr or '')
+    if out.strip():
+        print(out)
+    return result.returncode
+
+try:
+    if content_b64:
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(base64.b64decode(content_b64))
+
+    if project_dir.endswith('MyWebApp'):
+        models_dir = os.path.join(project_dir, 'Models')
+        error_vm_path = os.path.join(models_dir, 'ErrorViewModel.cs')
+        if not os.path.isfile(error_vm_path):
+            os.makedirs(models_dir, exist_ok=True)
+            with open(error_vm_path, 'wb') as f:
+                f.write(base64.b64decode(error_vm_b64))
+
+    assets = os.path.join(project_dir, 'obj', 'project.assets.json')
+    if os.path.isfile(assets):
+        code = run_step('dotnet build', ['dotnet', 'build', '--no-restore', '--verbosity', 'minimal'], build_timeout)
+    else:
+        restore_timeout = max(180, build_timeout - 60)
+        code = run_step('dotnet restore', ['dotnet', 'restore', '--verbosity', 'minimal'], restore_timeout)
+        if code == 0:
+            code = run_step('dotnet build', ['dotnet', 'build', '--no-restore', '--verbosity', 'minimal'], 120)
+        else:
+            print('BUILD_EXIT:' + str(code))
+
+    if code != 0:
+        print('BUILD_EXIT:' + str(code))
+except subprocess.TimeoutExpired:
+    print('ERROR: dotnet build timed out after ' + str(build_timeout) + ' seconds')
+except Exception as e:
+    print('ERROR: ' + str(e))
+`;
+  const scriptB64 = Buffer.from(pyScript).toString("base64");
+  const commandValue = `sh -c 'echo ${scriptB64} | base64 -d | python3 2>&1'`;
+  const output = await runSsmShellCommand(session, commandValue, { timeoutMs: DOTNET_BUILD_SSM_TIMEOUT_MS });
+  return parseLabServerJsonOutput(stripSsmNoise(output));
+};
+
+const executeDotnetMvcRunViaSsm = async (session, payload) => {
+  const executePath = resolveDotnetExecutePath(payload.path, payload.content);
+  const workspacePath = executePath.startsWith("/workspace/")
+    ? executePath
+    : `/workspace/${executePath}`;
+  const containerPath = getContainerFilePath(workspacePath);
+  const projectDir = executePath.includes("MyWebApp")
+    ? "/tmp/workspace/workspace/MyWebApp"
+    : "/tmp/workspace/workspace";
+
+  const safeContent =
+    payload.content !== undefined && payload.content !== null ? String(payload.content) : "";
+  const contentB64 = Buffer.from(safeContent).toString("base64");
+  const errorViewModelB64 = Buffer.from(DOTNET_ERROR_VIEW_MODEL).toString("base64");
+  const safePath = containerPath.replace(/'/g, "\\'");
+  const safeProjectDir = projectDir.replace(/'/g, "\\'");
+
+  const pyScript = `import base64
+import os
+import subprocess
+import time
+import urllib.request
+
+path = '${safePath}'
+project_dir = '${safeProjectDir}'
+content_b64 = '${contentB64}'
+error_vm_b64 = '${errorViewModelB64}'
+run_port = ${DOTNET_MVC_RUN_PORT}
+log_path = '/tmp/dotnet_mvc_run.log'
+pid_path = '/tmp/dotnet_mvc_run.pid'
+
+env = os.environ.copy()
+env['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'
+env['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'
+env['ASPNETCORE_URLS'] = f'http://127.0.0.1:{run_port}'
+
+def run_cmd(label, cmd, timeout=120):
+    print('STEP: ' + label)
+    result = subprocess.run(
+        cmd,
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
+    out = (result.stdout or '') + (result.stderr or '')
+    if out.strip():
+        print(out)
+    return result.returncode
+
+def stop_previous_server():
+    if not os.path.isfile(pid_path):
+        return
+    try:
+        with open(pid_path, 'r', encoding='utf-8') as pid_file:
+            old_pid = int(pid_file.read().strip())
+        os.kill(old_pid, 9)
+    except (ProcessLookupError, ValueError, PermissionError, OSError):
+        pass
+
+try:
+    if content_b64:
+        dir_name = os.path.dirname(path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(base64.b64decode(content_b64))
+
+    if project_dir.endswith('MyWebApp'):
+        models_dir = os.path.join(project_dir, 'Models')
+        error_vm_path = os.path.join(models_dir, 'ErrorViewModel.cs')
+        if not os.path.isfile(error_vm_path):
+            os.makedirs(models_dir, exist_ok=True)
+            with open(error_vm_path, 'wb') as f:
+                f.write(base64.b64decode(error_vm_b64))
+
+    assets = os.path.join(project_dir, 'obj', 'project.assets.json')
+    if os.path.isfile(assets):
+        code = run_cmd('dotnet build', ['dotnet', 'build', '--no-restore', '--verbosity', 'minimal'], 180)
+    else:
+        code = run_cmd('dotnet restore', ['dotnet', 'restore', '--verbosity', 'minimal'], 240)
+        if code == 0:
+            code = run_cmd('dotnet build', ['dotnet', 'build', '--no-restore', '--verbosity', 'minimal'], 120)
+
+    if code != 0:
+        print('BUILD_EXIT:' + str(code))
+    else:
+        stop_previous_server()
+        with open(log_path, 'wb') as log_file:
+            proc = subprocess.Popen(
+                ['dotnet', 'run', '--no-build', '--no-launch-profile', '--urls', f'http://127.0.0.1:{run_port}'],
+                cwd=project_dir,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+        with open(pid_path, 'w', encoding='utf-8') as pid_file:
+            pid_file.write(str(proc.pid))
+        print('STEP: waiting for web app')
+        page = ''
+        for _ in range(60):
+            time.sleep(1)
+            try:
+                with urllib.request.urlopen(f'http://127.0.0.1:{run_port}/', timeout=3) as resp:
+                    page = resp.read().decode('utf-8', errors='replace')
+                    if resp.status == 200 and page.strip():
+                        print('RUN_HTTP_OK')
+                        print('--- PAGE OUTPUT ---')
+                        print(page)
+                        break
+            except Exception:
+                pass
+        else:
+            print('RUN_TIMEOUT: app did not respond on port ' + str(run_port))
+            try:
+                with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                    tail = f.read()[-4000:]
+                    if tail.strip():
+                        print(tail)
+            except Exception:
+                pass
+except subprocess.TimeoutExpired:
+    print('ERROR: dotnet run timed out')
+except Exception as e:
+    print('ERROR: ' + str(e))
+`;
+  const scriptB64 = Buffer.from(pyScript).toString("base64");
+  const commandValue = `sh -c 'echo ${scriptB64} | base64 -d | python3 2>&1'`;
+  const output = await runSsmShellCommand(session, commandValue, { timeoutMs: DOTNET_RUN_SSM_TIMEOUT_MS });
+  return parseLabServerJsonOutput(stripSsmNoise(output));
+};
+
+const DOTNET_ERROR_VIEW_MODEL = `namespace MyWebApp.Models
+{
+    public class ErrorViewModel
+    {
+        public string RequestId { get; set; }
+        public bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+    }
+}
+`;
+
+const DOTNET_CONSOLE_CSPROJ = `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>`;
+
+const DOTNET_CONSOLE_PROJECT_DIR = "/tmp/workspace/workspace/ConsoleRun";
+
+const executeDotnetConsoleRunViaSsm = async (session, payload) => {
+  const projectDir = DOTNET_CONSOLE_PROJECT_DIR;
+  const programPath = `${projectDir}/Program.cs`;
+  const csprojPath = `${projectDir}/ConsoleApp.csproj`;
+
+  const safeContent =
+    payload.content !== undefined && payload.content !== null ? String(payload.content) : "";
+  const stdinText =
+    payload.stdin !== undefined && payload.stdin !== null ? String(payload.stdin) : "";
+  const contentB64 = Buffer.from(safeContent).toString("base64");
+  const stdinB64 = Buffer.from(stdinText).toString("base64");
+  const csprojB64 = Buffer.from(DOTNET_CONSOLE_CSPROJ).toString("base64");
+  const safeProgramPath = programPath.replace(/'/g, "\\'");
+  const safeProjectDir = projectDir.replace(/'/g, "\\'");
+  const safeCsprojPath = csprojPath.replace(/'/g, "\\'");
+
+  const pyScript = `import base64
+import os
+import subprocess
+import shutil
+
+program_path = '${safeProgramPath}'
+project_dir = '${safeProjectDir}'
+csproj_path = '${safeCsprojPath}'
+content_b64 = '${contentB64}'
+stdin_b64 = '${stdinB64}'
+csproj_b64 = '${csprojB64}'
+
+env = os.environ.copy()
+env['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'
+env['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'
+
+try:
+    if os.path.isdir(project_dir):
+        shutil.rmtree(project_dir)
+    os.makedirs(project_dir, exist_ok=True)
+    with open(program_path, 'wb') as f:
+        f.write(base64.b64decode(content_b64))
+    with open(csproj_path, 'wb') as f:
+        f.write(base64.b64decode(csproj_b64))
+
+    stdin_data = base64.b64decode(stdin_b64).decode('utf-8') if stdin_b64 else ''
+
+    result = subprocess.run(
+        ['dotnet', 'run', '--project', csproj_path, '--verbosity', 'quiet', '--nologo'],
+        cwd=project_dir,
+        capture_output=True,
+        text=True,
+        input=stdin_data,
+        timeout=90,
+        env=env,
+    )
+    combined = ((result.stdout or '') + (result.stderr or '')).strip()
+    print('--- PROGRAM OUTPUT ---')
+    print(combined or '(No output)')
+    print('RUN_EXIT:' + str(result.returncode))
+except subprocess.TimeoutExpired:
+    print('--- PROGRAM OUTPUT ---')
+    print('Program timed out after 90 seconds')
+    print('RUN_EXIT:1')
+except Exception as e:
+    print('--- PROGRAM OUTPUT ---')
+    print('ERROR: ' + str(e))
+    print('RUN_EXIT:1')
+`;
+  const scriptB64 = Buffer.from(pyScript).toString("base64");
+  const commandValue = `sh -c 'echo ${scriptB64} | base64 -d | python3 2>&1'`;
+  const output = await runSsmShellCommand(session, commandValue, { timeoutMs: 120000 });
+  return parseLabServerJsonOutput(stripSsmNoise(output));
+};
+
+const runDotnetViaSsm = async (session, payload) => {
+  const action = resolveDotnetSsmAction(payload);
+  if (action === "build") {
+    return executeDotnetBuildViaSsm(session, payload);
+  }
+  if (isDotnetMvcProject(payload.path, payload.content)) {
+    return executeDotnetMvcRunViaSsm(session, payload);
+  }
+  if (isDotnetConsoleProgram(payload.path, payload.content)) {
+    return executeDotnetConsoleRunViaSsm(session, payload);
+  }
+  return executeDotnetViaSsmLabServer(session, payload);
+};
+
+const executeDotnetViaSsmLabServer = async (session, payload) => {
+  const executePath = resolveDotnetExecutePath(payload.path, payload.content);
+  const body = {
+    path: executePath,
+    content: payload.content || "",
+    labType: "dotnet",
+    sessionId: session.sessionId,
+  };
+  const bodyB64 = Buffer.from(JSON.stringify(body)).toString("base64");
+  const token = session.sessionToken || "";
+  const tokenLine = token
+    ? `headers["X-Session-Token"] = ${JSON.stringify(token)}`
+    : "";
+
+  const pyScript = `import base64, json, urllib.request, urllib.error
+body = json.loads(base64.b64decode(${JSON.stringify(bodyB64)}).decode())
+headers = {"Content-Type": "application/json"}
+${tokenLine}
+req = urllib.request.Request("http://127.0.0.1:8080/execute", data=json.dumps(body).encode(), headers=headers, method="POST")
+try:
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        print(resp.read().decode())
+except urllib.error.HTTPError as e:
+    print(e.read().decode())
+except Exception as e:
+    print(json.dumps({"success": False, "output": "", "error": str(e)}))
+`;
+  const scriptB64 = Buffer.from(pyScript).toString("base64");
+  const commandValue = `sh -c 'echo ${scriptB64} | base64 -d | python3 2>&1'`;
+  const output = await runSsmShellCommand(session, commandValue);
+  return parseLabServerJsonOutput(output);
+};
 
 const containerFetch = async (url, options = {}) => {
   const timeout = options.timeout || CONTAINER_TIMEOUT_MS;
@@ -48,7 +871,7 @@ const buildHeaders = (session) => {
 };
 
 const getEcsExecContext = (session) => {
-  const taskArn = session?.taskArn;
+  const taskArn = session?.taskArn || session?.TaskArn;
   if (!taskArn) return null;
   const taskId = session.TaskId || taskArn.split("/").pop();
   const cluster = session.cluster || session.ClusterName || ENV.ecsCluster;
@@ -61,39 +884,15 @@ const getEcsExecContext = (session) => {
 };
 
 const resolveAwsCli = () => {
-  const standardAws = "C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe";
-
-  if (os.platform() === "win32") {
-    if (fs.existsSync(standardAws)) {
-      return { awsExePath: standardAws, argsPrepend: [], isLocalWinSetup: false };
-    }
-
-    // Dynamic search inside the current user's profile AppData directory
-    const userHome = os.homedir();
-    const pythonDir = path.join(userHome, "AppData", "Local", "Python");
-    if (fs.existsSync(pythonDir)) {
-      try {
-        const folders = fs.readdirSync(pythonDir);
-        for (const folder of folders) {
-          const scriptsDir = path.join(pythonDir, folder, "Scripts");
-          const awsExe = path.join(scriptsDir, "aws.exe");
-          const awsNoExt = path.join(scriptsDir, "aws");
-          const pythonExe = path.join(pythonDir, folder, "python.exe");
-
-          if (fs.existsSync(awsExe)) {
-            return { awsExePath: awsExe, argsPrepend: [], isLocalWinSetup: false };
-          }
-          if (fs.existsSync(awsNoExt) && fs.existsSync(pythonExe)) {
-            return { awsExePath: pythonExe, argsPrepend: [awsNoExt], isLocalWinSetup: true };
-          }
-        }
-      } catch (err) {
-        console.warn("[resolveAwsCli] Error reading local Python directory:", err.message);
-      }
+  let awsExePath = process.env.AWS_CLI_PATH || "aws";
+  if (!process.env.AWS_CLI_PATH && os.platform() === "win32") {
+    if (fs.existsSync("C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe")) {
+      awsExePath = "C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe";
+    } else {
+      awsExePath = "aws.exe";
     }
   }
-
-  return { awsExePath: "aws", argsPrepend: [], isLocalWinSetup: false };
+  return { awsExePath, argsPrepend: [], isLocalWinSetup: false };
 };
 
 const getSsmEnv = () => {
@@ -113,7 +912,7 @@ const getSsmEnv = () => {
         for (const folder of folders) {
           additions.push(path.join(pythonDir, folder, "Scripts"));
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     env.PATH = [
@@ -134,13 +933,54 @@ const stripSsmNoise = (stdout) => {
   cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, "");
   return cleanOut.trim();
 };
+const waitForExecuteCommandAgent = async (session) => {
+  const MAX_RETRIES = 15;
 
-const runSsmShellCommand = async (session, commandValue) => {
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    const task = await describeTask(session.taskArn);
+
+    if (!task) {
+      await new Promise(r => setTimeout(r, 2000));
+      continue;
+    }
+
+    const container =
+      task.containers?.find(c => c.name === "lab-runtime") ||
+      task.containers?.[0];
+
+    const agent =
+      container?.managedAgents?.find(
+        a => a.name === "ExecuteCommandAgent"
+      );
+
+    console.log({
+      taskStatus: task.lastStatus,
+      containerStatus: container?.lastStatus,
+      agentStatus: agent?.lastStatus,
+    });
+
+    if (
+      task.lastStatus === "RUNNING" &&
+      container?.lastStatus === "RUNNING" &&
+      agent?.lastStatus === "RUNNING"
+    ) {
+      console.log("ExecuteCommandAgent READY");
+      return;
+    }
+
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  throw new Error(
+    "ExecuteCommandAgent did not become RUNNING within timeout."
+  );
+};
+const runSsmShellCommand = async (session, commandValue, { timeoutMs = 120000 } = {}) => {
   const ctx = getEcsExecContext(session);
   if (!ctx) {
     throw new Error("Missing ECS task info for SSM execution");
   }
-
+  await waitForExecuteCommandAgent(session);
   const region = ENV.awsRegion;
   const aws = resolveAwsCli();
   let awsPrefix = `"${aws.awsExePath}"`;
@@ -155,17 +995,29 @@ const runSsmShellCommand = async (session, commandValue) => {
       ? `${awsPrefix} ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${ctx.container} --interactive --command "${commandValue}" --region ${region} < NUL`
       : `${awsPrefix} ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${ctx.container} --interactive --command "${commandValue}" --region ${region}`;
 
-  const { stdout } = await execAsync(execCmd, {
-    env: getSsmEnv(),
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  try {
+    const { stdout } = await execAsync(execCmd, {
+      env: getSsmEnv(),
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: timeoutMs,
+    });
 
-  return stripSsmNoise(stdout);
+    return stripSsmNoise(stdout);
+  } catch (err) {
+    if (err.killed || err.code === "ETIMEDOUT") {
+      throw new Error(`SSM command timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw err;
+  }
 };
 
 const executeViaSsm = async (session, payload) => {
+  if (isDotnetPayload(session, payload)) {
+    return runDotnetViaSsm(session, payload);
+  }
+
   let lang = (payload.language || "").toLowerCase();
-  
+
   // If language is missing, infer from file path
   if (!lang && payload.path) {
     const ext = payload.path.split('.').pop().toLowerCase();
@@ -185,7 +1037,7 @@ const executeViaSsm = async (session, payload) => {
     const fileName = containerPath.split('/').pop();
     const className = fileName.replace('.java', '');
     const dirName = containerPath.substring(0, containerPath.lastIndexOf('/'));
-    
+
     commandValue = `sh -c 'echo ${b64} | base64 -d > "${containerPath}" && cd "${dirName}" && javac "${fileName}" && java "${className}" 2>&1'`;
   } else {
     let ext = "py";
@@ -197,7 +1049,7 @@ const executeViaSsm = async (session, payload) => {
       ext = "sh";
       runner = "bash";
     }
-    
+
     commandValue = `sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'`;
   }
 
@@ -235,9 +1087,13 @@ const executeViaHttp = async (session, payload, baseUrl) => {
     labType: payload.labType,
   });
 
+  const executePath = isDotnetPayload(session, payload)
+    ? resolveDotnetExecutePath(payload.path, payload.content)
+    : normalizeExecutePath(payload.path);
+
   const body = {
-    path: payload.path,
-    filePath: payload.path,
+    path: executePath,
+    filePath: executePath,
     content: payload.content,
     code: payload.content,
     language: payload.language,
@@ -251,16 +1107,17 @@ const executeViaHttp = async (session, payload, baseUrl) => {
 
   for (const endpoint of endpoints) {
     try {
+      const executeTimeoutMs = getExecuteTimeoutMs({
+        labType,
+        language: payload.language,
+        labId: session.labId,
+      });
+
       const response = await containerFetch(`${baseUrl}${endpoint}`, {
         method: "POST",
         headers: buildHeaders(session),
         body: JSON.stringify(body),
-        timeout:
-          payload.labType === "big-data"
-            ? 120000
-            : payload.language === "java"
-              ? 60000
-              : 15000,
+        timeout: executeTimeoutMs,
       });
 
       if (!response.ok) {
@@ -289,9 +1146,18 @@ const executeViaHttp = async (session, payload, baseUrl) => {
       if (endpoint === "/execute") {
         console.warn("[executeInContainer] HTTP execute failed, trying SSM fallback...");
 
+        if (session.taskArn && isDotnetPayload(session, payload)) {
+          try {
+            return await runDotnetViaSsm(session, payload);
+          } catch (ssmErr) {
+            console.warn("[executeInContainer] dotnet SSM lab_server failed:", ssmErr.message);
+            throw ssmErr;
+          }
+        }
+
         if (session.taskArn) {
-          const { cluster, task } = getTaskDetails(session);
-          if (cluster && task) {
+          const ctx = getEcsExecContext(session);
+          if (ctx?.cluster && ctx?.taskId) {
             try {
               const b64 = Buffer.from(payload.content || "").toString('base64');
               const region = process.env.AWS_REGION || 'ap-south-1';
@@ -307,7 +1173,7 @@ const executeViaHttp = async (session, payload, baseUrl) => {
                 runner = "python3"; ext = "py";
               }
 
-              let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
+              let execCmd = `aws ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
 
               const env = { ...process.env };
               if (os.platform() === 'win32') {
@@ -393,10 +1259,52 @@ except Exception as e:
 export const executeInContainer = async (session, payload, options = {}) => {
   const baseUrl = await getSessionApiBaseUrl(session);
   const ctx = getEcsExecContext(session);
+  const dotnet = isDotnetPayload(session, payload);
 
   if (!baseUrl && !ctx) {
     console.log("[Container] No HTTP base URL or ECS task available");
     return null;
+  }
+
+  let host = null;
+  if (baseUrl) {
+    try {
+      host = new URL(baseUrl).hostname;
+    } catch {
+      host = null;
+    }
+  }
+
+  const preferSsm = shouldPreferSsmExecution(host, ctx) && !options.forceSsm;
+
+  if (preferSsm) {
+    console.log("=================================");
+    if (dotnet) {
+      const dotnetAction = resolveDotnetSsmAction(payload);
+      console.log(
+        dotnetAction === "build"
+          ? "CONTAINER SSM DOTNET BUILD (dotnet build)"
+          : isDotnetMvcProject(payload.path, payload.content)
+            ? "CONTAINER SSM DOTNET RUN (dotnet run + preview)"
+            : isDotnetConsoleProgram(payload.path, payload.content)
+              ? "CONTAINER SSM DOTNET CONSOLE RUN (dotnet run)"
+              : "CONTAINER SSM DOTNET (lab_server @ 127.0.0.1:8080)",
+      );
+    } else {
+      console.log("CONTAINER SSM EXECUTION");
+    }
+    console.log("Task:", ctx.taskId, "Cluster:", ctx.cluster);
+    console.log("=================================");
+    try {
+      return await (dotnet
+        ? runDotnetViaSsm(session, payload)
+        : executeViaSsm(session, payload));
+    } catch (err) {
+      console.warn("[executeInContainer] SSM execution failed:", err.message);
+      if (!baseUrl || ENV.containerHostMode === "private" || isPrivateHost(host)) {
+        throw err;
+      }
+    }
   }
 
   if (baseUrl && !options.forceSsm) {
@@ -487,22 +1395,17 @@ export const getFilesFromContainer = async (session) => {
   }
 
   const isAndroid = session?.labType === 'android' || session?.labId === 'android' || session?.labId === 'mobile-app-lab';
-  let b64Json = "";
-  if (isAndroid) {
-    const jsonStr = JSON.stringify(ANDROID_STARTER_FILES);
-    b64Json = Buffer.from(jsonStr).toString("base64");
-  }
+  const isDotnet = isDotnetSession(session);
 
   const payload = {
     path: "/tmp/list_files.py",
     language: "python",
-    content: `import os
+    content: isDotnet ? DOTNET_LIST_FILES_SCRIPT : `import os
 import json
 import base64
 import shutil
 
 workspace = "/tmp/workspace/workspace"
-is_android = ${isAndroid ? 'True' : 'False'}
 
 # 1. Copy-on-Initialize: Copy from /workspace to /tmp/workspace/workspace if empty
 if os.path.exists("/workspace") and os.path.isdir("/workspace"):
@@ -519,25 +1422,6 @@ if os.path.exists("/workspace") and os.path.isdir("/workspace"):
                     shutil.copy2(s, d)
     except Exception as e:
         print("COPY_ERROR: " + str(e))
-
-# 2. Seed Android Starter Files if needed
-if is_android and not os.path.exists(os.path.join(workspace, "build.gradle")):
-    try:
-        files_data = json.loads(base64.b64decode('${b64Json}').decode('utf-8'))
-        for file in files_data:
-            path = file['path'].replace('/workspace/', '/tmp/workspace/workspace/')
-            dir_name = os.path.dirname(path)
-            if dir_name:
-                os.makedirs(dir_name, exist_ok=True)
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(file['content'])
-            if file['name'] in ['gradlew', 'build.sh']:
-                try:
-                    os.chmod(path, 0o755)
-                except:
-                    pass
-    except Exception as e:
-        print("SEED_ERROR: " + str(e))
 
 # 3. List all files
 result = []
@@ -586,13 +1470,30 @@ print("---FILES_START---" + json.dumps(result) + "---FILES_END---")`
       const endIdx = output.lastIndexOf(endMarker);
       if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
         const jsonStr = output.substring(startIdx + startMarker.length, endIdx).trim();
-        return JSON.parse(jsonStr);
+        const filesList = JSON.parse(jsonStr);
+
+        if (isAndroid && !filesList.some((f) => f.name === 'build.gradle')) {
+          console.log("[getFilesFromContainer] Seeding Android Starter Files via JS to prevent command length limits...");
+          for (const file of ANDROID_STARTER_FILES) {
+            await saveToContainer(session, file);
+            if (file.name === 'gradlew' || file.name === 'build.sh') {
+              await executeInContainer(session, {
+                path: "/tmp/chmod.py",
+                language: "python",
+                content: `import os\ntry: os.chmod('/tmp/workspace/workspace/${file.name}', 0o755)\nexcept: pass`
+              }, { forceSsm: true });
+            }
+          }
+          return getFilesFromContainer(session);
+        }
+
+        return isDotnet ? filterDotnetWorkspaceFiles(filesList) : filesList;
       }
     }
     throw new Error("Unable to access container workspace. Please refresh or restart the session.");
   } catch (err) {
-    console.error("[getFilesFromContainer] Error:", err.message);
-    throw new Error("Unable to access container workspace. Please refresh or restart the session.");
+    console.error("[getFilesFromContainer] Error:", err.message, err.stack);
+    throw new Error("DEBUG: " + err.message);
   }
 };
 
@@ -696,6 +1597,8 @@ for root, dirs, files in os.walk(workspace_dir):
         if f.endswith('.py'): lang = 'python'
         elif f.endswith('.js'): lang = 'javascript'
         elif f.endswith('.java'): lang = 'java'
+        elif f.endswith('.cs'): lang = 'csharp'
+        elif f.endswith('.cshtml'): lang = 'razor'
         elif f.endswith('.sh'): lang = 'shell'
         elif f.endswith('.json'): lang = 'json'
         elif f.endswith('.html'): lang = 'html'
@@ -755,6 +1658,8 @@ print("###" + json.dumps(files_list) + "###")`
           const ext = fileName.split('.').pop()?.toLowerCase();
           if (ext === 'py') return 'python';
           if (ext === 'java') return 'java';
+          if (ext === 'cs') return 'csharp';
+          if (ext === 'cshtml') return 'razor';
           if (ext === 'html') return 'html';
           if (ext === 'css') return 'css';
           if (ext === 'js' || ext === 'jsx') return 'javascript';

@@ -13,7 +13,7 @@ class RefreshTokenService {
     const expiresAt = new Date(Date.now() + sessionPolicy.RefreshTokenTTL * 1000);
 
     await connection.query(
-      `INSERT INTO RefreshTokens (StudentProfileId, SessionId, TokenHash, ExpiresAt) 
+      `INSERT INTO RefreshTokens (UserId, SessionId, TokenHash, ExpiresAt) 
        VALUES (?, ?, ?, ?)`,
       [profileId, sessionId, tokenHash, expiresAt]
     );
@@ -43,8 +43,8 @@ class RefreshTokenService {
       if (tokenData.RevokedAt) {
         // Token was already used/revoked! This is a massive red flag (stolen token replay).
         // Revoke ALL sessions for this user.
-        await sessionService.revokeAllUserSessions(tokenData.StudentProfileId, 'INVALID_TOKEN', connection);
-        await auditService.log({ StudentProfileId: tokenData.StudentProfileId, Action: 'STOLEN_TOKEN_REUSE_DETECTED', Module: 'Auth', Severity: 'Critical' });
+        await sessionService.revokeAllUserSessions(tokenData.UserId, 'INVALID_TOKEN', connection);
+        await auditService.log({ UserId: tokenData.UserId, Action: 'STOLEN_TOKEN_REUSE_DETECTED', Module: 'Auth', Severity: 'Critical' });
         
         throw unauthorized("Token reuse detected. All sessions terminated for security.");
       }
@@ -74,7 +74,7 @@ class RefreshTokenService {
       }
 
       // 2. Generate new token
-      const newRawToken = await this.createRefreshToken(tokenData.StudentProfileId, tokenData.SessionId, connection);
+      const newRawToken = await this.createRefreshToken(tokenData.UserId, tokenData.SessionId, connection);
 
       // 3. Update session timeline
       await connection.query(
@@ -83,14 +83,14 @@ class RefreshTokenService {
       );
 
       // 4. Log audit
-      await auditService.log({ StudentProfileId: tokenData.StudentProfileId, Action: 'TOKEN_REFRESH', Module: 'Auth' });
+      await auditService.log({ UserId: tokenData.UserId, Action: 'TOKEN_REFRESH', Module: 'Auth' });
 
       await connection.commit();
       connection.release();
 
       return {
         newRawToken,
-        profileId: tokenData.StudentProfileId,
+        profileId: tokenData.UserId,
         sessionId: tokenData.SessionId
       };
     } catch (err) {

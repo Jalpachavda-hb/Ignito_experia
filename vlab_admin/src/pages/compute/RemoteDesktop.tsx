@@ -9,39 +9,46 @@ import {
   stopLabSession,
   waitForLabSessionReady,
   fetchJupyterHealth,
+  fetchLabDetails,
 } from '@/services/labService';
+import { resolveApiRelativeUrl } from '@/config/env';
 import CloudEditor from './Editor';
 import Terminal from './Terminal';
 import { SessionTimeoutModal } from '../student/my-labs/components/session-timeout-modal';
 import { ArrowLeft, Power } from 'lucide-react';
 
-const APP_ENV = {
-  apiBaseUrl: import.meta.env.VITE_API_BASE_URL || ''
+const resolveToolUrl = (url: string | null | undefined) => resolveApiRelativeUrl(url);
+
+const normalizeRuntimeType = (value?: string | null) => {
+  const rt = (value || '').toLowerCase().trim();
+  if (!rt) return '';
+  if (rt === 'ide' || rt.includes('custom ide')) return 'ide';
+  if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) return 'codeserver';
+  if (rt === 'jupyter' || rt === 'datascience') return 'jupyter';
+  if (rt === 'terminal') return 'terminal';
+  return rt;
 };
 
-const resolveToolUrl = (url: string) => {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const apiBase = APP_ENV.apiBaseUrl || '';
-  if (apiBase) {
-    try {
-      const parsed = new URL(apiBase);
-      return `${parsed.origin}${url}`;
-    } catch {
-      return url;
-    }
-  }
-  return `${window.location.protocol}//${window.location.hostname}:8080${url}`;
+const getEffectiveRuntimeType = (session: any, labRuntimeType?: string) => {
+  const fromCatalog = normalizeRuntimeType(labRuntimeType);
+  if (fromCatalog) return fromCatalog;
+  return normalizeRuntimeType(session?.runtimeType || session?.tools?.main?.type);
 };
 
-const getLabToolUrl = (session: any) => {
+const getLabToolUrl = (session: any, effectiveRuntimeType?: string) => {
   if (!session) return null;
+  const rt = effectiveRuntimeType || getEffectiveRuntimeType(session);
   const isJupyter = session.tools?.main?.type === 'jupyter' || session.tools?.jupyter?.enabled;
+  const isCodeServerSession = rt === 'codeserver';
 
   if (isJupyter) {
     if (session.tools?.jupyter?.url) return resolveToolUrl(session.tools.jupyter.url);
     if (session.tools?.main?.url) return resolveToolUrl(session.tools.main.url);
     return null;
+  }
+
+  if (isCodeServerSession && session.sessionId) {
+    return resolveToolUrl(`/api/lab-sessions/${session.sessionId}/vscode/`);
   }
 
   if (session.tools?.main?.url) return resolveToolUrl(session.tools.main.url);
@@ -78,7 +85,7 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack }: EmbedProps) => {
           if (cancelled) return;
           try {
             const health = await fetchJupyterHealth(sessionId);
-            if (health.ready) {
+            if (health.status === 'ok') {
               // Wait an additional 3 seconds after health passes to ensure nginx proxy is fully bound
               await new Promise((r) => setTimeout(r, 3000));
               break;
@@ -149,8 +156,8 @@ const IframeTool = ({ url, title, onStopLab, onBack, isJupyter, sessionId }: Ifr
           if (cancelled) return;
           try {
             const health = await fetchJupyterHealth(sessionId);
-            if (health.ready) { reachable = true; break; }
-            lastErrorMsg = health.message;
+            if (health.status === 'ok') { reachable = true; break; }
+            lastErrorMsg = health.message || '';
           } catch (err: any) {
             if (err?.status === 404) { reachable = true; break; }
             lastErrorMsg = err.message;
@@ -244,10 +251,12 @@ const IframeTool = ({ url, title, onStopLab, onBack, isJupyter, sessionId }: Ifr
 };
 
 export const RemoteDesktop = () => {
+    console.log("RemoteDesktop rendered");
   const navigate = useNavigate();
   const location = useLocation();
   const [connecting, setConnecting] = useState(true);
   const [session, setSession] = useState<any>(null);
+  const [labRuntimeType, setLabRuntimeType] = useState('');
   const [error, setError] = useState('');
   const initStartedRef = useRef(false);
   const [showStopModal, setShowStopModal] = useState(false);
@@ -262,29 +271,41 @@ export const RemoteDesktop = () => {
   useEffect(() => {
     const initializeSession = async () => {
       if (!labId || initStartedRef.current) return;
-      if (!sessionIdParam && !user?.id) return; // Need user ID to fetch or start session
+      if (!sessionIdParam && !user?.userId) return; // Need user ID to fetch or start session
 
       initStartedRef.current = true;
 
       try {
+        let catalogRuntimeType = '';
+        try {
+          const labDetails = await fetchLabDetails(labId);
+          catalogRuntimeType = labDetails?.runtime?.type || labDetails?.lab?.runtime?.type || '';
+          setLabRuntimeType(catalogRuntimeType);
+        } catch {
+          // Lab catalog is optional for session init; session runtime is fallback.
+        }
+
         let activeSession = null;
         if (sessionIdParam) {
           activeSession = await fetchLabSessionStatus(sessionIdParam);
-        } else if (user?.id) {
-          const activeRes = await fetchUserActiveSession(user.id, labId);
+        } else if (user?.userId) {
+          const activeRes = await fetchUserActiveSession(String(user.userId), labId);
           if (activeRes.session && activeRes.session.labId === labId) {
             activeSession = activeRes.session;
           } else {
-            activeSession = await startLabSession({ labId, userId: user.id });
+            activeSession = await startLabSession({ labId });
           }
         }
         if (!activeSession?.sessionId) throw new Error('No lab session available');
         const isAndroid = labId === 'mobile-app-lab' || labId === 'android';
-        const readySession = await waitForLabSessionReady(activeSession.sessionId, { 
-          maxAttempts: isAndroid ? 300 : 90, 
-          intervalMs: 2000 
+        const readySession = await waitForLabSessionReady(activeSession.sessionId, {
+          maxAttempts: isAndroid ? 300 : 90,
+          intervalMs: 2000
         });
-        setSession(readySession);
+        setSession({
+          ...readySession,
+          runtimeType: getEffectiveRuntimeType(readySession, catalogRuntimeType),
+        });
         setConnecting(false);
       } catch (err: any) {
         setError(err.message || 'Failed to initialize session');
@@ -292,7 +313,7 @@ export const RemoteDesktop = () => {
       }
     };
     initializeSession();
-  }, [location.search, user?.id, sessionIdParam]);
+  }, [location.search, user?.userId, sessionIdParam]);
 
   const handleStopLab = async () => {
     setIsStopping(true);
@@ -322,12 +343,13 @@ export const RemoteDesktop = () => {
     }
   };
 
-  const labToolUrl = getLabToolUrl(session);
-  const rt = session?.runtimeType?.toLowerCase() || '';
+  const effectiveRuntimeType = getEffectiveRuntimeType(session, labRuntimeType);
+  const labToolUrl = getLabToolUrl(session, effectiveRuntimeType);
+  const rt = effectiveRuntimeType;
   const isJupyterSession = rt === 'jupyter';
   const isTerminalSession = rt === 'terminal';
-  const isCodeServerSession = ['codeserver', 'code-server', 'vscode', 'code server'].includes(rt);
-  const isBuiltInEditorSession = rt === 'ide' || rt === 'custom ide';
+  const isCodeServerSession = rt === 'codeserver';
+  const isBuiltInEditorSession = rt === 'ide';
 
   const stopLabDialog = showStopModal && (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
@@ -365,7 +387,7 @@ export const RemoteDesktop = () => {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <Terminal session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );
@@ -375,27 +397,31 @@ export const RemoteDesktop = () => {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <CloudEditor session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );
   }
-
-  if (session && isCodeServerSession && labToolUrl?.startsWith('http')) {
+  console.log("Runtime:", rt);
+  console.log("Lab URL:", labToolUrl);
+  console.log("Session:", session);
+  console.log("tools.main.url =", session?.tools?.main?.url);
+  console.log("resolved =", resolveToolUrl(session?.tools?.main?.url));
+  if (session && isCodeServerSession && typeof labToolUrl === 'string' && labToolUrl.startsWith('http')) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <IframeTool url={labToolUrl} title="VS Code (code-server)" isJupyter={false} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );
   }
 
-  if (isJupyterSession && labToolUrl?.startsWith('http')) {
+  if (isJupyterSession && typeof labToolUrl === 'string' && labToolUrl.startsWith('http')) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
         <JupyterEmbed url={labToolUrl} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
-        <SessionTimeoutModal session={session} onRestart={handleRestartLab} />
+        <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );

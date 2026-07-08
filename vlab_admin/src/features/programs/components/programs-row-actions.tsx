@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { type Program } from '../data/schema'
 import { usePrograms } from '../context/programs-context'
-import { Link } from '@tanstack/react-router'
 import { Eye, Edit, Trash, Network } from 'lucide-react'
 
 interface ProgramsRowActionsProps {
@@ -39,10 +38,10 @@ export function ProgramsRowActions({ row }: ProgramsRowActionsProps) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end' className='w-[170px]'>
         <DropdownMenuItem asChild>
-          <Link to={`/programs/${row.original.id}`} className="flex items-center cursor-pointer">
+          <a href={`/programs/${row.original.id}`} className="flex items-center cursor-pointer">
             <Network className="mr-2 h-4 w-4 text-emerald-500" />
             View Hierarchy
-          </Link>
+          </a>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleAction('edit')}>
           <Edit className="mr-2 h-4 w-4" />

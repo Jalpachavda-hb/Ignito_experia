@@ -41,10 +41,7 @@ export default function CourseDetailsView() {
                 {course.code} • {course.program}
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline">Edit Syllabus</Button>
-              <Button>Generate Report</Button>
-            </div>
+
           </div>
         </div>
 

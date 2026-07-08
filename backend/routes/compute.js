@@ -79,6 +79,7 @@ router.post('/instances', async (req, res) => {
       cluster: process.env.ECS_CLUSTER,
       taskDefinition: taskDefinition || process.env.ECS_TASK_DEFINITION_FAMILY,
       launchType: "FARGATE",
+      enableExecuteCommand: true,
       networkConfiguration: {
         awsvpcConfiguration: {
           subnets: process.env.ECS_SUBNETS

@@ -11,8 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { type Course } from '../data/schema'
 import { useCourses } from '../context/courses-context'
-import { Link } from '@tanstack/react-router'
-import { Eye, Edit, Trash, FlaskConical } from 'lucide-react'
+import { Edit, Trash, FlaskConical } from 'lucide-react'
 
 interface CoursesRowActionsProps {
   row: Row<Course>
@@ -38,12 +37,6 @@ export function CoursesRowActions({ row }: CoursesRowActionsProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end' className='w-[160px]'>
-        <DropdownMenuItem asChild>
-          <Link to={`/courses/${row.original.id}`} className="flex items-center cursor-pointer">
-            <Eye className="mr-2 h-4 w-4" />
-            View Details
-          </Link>
-        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleAction('edit')}>
           <Edit className="mr-2 h-4 w-4" />
           Edit Course

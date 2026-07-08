@@ -11,7 +11,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { type Semester } from '../data/schema'
 import { useSemesters } from '../context/semesters-context'
-import { Link } from '@tanstack/react-router'
 import { Eye, Edit, Trash } from 'lucide-react'
 
 interface SemestersRowActionsProps {
@@ -39,10 +38,10 @@ export function SemestersRowActions({ row }: SemestersRowActionsProps) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end' className='w-[160px]'>
         <DropdownMenuItem asChild>
-          <Link to={`/semesters/${row.original.id}`} className="flex items-center cursor-pointer">
+          <a href={`/semesters/${row.original.id}`} className="flex items-center cursor-pointer">
             <Eye className="mr-2 h-4 w-4" />
             View Details
-          </Link>
+          </a>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleAction('edit')}>
           <Edit className="mr-2 h-4 w-4" />

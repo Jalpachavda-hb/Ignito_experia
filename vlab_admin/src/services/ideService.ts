@@ -1,3 +1,4 @@
+import { getWsOrigin } from '@/config/env';
 import { apiRequest } from '../lib/apiClient';
 
 export interface TerminalConnection {
@@ -27,11 +28,36 @@ export async function saveFile(payload: any, sessionId: string) {
 }
 
 export async function runFile(payload: any, sessionId: string) {
-  return apiRequest('/run', {
-    method: 'POST',
-    headers: { 'x-session-id': sessionId },
-    body: JSON.stringify(payload),
-  });
+  const isDotnet =
+    payload?.labType === 'dotnet' ||
+    payload?.language === 'csharp' ||
+    String(payload?.path || '').toLowerCase().endsWith('.cs');
+  const isBuild = payload?.action === 'build';
+  const controller = new AbortController();
+  const timeoutMs = isDotnet ? (isBuild ? 360000 : 300000) : 60000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await apiRequest('/run', {
+      method: 'POST',
+      headers: { 'x-session-id': sessionId },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error(
+        isDotnet
+          ? isBuild
+            ? 'Build timed out after 6 minutes. Try BUILD again.'
+            : 'Run timed out. Complete BUILD first, then try RUN again.'
+          : 'Execution timed out. Try again.',
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function deleteFile(path: string, sessionId: string) {
@@ -42,10 +68,8 @@ export async function deleteFile(path: string, sessionId: string) {
 }
 
 export function connectTerminalStream({ sessionId, runId, onMessage }: TerminalConnection): WebSocket {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  // Use current window host (with port 8080) for websocket
-  const host = `${window.location.hostname}:8080`; 
-  const socket = new WebSocket(`${protocol}//${host}/ws/terminal?sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId || '')}`);
+  const wsOrigin = getWsOrigin();
+  const socket = new WebSocket(`${wsOrigin}/ws/terminal?sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId || '')}`);
 
   socket.onmessage = (event: MessageEvent) => {
     try {

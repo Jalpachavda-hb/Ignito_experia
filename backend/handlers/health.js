@@ -4,7 +4,7 @@ import pool from "../lib/mysql.js";
 
 export const healthHandler = async () => {
   try {
-    const [rows] = await pool.query('SELECT LabCode, TaskDefinition, RuntimeType, Status FROM Labs');
+    const [rows] = await pool.query('SELECT LabCode, TaskDefinition, RuntimeType, Status FROM labs');
     return ok({
       status: "Backend is running",
       timestamp: new Date().toISOString(),

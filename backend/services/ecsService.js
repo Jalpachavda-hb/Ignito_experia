@@ -125,11 +125,18 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
   }
 
   const taskPrivateIp = getEniPrivateIp(task);
-  const publicIp = await getTaskPublicIp(taskArn);
+  const isPrivateMode = ENV.containerHostMode === "private";
+  const publicIp = isPrivateMode ? null : await getTaskPublicIp(taskArn);
   const port = await getContainerPort(labId);
 
-  if (!publicIp) {
-    return { status: "starting" };
+  if (isPrivateMode) {
+    if (!taskPrivateIp) {
+      return { status: "starting" };
+    }
+  } else {
+    if (!publicIp) {
+      return { status: "starting" };
+    }
   }
 
   /**
@@ -154,6 +161,26 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
   };
 };
 
+const buildCodeServerTrustedOriginFlags = () => {
+  const origins = new Set();
+  const candidates = [
+    ENV.frontendUrl,
+    ENV.apiOrigin,
+    ENV.corsOrigin,
+  ];
+
+  for (const raw of candidates) {
+    if (!raw || raw === "*") continue;
+    try {
+      origins.add(new URL(raw).origin);
+    } catch {
+      // skip malformed values
+    }
+  }
+
+  return [...origins].map((o) => `--trusted-origins ${o}`).join(" ");
+};
+
 export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   const lab = await getLabById(labId);
   const labType = canonicalLabType(labId);
@@ -166,7 +193,6 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   }
 
   const port = await getContainerPort(labId);
-  const apiPrefix = process.env.API_PREFIX || "/api";
   const environment = [
     { name: "SESSION_ID", value: sessionId },
     { name: "SESSION_TOKEN", value: sessionToken },
@@ -179,7 +205,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   if (rt === "jupyter" || rt === "datascience") {
     environment.push({
       name: "JUPYTER_BASE_URL",
-      value: `${apiPrefix}/lab-sessions/${sessionId}/jupyter`,
+      value: `${ENV.apiPrefix}/lab-sessions/${sessionId}/jupyter`,
     });
   }
 
@@ -189,9 +215,10 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   };
 
   if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) {
+    const trustedOriginFlags = buildCodeServerTrustedOriginFlags();
     containerOverride.command = [
       "sh", "-c",
-      "mkdir -p $LAB_WORKSPACE/.vscode && echo '{\"security.workspace.trust.enabled\": false}' > $LAB_WORKSPACE/.vscode/settings.json && code-server --auth none --bind-addr 0.0.0.0:8080 $LAB_WORKSPACE"
+      `mkdir -p $LAB_WORKSPACE/.vscode && echo '{\"security.workspace.trust.enabled\": false}' > $LAB_WORKSPACE/.vscode/settings.json && code-server --auth none --bind-addr 0.0.0.0:8080 ${trustedOriginFlags} $LAB_WORKSPACE`,
     ];
   }
 
@@ -205,7 +232,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
         awsvpcConfiguration: {
           subnets: ENV.ecsSubnets,
           securityGroups: ENV.ecsSecurityGroups,
-          assignPublicIp: "ENABLED",
+          assignPublicIp: ENV.containerHostMode === "private" ? "DISABLED" : "ENABLED",
         },
       },
       overrides: {

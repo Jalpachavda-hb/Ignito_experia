@@ -63,7 +63,7 @@ export function LabDeleteDialog({
           <Alert variant='destructive'>
             <AlertTitle>Warning!</AlertTitle>
             <AlertDescription>
-              This lab will be moved to the Deleted Labs tab, where it can be restored if needed.
+              This action will permanently delete the lab from the system. This cannot be undone.
             </AlertDescription>
           </Alert>
         </form>

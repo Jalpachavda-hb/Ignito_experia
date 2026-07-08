@@ -136,7 +136,13 @@ export function SignIn() {
             </div>
             
             <p className="text-center text-xs text-slate-400 font-medium mt-8">
-              Secured by IgnitoExperia &middot; <Link to="/privacy" className="hover:text-slate-600 transition-colors">Privacy Policy</Link>
+              Secured by IgnitoExperia &middot;{' '}
+              <a
+                href="/privacy"
+                className="hover:text-slate-600 transition-colors"
+              >
+                Privacy Policy
+              </a>
             </p>
 
           </div>

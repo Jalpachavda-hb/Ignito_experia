@@ -26,8 +26,10 @@ export const runsCreateHandler = async ({ body, auth }) => {
     throw forbidden("You do not own this session");
   }
 
-  let code = "";
-  if (filePath) {
+  // Prefer request body content (the editor sends the latest buffer).
+  // Container reads can lag behind if auto-save hasn't completed.
+  let code = content || "";
+  if (!code && filePath) {
     if (session.status === "running") {
       try {
         code = await readFromContainer(session, filePath);
@@ -56,10 +58,7 @@ export const runsCreateHandler = async ({ body, auth }) => {
   
   const isAndroid = labType === "android" || session.labId === "android" || session.labId === "mobile-app-lab";
 
-  // Fallback to body content or DB file content if not found on disk
-  if (!code) {
-    code = content;
-  }
+  // Fallback to DB file content if not found anywhere
   if (!code && filePath) {
     const file = await getFile(sessionId, filePath);
     if (file) code = file.content;
@@ -84,7 +83,14 @@ export const runsCreateHandler = async ({ body, auth }) => {
   }
 
   const run = await createRun({ sessionId, labType });
-  let payload = { path: filePath, language, content: code, labType };
+  let payload = {
+    path: filePath,
+    language,
+    content: code,
+    labType,
+    action: body?.action,
+    stdin: body?.stdin,
+  };
 
   if (labType === "big-data" && language === "java") {
     const classNameMatch = code.match(/public\s+class\s+([a-zA-Z0-9_]+)/);
@@ -307,6 +313,7 @@ export const runLegacyHandler = async (parsed) => {
       path: parsed.body?.path,
       language: parsed.body?.language,
       content: parsed.body?.content,
+      stdin: parsed.body?.stdin,
     },
   });
 };

@@ -74,7 +74,7 @@ export function CreditLedgerTable() {
                   {format(entry.date, 'MMM d, yyyy')}
                   <span className="block text-xs">{format(entry.date, 'HH:mm')}</span>
                 </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{entry.referenceNumber}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">{entry.id}</TableCell>
                 <TableCell className="font-medium">{entry.userName}</TableCell>
                 <TableCell className="text-sm">
                   {entry.type}

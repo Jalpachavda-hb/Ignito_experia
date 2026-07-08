@@ -50,6 +50,7 @@ export const mockAuditLogs: AuditLog[] = Array.from({ length: 100 }, () => {
     },
     action,
     module,
+    category: 'General',
     description: generateDescription(action, module),
     ipAddress: faker.internet.ipv4(),
     userAgent: faker.internet.userAgent(),

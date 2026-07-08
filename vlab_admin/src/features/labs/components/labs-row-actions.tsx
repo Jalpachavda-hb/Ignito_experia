@@ -4,9 +4,7 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
+  DropdownMenuItem, 
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { type Lab } from '../data/schema'
@@ -38,18 +36,6 @@ export function LabsRowActions({ row }: LabsRowActionsProps) {
       <DropdownMenuContent align='end' className='w-[160px]'>
         <DropdownMenuItem onClick={() => handleAction('view')}>
           View Details
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleAction('edit')}>
-          Edit Lab
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => handleAction('delete')}
-          className='text-red-600 focus:text-red-600'
-        >
-          Delete
-          <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

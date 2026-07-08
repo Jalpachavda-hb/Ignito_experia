@@ -45,7 +45,8 @@ export const getSessionApiBaseUrl = async (session) => {
 
   const runtime = await getLabRuntime(session.labId);
 
-  if (runtime.containerApi?.enabled === false) {
+  const isIdeRuntime = ["ide", "custom ide"].includes(runtime.type);
+  if (runtime.containerApi?.enabled === false && !isIdeRuntime) {
     return null;
   }
 
@@ -84,9 +85,13 @@ export const buildJupyterProxyUrl = async (session) => {
 
 export const buildCodeServerProxyUrl = (session) => {
   if (!session?.sessionId || session.status !== "running") return null;
-  const rt = session.runtimeType?.toLowerCase();
-  if (!['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) return null;
   const base = ENV.apiPublicUrl.replace(/\/+$/, "");
+  const isLocalDev =
+    ENV.nodeEnv === "development" ||
+    /localhost|127\.0\.0\.1/.test(base);
+  if (isLocalDev) {
+    return `${ENV.apiPrefix}/lab-sessions/${session.sessionId}/vscode/`;
+  }
   return `${base}/lab-sessions/${session.sessionId}/vscode/`;
 };
 
@@ -104,7 +109,7 @@ export const buildMainToolUrl = async ({ labId, session }) => {
   }
 
   // Route code-server labs through the backend proxy (strips X-Frame-Options, avoids direct exposure)
-  const rt = session?.runtimeType?.toLowerCase() || runtime.type;
+  const rt = runtime.type;
   if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) {
     return buildCodeServerProxyUrl(session) || joinUrl(`http://${host}:${runtime.port}`, runtime.path);
   }
@@ -140,10 +145,9 @@ export const buildSessionTools = async (session) => {
 
 export const enrichSession = async (session) => {
   if (!session) return session;
-  if (!session.runtimeType) {
-    const runtime = await getLabRuntime(session.labId);
-    session.runtimeType = runtime.type;
-  }
+  const runtime = await getLabRuntime(session.labId);
+  // Always use current lab catalog runtime — stale DynamoDB values (e.g. Code Server → ide) must not win.
+  session.runtimeType = runtime.type;
   session.tools = await buildSessionTools(session);
   session.apiBaseUrl = await getSessionApiBaseUrl(session);
   session.containerPort = await getContainerPort(session.labId);

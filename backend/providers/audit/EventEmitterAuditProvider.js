@@ -9,7 +9,7 @@ internalEmitter.on("audit_log", async (payload) => {
   try {
     const query = `
       INSERT INTO AuditLogs (
-        RequestId, CorrelationId, TraceId, SessionId, StudentProfileId, 
+        RequestId, CorrelationId, TraceId, SessionId, UserId, 
         UniversityId, DepartmentId, ProgramId, SemesterId, 
         Source, Category, Severity, Action, Module, Entity, EntityId, Description, 
         OldValues, NewValues, IPAddress, Browser, Device, OperatingSystem, 
@@ -19,7 +19,7 @@ internalEmitter.on("audit_log", async (payload) => {
 
     const values = [
       payload.RequestId || null, payload.CorrelationId || null, payload.TraceId || null,
-      payload.SessionId || null, payload.StudentProfileId || null, 
+      payload.SessionId || null, payload.UserId || payload.StudentProfileId || null, 
       payload.UniversityId || null, payload.DepartmentId || null, payload.ProgramId || null, payload.SemesterId || null,
       payload.Source || 'SYSTEM', payload.Category || 'System', payload.Severity || 'Information', payload.Action,
       payload.Module || null, payload.Entity || null, payload.EntityId || null, payload.Description || null,

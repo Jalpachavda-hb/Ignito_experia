@@ -48,7 +48,7 @@ export function NotificationsWidget({ notifications }: { notifications: Notifica
                   {notification.title}
                 </h4>
                 <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{notification.message}</p>
-                <p className="text-[10px] text-muted-foreground/80 mt-1">{new Date(notification.date).toLocaleString()}</p>
+                <p className="text-[10px] text-muted-foreground/80 mt-1">{new Date(notification.date).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
               </div>
             </div>
           ))}
