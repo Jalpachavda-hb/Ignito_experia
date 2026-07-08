@@ -21,7 +21,6 @@ const apiBaseUrl = rawApiBaseUrl ? trimTrailingSlash(rawApiBaseUrl) : '';
 export const APP_ENV = {
   apiBaseUrl,
   apiPort: defaultApiPort,
-  appName: import.meta.env.VITE_APP_NAME || 'Vlab',
 };
 
 /** API server origin without the /api path (e.g. http://localhost:8080). */

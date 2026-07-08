@@ -56,5 +56,8 @@ export const getAllowedExtensions = (labId) => {
   if (id.includes("python")) {
     return ["py"];
   }
+  if (id.includes("dotnet") || id.includes(".net")) {
+    return ["sln", "cs", "xml", "csproj"];
+  }
   return ["py", "java", "js", "jsx", "html", "css", "json", "md", "csv", "txt", "log", "xml", "parquet", "avro", "orc", "sh", "jar"];
 };
