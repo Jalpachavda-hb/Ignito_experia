@@ -22,7 +22,7 @@ export const runsCreateHandler = async ({ body, auth }) => {
 
   const session = await getSession(sessionId);
   if (!session) throw notFound("Session not found");
-  if (session.userId !== auth.userId && auth.role !== "Super Admin") {
+  if (String(session.userId) !== String(auth.userId) && auth.role !== "Super Admin") {
     throw forbidden("You do not own this session");
   }
 
@@ -283,7 +283,7 @@ export const runsGetHandler = async ({ pathParameters, auth }) => {
   const session = await getSession(run.sessionId);
   if (
     session &&
-    session.userId !== auth.userId &&
+    String(session.userId) !== String(auth.userId) &&
     auth.role !== "Super Admin"
   ) {
     throw forbidden("You do not own this run");

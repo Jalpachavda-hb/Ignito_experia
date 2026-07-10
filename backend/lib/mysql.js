@@ -146,7 +146,7 @@ export const verifyDbConnection = async () => {
         \`Category\` VARCHAR(100),
         \`Description\` LONGTEXT,
         \`TaskDefinition\` VARCHAR(200),
-        \`RuntimeType\` VARCHAR(50) DEFAULT 'ide',
+        \`RuntimeType\` ENUM('ide', 'terminal', 'jupyter', 'emulator') DEFAULT 'ide',
         \`RuntimePort\` INT,
         \`RuntimePath\` VARCHAR(200),
         \`ContainerApiEnabled\` TINYINT(1) DEFAULT 0,
@@ -511,6 +511,17 @@ export const verifyDbConnection = async () => {
     await connection.query("SET FOREIGN_KEY_CHECKS = 1;");
     console.log("[MySQL] All tables verified/created successfully.");
 
+    // Clean up code-server references if any exist
+    console.log("[MySQL] Running code-server removal migration...");
+    await connection.query("DELETE FROM RuntimeTypes WHERE Value = 'codeserver';");
+    await connection.query("UPDATE Labs SET RuntimeType = 'ide' WHERE RuntimeType = 'codeserver';");
+    try {
+      await connection.query("ALTER TABLE `Labs` MODIFY COLUMN `RuntimeType` ENUM('ide', 'terminal', 'jupyter', 'emulator') NOT NULL DEFAULT 'ide';");
+      console.log("[MySQL] Successfully altered Labs.RuntimeType to ENUM constraint.");
+    } catch (alterErr) {
+      console.warn("[MySQL] Labs.RuntimeType alteration skipped (already ENUM or error):", alterErr.message);
+    }
+
     // ── 6. Seeding Configuration & Default Roles/Users ──
 
     // System roles seeding
@@ -604,8 +615,19 @@ export const verifyDbConnection = async () => {
         ('ide', 'IDE (VSCode)'),
         ('terminal', 'Terminal'),
         ('jupyter', 'Jupyter Notebook'),
-        ('codeserver', 'Code Server');
+        ('emulator', 'Android Emulator');
       `);
+    } else {
+      // Ensure 'emulator' runtime type exists
+      try {
+        const [existingEmulator] = await connection.query("SELECT COUNT(*) as count FROM RuntimeTypes WHERE Value = 'emulator'");
+        if (existingEmulator[0].count === 0) {
+          await connection.query("INSERT INTO `RuntimeTypes` (`Value`, `Label`) VALUES ('emulator', 'Android Emulator');");
+          console.log("[MySQL] Successfully seeded 'emulator' into RuntimeTypes.");
+        }
+      } catch (err) {
+        console.warn("[MySQL] Failed to seed 'emulator' runtime type:", err.message);
+      }
     }
 
     // Default Super Admin Seeding

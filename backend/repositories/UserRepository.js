@@ -20,8 +20,8 @@ class UserRepository {
     return rows[0];
   }
 
-  async findById(userId) {
-    const [rows] = await pool.query("CALL sp_User_GetById(?)", [userId]);
+  async findById(userId, connection = pool) {
+    const [rows] = await connection.query("CALL sp_User_GetById(?)", [userId]);
     // rows[0] contains the result set from the stored procedure
     if (!rows[0] || !rows[0].length) return null;
     return rows[0][0];
@@ -51,19 +51,26 @@ class UserRepository {
     return { data, total };
   }
 
-  async insert(userData) {
-    const { fullName, email, phoneNumber = null, passwordHash, roleId, status = 'Active', enrollmentNumber = null, programId = null, semesterId = null, createdBy = null } = userData;
+  async insert(userData, connection = pool) {
+    const { fullName, email, phoneNumber = null, passwordHash, roleId: inputRoleId, role: inputRole, status = 'Active', enrollmentNumber = null, programId = null, semesterId = null, createdBy = null } = userData;
 
-    const [result] = await pool.query(
+    let roleId = inputRoleId;
+    if (!roleId) {
+      const targetRoleName = inputRole || 'Student';
+      const [roleRows] = await connection.query("SELECT RoleId FROM Roles WHERE Name = ?", [targetRoleName]);
+      roleId = roleRows[0]?.RoleId || null;
+    }
+
+    const [result] = await connection.query(
       "CALL sp_User_Insert(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @newUserId);",
       [fullName, email, phoneNumber, passwordHash, roleId, status, enrollmentNumber, programId, semesterId, createdBy]
     );
     
     // Fetch the OUT parameter
-    const [outRows] = await pool.query("SELECT @newUserId AS newUserId;");
+    const [outRows] = await connection.query("SELECT @newUserId AS newUserId;");
     const newUserId = outRows[0].newUserId;
     
-    return this.findById(newUserId);
+    return this.findById(newUserId, connection);
   }
 
   async update(userId, userData) {

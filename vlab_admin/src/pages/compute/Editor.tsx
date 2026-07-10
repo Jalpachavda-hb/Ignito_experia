@@ -8,7 +8,6 @@ import {
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
   Folder, FolderOpen, RotateCw
 } from 'lucide-react';
-import Terminal from './Terminal';
 import { useLabStore } from '@/stores/labStore';
 
 const getFileIcon = (fileName: string) => {
@@ -476,30 +475,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [consoleSession, setConsoleSession] = useState<ConsoleSessionState | null>(null);
 
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [terminalHeight, setTerminalHeight] = useState(250);
-  const terminalRef = useRef<any>(null);
-
-  const handleTerminalResizeStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startHeight = terminalHeight;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaY = startY - moveEvent.clientY;
-      const newHeight = Math.max(100, Math.min(window.innerHeight * 0.8, startHeight + deltaY));
-      setTerminalHeight(newHeight);
-    };
-
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  };
-
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
 
   const refreshFiles = async (showLoading = false) => {
@@ -645,29 +620,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         if (mountedRef.current) setIsLoading(false);
       }
     }
-  };
-
-  const handleTerminalCommand = async () => {
-    // Small delay to allow filesystem operations inside container/host to settle
-    setTimeout(async () => {
-      // Also reload active file in editor in case the command modified it
-      if (activeFileIndex >= 0 && files[activeFileIndex]) {
-        try {
-          const response = await fetchFileContent(files[activeFileIndex].path, sessionId);
-          if (response.success) {
-            setFiles(prev => {
-              const updated = [...prev];
-              if (updated[activeFileIndex]) {
-                updated[activeFileIndex].content = response.content || '';
-              }
-              return updated;
-            });
-          }
-        } catch (e) {
-          console.error('Failed to reload active file after command:', e);
-        }
-      }
-    }, 800);
   };
 
   useEffect(() => {
@@ -1444,16 +1396,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
             >
               <Download size={18} />
             </button>
-            <button
-              onClick={() => {
-                setIsTerminalOpen(!isTerminalOpen);
-                refreshFiles(false);
-              }}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white text-[11px] font-black uppercase tracking-wider transition-colors border border-white/10 shadow-xl"
-            >
-              <TerminalIcon size={14} className="text-slate-300" />
-              Terminal
-            </button>
             {isDotnetBuildMode ? (
               <>
                 <button
@@ -1581,30 +1523,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
               </div>
             </div>
           </div>
-
-          {/* Terminal Panel */}
-          {isTerminalOpen && (
-            <>
-              {/* Resize Handle */}
-              <div
-                className="h-1.5 bg-[#1f1f1f] hover:bg-[#dc2626] cursor-row-resize transition-colors flex-shrink-0 z-10"
-                onMouseDown={handleTerminalResizeStart}
-              />
-              <div
-                style={{ height: terminalHeight }}
-                className="w-full shrink-0 flex flex-col border-t border-[#1f1f1f] bg-[#0c0c0c] relative"
-              >
-                <Terminal
-                  ref={terminalRef}
-                  session={propSession || { sessionId, labId }}
-                  hideHeader={false}
-                  onClose={() => setIsTerminalOpen(false)}
-                  onTerminalCommand={handleTerminalCommand}
-                  isLabBusy={isRunning}
-                />
-              </div>
-            </>
-          )}
         </div>
       </div>
 

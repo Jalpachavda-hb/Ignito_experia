@@ -87,41 +87,55 @@ export const setupTerminal = (io) => {
         let actualContainerName = containerName;
         let agentReady = false;
 
-        socket.emit('terminal-status', { status: 'polling', message: 'Checking ECS Container Readiness...' });
-        console.log('[Terminal] Polling ExecuteCommandAgent readiness...');
-
         try {
           const { describeTask } = await import('./services/ecsService.js'); 
 
-          // Poll for up to 180 seconds (90 iterations * 2s)
-          for (let i = 0; i < 90; i++) {
-            const taskDetails = await describeTask(session.taskArn);
-
-            if (taskDetails) {
-              const container = taskDetails.containers?.find(c => c.name === 'lab-runtime') || taskDetails.containers?.[0];
-              if (container && container.name) {
-                actualContainerName = container.name;
-              }
-
-              const execAgent = container?.managedAgents?.find(a => a.name === 'ExecuteCommandAgent');
-              console.log({
-                taskStatus: taskDetails.lastStatus,
-                containerStatus: container?.lastStatus,
-                execAgent
-              });
-              // ECS tasks may be RUNNING but ExecuteCommandAgent takes extra time
-              if (execAgent?.lastStatus === 'RUNNING' && taskDetails.lastStatus === 'RUNNING') {
-                agentReady = true;
-                break;
-              }
+          // 1. Initial quick check to see if agent is already RUNNING
+          const initialTaskDetails = await describeTask(session.taskArn);
+          if (initialTaskDetails) {
+            const container = initialTaskDetails.containers?.find(c => c.name === 'lab-runtime') || initialTaskDetails.containers?.[0];
+            if (container && container.name) {
+              actualContainerName = container.name;
             }
+            const execAgent = container?.managedAgents?.find(a => a.name === 'ExecuteCommandAgent');
+            if (execAgent?.lastStatus === 'RUNNING' && initialTaskDetails.lastStatus === 'RUNNING') {
+              agentReady = true;
+            }
+          }
 
-            // Wait 2 seconds before next poll
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            socket.emit('terminal-status', {
-              status: 'polling',
-              message: `Waiting for container shell (${i + 1}/90)...`,
-            });
+          // 2. If it is not ready yet, poll in a loop and show the loader
+          if (!agentReady) {
+            socket.emit('terminal-status', { status: 'polling', message: 'Checking ECS Container Readiness...' });
+            console.log('[Terminal] Polling ExecuteCommandAgent readiness...');
+
+            for (let i = 0; i < 90; i++) {
+              const taskDetails = await describeTask(session.taskArn);
+
+              if (taskDetails) {
+                const container = taskDetails.containers?.find(c => c.name === 'lab-runtime') || taskDetails.containers?.[0];
+                if (container && container.name) {
+                  actualContainerName = container.name;
+                }
+
+                const execAgent = container?.managedAgents?.find(a => a.name === 'ExecuteCommandAgent');
+                console.log({
+                  taskStatus: taskDetails.lastStatus,
+                  containerStatus: container?.lastStatus,
+                  execAgent
+                });
+                if (execAgent?.lastStatus === 'RUNNING' && taskDetails.lastStatus === 'RUNNING') {
+                  agentReady = true;
+                  break;
+                }
+              }
+
+              // Wait 2 seconds before next poll
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              socket.emit('terminal-status', {
+                status: 'polling',
+                message: `Waiting for container shell (${i + 1}/90)...`,
+              });
+            }
           }
         } catch (err) {
           console.warn('[Readiness Check Error]', err.message);
@@ -205,36 +219,6 @@ export const setupTerminal = (io) => {
 
         activePtys.set(socket.id, ptyProcess);
 
-        let hasSentContainerOutput = false;
-        ptyProcess.onData((data) => {
-          if (!hasSentContainerOutput && isContainer) {
-            data = stripStartupNoise(data);
-            if (!data) return;
-            hasSentContainerOutput = true;
-          }
-
-          socket.emit("terminal-output", data);
-        });
-
-        ptyProcess.onExit(({ exitCode }) => {
-          console.log("[PTY EXIT]", exitCode);
-
-          if (exitCode !== 0) {
-            socket.emit(
-              "terminal-output",
-              `\r\n\x1b[31mTerminal exited with code ${exitCode}\x1b[0m\r\n`
-            );
-          }
-        });
-
-        ptyProcess.on("error", (err) => {
-          console.error("[PTY ERROR]", err);
-
-          socket.emit(
-            "terminal-output",
-            `\r\n\x1b[31m${err.message}\x1b[0m\r\n`
-          );
-        });
 
         isContainer = true;
         console.log("[SUCCESS] ECS terminal connected");
@@ -310,6 +294,11 @@ export const setupTerminal = (io) => {
         console.log('PTY EXIT CODE:', exitCode);
         socket.emit('terminal-output', `\r\n[Terminal exited with code ${exitCode}]\r\n`);
         ptyProcess = null; // Prevent memory leak / double kill
+      });
+
+      ptyProcess.on('error', (err) => {
+        console.error('[PTY ERROR]', err);
+        socket.emit('terminal-output', `\r\n\x1b[31m${err.message}\x1b[0m\r\n`);
       });
     }
 

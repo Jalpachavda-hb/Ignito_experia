@@ -37,13 +37,15 @@ export function CatalogueLabCard({
   const credits = lab.credits || 0;
   
   const isRunning = activeSession?.status === 'running';
-  const displayTime = elapsedTime || '0:00';
+  const isSessionStarting = activeSession?.status === 'starting';
+  const hasActiveSession = !!activeSession;
+  const displayTime = elapsedTime || (isSessionStarting ? 'Starting...' : '0:00');
   
   return (
     <Card 
       onClick={() => onDetails?.(lab.id)}
       className={`group flex items-stretch p-4 bg-white hover:bg-slate-50/50 transition-all duration-300 border-slate-200/60 rounded-[20px] cursor-pointer h-full ${
-        isRunning ? 'ring-2 ring-emerald-500/20 shadow-emerald-500/5 hover:shadow-emerald-500/10' : 'hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)]'
+        hasActiveSession ? 'ring-2 ring-emerald-500/20 shadow-emerald-500/5 hover:shadow-emerald-500/10' : 'hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)]'
       }`}
     >
       {/* Left: Logo Container */}
@@ -63,9 +65,11 @@ export function CatalogueLabCard({
           <h3 className="text-[14px] sm:text-[15px] font-bold text-slate-900 leading-snug line-clamp-2 group-hover:text-red-600 transition-colors pt-1">
             {name}
           </h3>
-          {isRunning ? (
-            <Badge className="shrink-0 bg-emerald-50 text-emerald-600 border-emerald-200/50 font-bold px-2 py-0.5 text-[10px]">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+          {hasActiveSession ? (
+            <Badge className={`shrink-0 border font-bold px-2 py-0.5 text-[10px] ${
+              isSessionStarting ? 'bg-amber-50 text-amber-600 border-amber-200/50' : 'bg-emerald-50 text-emerald-600 border-emerald-200/50'
+            }`}>
+              {!isSessionStarting && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>}
               {displayTime}
             </Badge>
           ) : isPopular ? (
@@ -91,7 +95,7 @@ export function CatalogueLabCard({
           </div>
 
           <div className="flex items-center gap-2">
-            {isRunning ? (
+            {hasActiveSession ? (
               <>
                 <Button 
                   onClick={(e) => { e.stopPropagation(); onStop?.(lab.id); }}

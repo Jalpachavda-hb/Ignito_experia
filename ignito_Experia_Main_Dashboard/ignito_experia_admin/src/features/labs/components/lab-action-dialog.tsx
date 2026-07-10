@@ -8,14 +8,21 @@ import { type Lab, labSchema } from '../data/schema'
 import { useCreateLabMutation, useUpdateLabMutation, useRuntimeTypesQuery } from '../data/api'
 import { cn } from '@/lib/utils'
 
-const formSchema = labSchema.omit({
-  createdAt: true,
-  updatedAt: true,
-  isDeleted: true,
-  dbId: true,
-}).extend({ isEdit: z.boolean() })
 
-type LabForm = z.infer<typeof formSchema>
+
+const formSchema = labSchema
+  .omit({
+    createdAt: true,
+    updatedAt: true,
+    isDeleted: true,
+    dbId: true,
+  })
+  .extend({
+    isEdit: z.boolean(),
+  });
+
+type LabFormInput = z.input<typeof formSchema>;
+type LabFormOutput = z.output<typeof formSchema>;
 
 interface LabActionDialogProps {
   currentRow?: Lab
@@ -30,7 +37,7 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
   const updateMutation = useUpdateLabMutation()
   const { data: runtimeTypes = [] } = useRuntimeTypesQuery()
 
-  const form = useForm<LabForm>({
+  const form = useForm<LabFormInput, any, LabFormOutput>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       id: '', title: '', subtitle: '', semester: '', logoUrl: '',
@@ -78,7 +85,7 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
     }
   }, [open, currentRow, isEdit, form])
 
-  const onSubmit = async (values: LabForm) => {
+  const onSubmit = async (values: LabFormOutput) => {
     try {
       if (isEdit && currentRow) {
         await updateMutation.mutateAsync({ labId: currentRow.id, payload: values })
@@ -167,15 +174,19 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
                     <option value="">Select Runtime</option>
                     {runtimeTypes.length > 0
                       ? runtimeTypes.map(rt => <option key={rt.value} value={rt.value}>{rt.label}</option>)
-                      : ['ide', 'terminal', 'jupyter', 'codeserver'].map(v => (
-                          <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
-                        ))
+                      : ['ide', 'terminal', 'jupyter'].map(v => (
+                        <option key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>
+                      ))
                     }
                   </select>
                 </Field>
                 <Field label="Port">
-                  <input type="number" {...form.register('runtimePort', { valueAsNumber: true, setValueAs: v => v || null })}
-                    placeholder="e.g. 8080" className={inputCls()} />
+                  <input
+                    type="number"
+                    {...form.register("runtimePort", {
+                      setValueAs: (v) => (v === "" ? null : Number(v)),
+                    })}
+                  />
                 </Field>
               </div>
               <div className="grid grid-cols-2 gap-4">

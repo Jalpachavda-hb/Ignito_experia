@@ -14,7 +14,7 @@ export const submitHandler = async ({ body, auth }) => {
 
   const session = await getSession(sessionId);
   if (!session) throw notFound("Session not found");
-  if (session.userId !== auth.userId && auth.role !== "Super Admin") {
+  if (String(session.userId) !== String(auth.userId) && auth.role !== "Super Admin") {
     throw notFound("Session not found");
   }
 

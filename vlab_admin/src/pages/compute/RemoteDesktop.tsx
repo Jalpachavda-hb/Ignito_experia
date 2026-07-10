@@ -16,6 +16,7 @@ import CloudEditor from './Editor';
 import Terminal from './Terminal';
 import { SessionTimeoutModal } from '../student/my-labs/components/session-timeout-modal';
 import { ArrowLeft, Power } from 'lucide-react';
+import AndroidEmulator from './AndroidEmulator';
 
 const resolveToolUrl = (url: string | null | undefined) => resolveApiRelativeUrl(url);
 
@@ -23,9 +24,9 @@ const normalizeRuntimeType = (value?: string | null) => {
   const rt = (value || '').toLowerCase().trim();
   if (!rt) return '';
   if (rt === 'ide' || rt.includes('custom ide')) return 'ide';
-  if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) return 'codeserver';
   if (rt === 'jupyter' || rt === 'datascience') return 'jupyter';
   if (rt === 'terminal') return 'terminal';
+  if (rt === 'emulator' || rt === 'android emulator' || rt.includes('emulator')) return 'emulator';
   return rt;
 };
 
@@ -37,18 +38,12 @@ const getEffectiveRuntimeType = (session: any, labRuntimeType?: string) => {
 
 const getLabToolUrl = (session: any, effectiveRuntimeType?: string) => {
   if (!session) return null;
-  const rt = effectiveRuntimeType || getEffectiveRuntimeType(session);
   const isJupyter = session.tools?.main?.type === 'jupyter' || session.tools?.jupyter?.enabled;
-  const isCodeServerSession = rt === 'codeserver';
 
   if (isJupyter) {
     if (session.tools?.jupyter?.url) return resolveToolUrl(session.tools.jupyter.url);
     if (session.tools?.main?.url) return resolveToolUrl(session.tools.main.url);
     return null;
-  }
-
-  if (isCodeServerSession && session.sessionId) {
-    return resolveToolUrl(`/api/lab-sessions/${session.sessionId}/vscode/`);
   }
 
   if (session.tools?.main?.url) return resolveToolUrl(session.tools.main.url);
@@ -126,124 +121,6 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack }: EmbedProps) => {
         )}
         {iframeSrc && (
           <iframe src={iframeSrc} title="JupyterLab" className="absolute inset-0 h-full w-full border-0" allow="clipboard-read; clipboard-write; fullscreen" onLoad={() => setIsLoading(false)} />
-        )}
-      </div>
-    </div>
-  );
-};
-
-interface IframeToolProps extends EmbedProps {
-  title?: string;
-  isJupyter?: boolean;
-}
-
-const IframeTool = ({ url, title, onStopLab, onBack, isJupyter, sessionId }: IframeToolProps) => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
-  const [iframeSrc, setIframeSrc] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    setLoadError('');
-    setIframeSrc('');
-
-    const run = async () => {
-      if (isJupyter && sessionId) {
-        let reachable = false;
-        let lastErrorMsg = '';
-        for (let i = 0; i < 30; i++) {
-          if (cancelled) return;
-          try {
-            const health = await fetchJupyterHealth(sessionId);
-            if (health.status === 'ok') { reachable = true; break; }
-            lastErrorMsg = health.message || '';
-          } catch (err: any) {
-            if (err?.status === 404) { reachable = true; break; }
-            lastErrorMsg = err.message;
-          }
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-        if (cancelled) return;
-        if (!reachable) {
-          setLoadError(lastErrorMsg || 'Cannot reach Jupyter. Open inbound TCP 8888 on the ECS security group.');
-          setIsLoading(false);
-          return;
-        }
-        // Wait an additional 3 seconds after health passes to ensure nginx proxy is fully bound
-        await new Promise((r) => setTimeout(r, 3000));
-      } else if (!isJupyter && url) {
-        let reachable = false;
-        let lastErrorMsg = '';
-        for (let i = 0; i < 150; i++) {
-          if (cancelled) return;
-          try {
-            // Guarantee we bypass browser cache for the health poll
-            const pollUrl = url.includes('?') ? `${url}&health=${Date.now()}` : `${url}?health=${Date.now()}`;
-            const res = await fetch(pollUrl, { method: 'GET', mode: 'cors', cache: 'no-store' });
-            if (res.status !== 502 && res.status !== 504 && res.status !== 503 && res.status !== 500) {
-              reachable = true;
-              break;
-            }
-            lastErrorMsg = `Proxy returned ${res.status}`;
-          } catch (err: any) {
-            lastErrorMsg = err.message;
-          }
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-        if (cancelled) return;
-        if (!reachable) {
-          setLoadError(lastErrorMsg || 'Cannot reach IDE on port 8080.');
-          setIsLoading(false);
-          return;
-        }
-        await new Promise((r) => setTimeout(r, 3000));
-      }
-      if (!cancelled) {
-        const cacheBustedUrl = url.includes('?') ? `${url}&t=${Date.now()}` : `${url}?t=${Date.now()}`;
-        setIframeSrc(cacheBustedUrl);
-      }
-    };
-
-    run();
-    const timeout = setTimeout(() => {
-      if (!cancelled) {
-        setIsLoading((loading) => {
-          if (loading) setLoadError('The lab IDE did not load in time. Open in a new tab.');
-          return false;
-        });
-      }
-    }, 300000);
-    return () => { cancelled = true; clearTimeout(timeout); };
-  }, [url, isJupyter, sessionId]);
-
-  return (
-    <div className="w-full h-full flex flex-col bg-[#1e1e1e]">
-      <div className="bg-[#2d2d2d] px-4 py-2 flex justify-between items-center border-b border-white/10 shrink-0">
-        <div className="min-w-0">
-          <div className="text-white text-sm font-bold">{title || 'Lab Environment'}</div>
-          <div className="text-slate-500 text-[10px] font-mono truncate max-w-[70vw]">{url}</div>
-        </div>
-        <div className="flex gap-2 flex-wrap justify-end">
-          <a href={url} target="_blank" rel="noopener noreferrer" className="text-emerald-400 text-[10px] font-black uppercase hover:underline">Open in Tab</a>
-          <button onClick={onBack} className="text-slate-400 text-[10px] font-black uppercase hover:underline">Dashboard</button>
-          <button onClick={onStopLab} className="text-red-400 text-[10px] font-black uppercase hover:underline">Stop Lab</button>
-        </div>
-      </div>
-      <div className="relative flex-1 min-h-0 bg-black">
-        {(isLoading || loadError) && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#1e1e1e] text-center px-6">
-            <div className="text-white text-sm font-black uppercase tracking-widest">
-              {loadError ? 'Could not embed IDE' : isJupyter ? 'Loading JupyterLab...' : 'Loading lab IDE...'}
-            </div>
-            <div className={`text-xs font-mono break-all max-w-2xl ${loadError ? 'text-amber-400' : 'text-slate-500'}`}>{loadError || url}</div>
-            {loadError && (
-              <a href={url} target="_blank" rel="noopener noreferrer" className="mt-2 bg-emerald-600 text-white px-4 py-2 rounded">Open IDE in New Tab</a>
-            )}
-          </div>
-        )}
-        {iframeSrc && (
-          <iframe src={iframeSrc} title="Lab Tool" className="absolute inset-0 h-full w-full border-none bg-white" allow="clipboard-read; clipboard-write; fullscreen; autoplay; microphone; camera" allowFullScreen onLoad={() => { setIsLoading(false); setLoadError(''); }} />
         )}
       </div>
     </div>
@@ -348,8 +225,8 @@ export const RemoteDesktop = () => {
   const rt = effectiveRuntimeType;
   const isJupyterSession = rt === 'jupyter';
   const isTerminalSession = rt === 'terminal';
-  const isCodeServerSession = rt === 'codeserver';
   const isBuiltInEditorSession = rt === 'ide';
+  const isEmulatorSession = rt === 'emulator';
 
   const stopLabDialog = showStopModal && (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
@@ -402,20 +279,17 @@ export const RemoteDesktop = () => {
       </div>
     );
   }
-  console.log("Runtime:", rt);
-  console.log("Lab URL:", labToolUrl);
-  console.log("Session:", session);
-  console.log("tools.main.url =", session?.tools?.main?.url);
-  console.log("resolved =", resolveToolUrl(session?.tools?.main?.url));
-  if (session && isCodeServerSession && typeof labToolUrl === 'string' && labToolUrl.startsWith('http')) {
+
+  if (session && isEmulatorSession) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
-        <IframeTool url={labToolUrl} title="VS Code (code-server)" isJupyter={false} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
+        <AndroidEmulator session={session} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
     );
   }
+
 
   if (isJupyterSession && typeof labToolUrl === 'string' && labToolUrl.startsWith('http')) {
     return (

@@ -16,7 +16,7 @@ CREATE PROCEDURE `sp_Lab_Update` (
     IN p_Category VARCHAR(100),
     IN p_Description LONGTEXT,
     IN p_TaskDefinition VARCHAR(200),
-    IN p_RuntimeType ENUM('ide', 'terminal', 'jupyter', 'codeserver'),
+    IN p_RuntimeType ENUM('ide', 'terminal', 'jupyter'),
     IN p_RuntimePort INT,
     IN p_RuntimePath VARCHAR(200),
     IN p_ContainerApiEnabled TINYINT(1),

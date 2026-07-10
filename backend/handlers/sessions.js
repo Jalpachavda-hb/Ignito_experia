@@ -33,6 +33,12 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     throw badRequest("Lab session duration is not configured");
   }
 
+  const runtimeType = (lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide").toLowerCase();
+  const SUPPORTED_RUNTIMES = ["ide", "terminal", "jupyter", "emulator"];
+  if (!SUPPORTED_RUNTIMES.includes(runtimeType)) {
+    throw badRequest(`This lab is configured with an unsupported platform: '${runtimeType}'.`);
+  }
+
   const existing = await findActiveSessionForUser(userId);
   if (existing) {
     if (existing.labId === labId) {
@@ -85,7 +91,7 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
   let session = await getSession(sessionId);
   if (!session) throw notFound("Session not found");
 
-  if (session.userId !== auth.userId && auth.role !== "Super Admin") {
+  if (String(session.userId) !== String(auth.userId) && auth.role !== "Super Admin") {
     throw forbidden("You do not own this session");
   }
 
@@ -118,7 +124,7 @@ export const sessionsStopHandler = async ({ pathParameters, auth }) => {
   const session = await getSession(sessionId);
   if (!session) throw notFound("Session not found");
 
-  if (session.userId !== auth.userId && auth.role !== "Super Admin") {
+  if (String(session.userId) !== String(auth.userId) && auth.role !== "Super Admin") {
     throw forbidden("You do not own this session");
   }
 
@@ -145,7 +151,7 @@ export const sessionsListByUserHandler = async ({
   const labId = queryStringParameters?.labId;
 
   const ownsRequest =
-    requestedUser === auth.userId ||
+    String(requestedUser) === String(auth.userId) ||
     requestedUser === auth.email ||
     auth.role === "Super Admin";
 

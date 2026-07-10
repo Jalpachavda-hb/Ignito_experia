@@ -83,18 +83,6 @@ export const buildJupyterProxyUrl = async (session) => {
   return `${prefix}${targetPath}?access_token=${encodeURIComponent(token)}`;
 };
 
-export const buildCodeServerProxyUrl = (session) => {
-  if (!session?.sessionId || session.status !== "running") return null;
-  const base = ENV.apiPublicUrl.replace(/\/+$/, "");
-  const isLocalDev =
-    ENV.nodeEnv === "development" ||
-    /localhost|127\.0\.0\.1/.test(base);
-  if (isLocalDev) {
-    return `${ENV.apiPrefix}/lab-sessions/${session.sessionId}/vscode/`;
-  }
-  return `${base}/lab-sessions/${session.sessionId}/vscode/`;
-};
-
 export const buildMainToolUrl = async ({ labId, session }) => {
   const runtime = await getLabRuntime(labId);
   const host = getContainerHost(session);
@@ -106,12 +94,6 @@ export const buildMainToolUrl = async ({ labId, session }) => {
   if (runtime.type === "jupyter") {
     const jupyterUrl = await buildJupyterProxyUrl(session);
     return jupyterUrl || joinUrl(`http://${host}:${runtime.port}`, runtime.path);
-  }
-
-  // Route code-server labs through the backend proxy (strips X-Frame-Options, avoids direct exposure)
-  const rt = runtime.type;
-  if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) {
-    return buildCodeServerProxyUrl(session) || joinUrl(`http://${host}:${runtime.port}`, runtime.path);
   }
 
   return joinUrl(`http://${host}:${runtime.port}`, runtime.path);

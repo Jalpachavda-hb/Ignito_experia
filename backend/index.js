@@ -10,7 +10,6 @@ import { ROUTES } from "./router.js";
 import { expressRoute } from "./lib/apigw.js";
 import { setupTerminal } from "./terminalHandler.js";
 import { setupJupyterProxy, attachJupyterProxyUpgrade } from "./jupyterProxy.js";
-import { setupCodeServerProxy, attachCodeServerProxyUpgrade } from "./codeServerProxy.js";
 import { cleanupExpiredSessions } from "./services/sessionCleanup.js";
 import { sessionCleanupService } from "./services/SessionCleanupService.js";
 import { verifyDbConnection } from "./lib/mysql.js";
@@ -61,9 +60,6 @@ for (const route of ROUTES) {
 
 setupJupyterProxy(app, ENV.apiPrefix);
 attachJupyterProxyUpgrade(httpServer, ENV.apiPrefix);
-
-setupCodeServerProxy(app, ENV.apiPrefix);
-attachCodeServerProxyUpgrade(httpServer, ENV.apiPrefix);
 
 setupTerminal(io);
 

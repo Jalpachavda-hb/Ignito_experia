@@ -37,11 +37,13 @@ const getTheme = (idOrName: string) => {
 };
 
 export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onDetails, activeSession, elapsedTime, isStarting, isStopping, userCredits }: LabCardProps) {
+  const hasActiveSession = !!activeSession;
   const isRunning = activeSession?.status === 'running';
+  const isSessionStarting = activeSession?.status === 'starting';
   // Map 'active' to 'Available' for display purposes, so it doesn't look weird
   const displayStatus = lab.status === 'active' ? 'Available' : (lab.status || 'Not Started');
-  const labStatus = isStarting ? 'Starting...' : isStopping ? 'Stopping...' : isRunning ? 'Running' : displayStatus;
-  const progress = labStatus === 'Completed' ? 100 : (isRunning || labStatus === 'In Progress') ? 35 : 0;
+  const labStatus = isStarting || isSessionStarting ? 'Starting...' : isStopping ? 'Stopping...' : isRunning ? 'Running' : displayStatus;
+  const progress = labStatus === 'Completed' ? 100 : (isRunning || isSessionStarting || labStatus === 'In Progress') ? 35 : 0;
   
   const name = lab.title || lab.name || 'Unnamed Lab';
   const imageUrl = lab.logo || lab.image || lab.icon || null;
@@ -105,14 +107,14 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
            )}
            
            <div className="flex flex-col gap-3 mt-auto w-full">
-             {isRunning ? (
-               <>
-                 <Button onClick={() => onResume?.(lab.id)} className={`w-full ${theme.bg} text-white shadow-sm hover:opacity-90`}>Go To Lab</Button>
-                 <Button onClick={() => onStop?.(lab.id)} variant="outline" className={`w-full text-red-500 border-red-200 hover:bg-red-50`} disabled={isStopping}>
-                   {isStopping ? 'Stopping...' : 'Stop Lab'}
-                 </Button>
-               </>
-             ) : labStatus === 'Completed' ? (
+              {hasActiveSession ? (
+                <>
+                  <Button onClick={() => onResume?.(lab.id)} className={`w-full ${theme.bg} text-white shadow-sm hover:opacity-90`}>Go To Lab</Button>
+                  <Button onClick={() => onStop?.(lab.id)} variant="outline" className={`w-full text-red-500 border-red-200 hover:bg-red-50`} disabled={isStopping}>
+                    {isStopping ? 'Stopping...' : 'Stop Lab'}
+                  </Button>
+                </>
+              ) : labStatus === 'Completed' ? (
                <Button onClick={() => onDetails?.(lab.id)} variant="outline" className="w-full border-slate-300">View History</Button>
              ) : (
                <Button 
@@ -196,7 +198,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
           </div>
         )}
 
-        {!isRunning && (labStatus === 'In Progress') && (
+        {!hasActiveSession && (labStatus === 'In Progress') && (
           <div className="mt-auto mb-2 w-full">
             <div className="flex justify-between text-[10px] mb-1.5">
               <span className="font-semibold uppercase text-slate-400 tracking-wider">Progress</span>
@@ -214,7 +216,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
       </CardContent>
       
       <CardFooter className="p-5 pt-4 bg-white dark:bg-slate-950 flex flex-col gap-3">
-        {isRunning ? (
+        {hasActiveSession ? (
           <>
             <Button onClick={() => onResume?.(lab.id)} className={`w-full h-11 rounded-[10px] font-semibold shadow-[0_4px_14px_0_rgb(0,0,0,0.1)] text-white ${theme.bg} hover:opacity-90 transition-all duration-200`}>
               Go To Lab

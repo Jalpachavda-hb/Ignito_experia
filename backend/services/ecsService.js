@@ -161,25 +161,6 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
   };
 };
 
-const buildCodeServerTrustedOriginFlags = () => {
-  const origins = new Set();
-  const candidates = [
-    ENV.frontendUrl,
-    ENV.apiOrigin,
-    ENV.corsOrigin,
-  ];
-
-  for (const raw of candidates) {
-    if (!raw || raw === "*") continue;
-    try {
-      origins.add(new URL(raw).origin);
-    } catch {
-      // skip malformed values
-    }
-  }
-
-  return [...origins].map((o) => `--trusted-origins ${o}`).join(" ");
-};
 
 export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   const lab = await getLabById(labId);
@@ -214,13 +195,6 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
     environment,
   };
 
-  if (['codeserver', 'code-server', 'vscode', 'code server'].includes(rt)) {
-    const trustedOriginFlags = buildCodeServerTrustedOriginFlags();
-    containerOverride.command = [
-      "sh", "-c",
-      `mkdir -p $LAB_WORKSPACE/.vscode && echo '{\"security.workspace.trust.enabled\": false}' > $LAB_WORKSPACE/.vscode/settings.json && code-server --auth none --bind-addr 0.0.0.0:8080 ${trustedOriginFlags} $LAB_WORKSPACE`,
-    ];
-  }
 
   const response = await ecsClient.send(
     new RunTaskCommand({

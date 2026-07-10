@@ -8,7 +8,7 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
   const sessionId = pathParameters?.sessionId;
   const session = await getSession(sessionId);
   if (!session) throw notFound("Session not found");
-  if (session.userId !== auth.userId && auth.role !== "Super Admin") {
+  if (String(session.userId) !== String(auth.userId) && auth.role !== "Super Admin") {
     throw forbidden("You do not own this session");
   }
 

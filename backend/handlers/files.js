@@ -22,7 +22,7 @@ const assertSessionAccess = async (event) => {
   if (!session) throw notFound("Session not found");
   if (
     event.auth &&
-    session.userId !== event.auth.userId &&
+    String(session.userId) !== String(event.auth.userId) &&
     event.auth.role !== "Super Admin"
   ) {
     throw forbidden("You do not own this session");
