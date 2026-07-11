@@ -442,44 +442,6 @@ export default function AndroidEmulator({ session, onStopLab, onBack }: AndroidE
         {/* Right Side: Logs & Control Console */}
         <div className="w-full md:w-[420px] lg:w-[480px] border-t md:border-t-0 md:border-l border-white/5 bg-[#141414] flex flex-col shrink-0 overflow-hidden relative">
           
-          {/* Simulator Status Overview */}
-          <div className="p-5 border-b border-white/5 bg-[#181818]/60 shrink-0">
-            <h3 className="text-xs font-black uppercase tracking-wider text-red-500 mb-3 flex items-center gap-1.5">
-              <Cpu className="h-4 w-4" /> Device Status
-            </h3>
-            
-            <div className="space-y-4">
-              <div className="text-center p-4 bg-zinc-950 rounded-2xl border border-white/5 relative">
-                <p className="text-sm font-bold text-slate-200">You are testing on a</p>
-                <p className="text-xl font-black text-red-500 uppercase tracking-tight mb-2">Simulator Real Device!</p>
-                <div className="w-16 h-[2px] bg-red-600 mx-auto mb-3" />
-                
-                <div className="grid grid-cols-2 gap-y-1.5 text-left text-[11px] font-mono text-slate-400 mt-2 px-2">
-                  <span className="font-bold"># Serial Number:</span>
-                  <span className="text-right text-slate-300">38261FDJG0XXXX</span>
-                  <span className="font-bold">📅 Purchase Date:</span>
-                  <span className="text-right text-slate-300">04th Oct 2023</span>
-                  <span className="font-bold">📍 Device Location:</span>
-                  <span className="text-right text-slate-300">Mumbai, India</span>
-                </div>
-
-                <button className="mt-4 text-[10px] uppercase font-black tracking-widest text-slate-400 hover:text-white px-4 py-1.5 border border-white/10 hover:border-white/30 rounded-lg transition-all">
-                  Buy a plan
-                </button>
-              </div>
-
-              {/* Upload APK option in sidebar */}
-              {!booting && appState === 'home' && (
-                <div 
-                  onClick={handleFileUploadClick}
-                  className="flex items-center justify-center gap-3 p-4 bg-red-600/5 hover:bg-red-600/10 border border-dashed border-red-500/20 hover:border-red-500/40 rounded-2xl cursor-pointer transition-all"
-                >
-                  <Upload className="h-5 w-5 text-red-500" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-200">Upload package (.apk)</span>
-                </div>
-              )}
-            </div>
-          </div>
 
           {/* ADB Log Console */}
           <div className="flex-1 flex flex-col min-h-0">

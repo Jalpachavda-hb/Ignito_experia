@@ -6,9 +6,11 @@ import { ENV } from "../config/env.js";
 import { exec } from "child_process";
 import util from "util";
 import os from "os";
-import { ANDROID_STARTER_FILES } from "../lib/androidStarter.js";
 import { describeTask } from "./ecsService.js";
 const execAsync = util.promisify(exec);
+const nullDev = os.platform() === "win32" ? "NUL" : "/dev/null";
+
+const activeS3Bootstraps = new Set();
 
 const CONTAINER_TIMEOUT_MS = 35000;
 const DOTNET_BUILD_TIMEOUT_SEC = 300;
@@ -1173,14 +1175,8 @@ const executeViaHttp = async (session, payload, baseUrl) => {
                 runner = "python3"; ext = "py";
               }
 
-              let execCmd = `aws ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < NUL`;
-
-              const env = { ...process.env };
-              if (os.platform() === 'win32') {
-                env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
-              }
-
-              const { stdout } = await execAsync(execCmd, { env });
+              let execCmd = `aws ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < ${nullDev}`;
+              const { stdout } = await execAsync(execCmd, { env: process.env });
 
               let cleanOut = stdout;
               cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
@@ -1396,6 +1392,7 @@ export const getFilesFromContainer = async (session) => {
 
   const isAndroid = session?.labType === 'android' || session?.labId === 'android' || session?.labId === 'mobile-app-lab';
   const isDotnet = isDotnetSession(session);
+  const isDataScience = session?.labType === 'datascience' || session?.labId === 'data-science-lab' || session?.labId?.includes('datascience') || session?.labId?.includes('jupyter') || session?.labId?.includes('notebook');
 
   const payload = {
     path: "/tmp/list_files.py",
@@ -1446,15 +1443,26 @@ if os.path.exists(workspace):
         dirs[:] = filtered_dirs
 
         for f in files:
-            if f.endswith('.pyc') or f.endswith('.class') or f == '.DS_Store':
+            if f.endswith('.pyc') or f.endswith('.class') or f == '.DS_Store' or f.endswith('.apk') or f.endswith('.zip') or f.endswith('.tar.gz') or f.endswith('.png') or f.endswith('.jpg') or f.endswith('.jpeg') or f.endswith('.gif') or f.endswith('.ico'):
                 continue
             full_path = os.path.join(root, f)
             rel_path = os.path.relpath(full_path, workspace)
             rel_path = rel_path.replace('\\\\', '/')
+            
+            # Safely read small text files to preload their content
+            content = ""
+            try:
+                if os.path.getsize(full_path) < 500 * 1024:
+                    with open(full_path, 'r', encoding='utf-8', errors='replace') as file_obj:
+                        content = file_obj.read()
+            except Exception:
+                pass
+
             result.append({
                 "name": f,
                 "path": "/workspace/" + rel_path,
-                "type": "file"
+                "type": "file",
+                "content": content
             })
 
 print("---FILES_START---" + json.dumps(result) + "---FILES_END---")`
@@ -1472,19 +1480,22 @@ print("---FILES_START---" + json.dumps(result) + "---FILES_END---")`
         const jsonStr = output.substring(startIdx + startMarker.length, endIdx).trim();
         const filesList = JSON.parse(jsonStr);
 
-        if (isAndroid && !filesList.some((f) => f.name === 'build.gradle')) {
-          console.log("[getFilesFromContainer] Seeding Android Starter Files via JS to prevent command length limits...");
-          for (const file of ANDROID_STARTER_FILES) {
-            await saveToContainer(session, file);
-            if (file.name === 'gradlew' || file.name === 'build.sh') {
-              await executeInContainer(session, {
-                path: "/tmp/chmod.py",
-                language: "python",
-                content: `import os\ntry: os.chmod('/tmp/workspace/workspace/${file.name}', 0o755)\nexcept: pass`
-              }, { forceSsm: true });
+        if ((isAndroid || isDotnet || isDataScience) && filesList.length === 0) {
+          if (!activeS3Bootstraps.has(session.sessionId)) {
+            activeS3Bootstraps.add(session.sessionId);
+            console.log(`[getFilesFromContainer] Workspace is empty. Triggering self-healing S3 bootstrap for session ${session.sessionId}...`);
+            try {
+              await bootstrapWorkspaceFromS3(session);
+              // Re-read files after successful bootstrap
+              return await getFilesFromContainer(session);
+            } catch (err) {
+              console.error("[getFilesFromContainer] Self-healing S3 bootstrap failed:", err.message);
+            } finally {
+              activeS3Bootstraps.delete(session.sessionId);
             }
+          } else {
+            console.log("[getFilesFromContainer] S3 bootstrap is already running for this session.");
           }
-          return getFilesFromContainer(session);
         }
 
         return isDotnet ? filterDotnetWorkspaceFiles(filesList) : filesList;
@@ -1632,14 +1643,9 @@ print("###" + json.dumps(files_list) + "###")`
     if (cluster && task) {
       try {
         const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && find /tmp/workspace/workspace -maxdepth 8 -type f 2>/dev/null'" --region ${region} < NUL`;
+        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && find /tmp/workspace/workspace -maxdepth 8 -type f 2>/dev/null'" --region ${region} < ${nullDev}`;
 
-        const env = { ...process.env };
-        if (os.platform() === 'win32') {
-          env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
-        }
-
-        const { stdout } = await execAsync(execCmd, { env });
+        const { stdout } = await execAsync(execCmd, { env: process.env });
         const files = stdout.split('\n')
           .map(line => line.trim())
           .filter(line => {
@@ -1647,7 +1653,7 @@ print("###" + json.dumps(files_list) + "###")`
             const name = clean.split('/').pop();
             // Filter out system and heavy build directories to keep list clean
             if (clean.includes('/.git/') || clean.includes('/node_modules/') || clean.includes('/__pycache__/') || clean.includes('/.gradle/') ||
-                clean.includes('/build/intermediates/') || clean.includes('/build/generated/') || clean.includes('/build/tmp/') || clean.includes('/build/kotlin/')) {
+              clean.includes('/build/intermediates/') || clean.includes('/build/generated/') || clean.includes('/build/tmp/') || clean.includes('/build/kotlin/')) {
               return false;
             }
             return (line.startsWith('/workspace/') || line.startsWith('/tmp/workspace/workspace/')) &&
@@ -1709,7 +1715,7 @@ else:
   };
 
   try {
-    const result = await executeInContainer(session, payload);
+    const result = await executeInContainer(session, payload, { forceSsm: true });
     if (result && result.success && result.output) {
       const match = result.output.match(/###(.*?)###/s);
       if (match) {
@@ -1728,14 +1734,9 @@ else:
     if (cluster && task) {
       try {
         const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'" --region ${region} < NUL`;
+        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'" --region ${region} < ${nullDev}`;
 
-        const env = { ...process.env };
-        if (os.platform() === 'win32') {
-          env.PATH = `C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts;C:\\Users\\Hackberry Softech\\AppData\\Local\\Python\\pythoncore-3.14-64;${env.PATH || ''}`;
-        }
-
-        const { stdout } = await execAsync(execCmd, { env });
+        const { stdout } = await execAsync(execCmd, { env: process.env });
         let cleanOut = stdout;
         cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
         cleanOut = cleanOut.replace(/Starting session with SessionId:\s*[\w-]+\s*/gi, '');
@@ -1754,4 +1755,64 @@ else:
   }
 
   return null;
+};
+
+export const getPresignedUrl = async (bucket, key, ttlSeconds = 3600) => {
+  try {
+    const awsCmd = `aws s3 presign s3://${bucket}/${key} --expires-in ${ttlSeconds}`;
+    console.log(`[S3] Generating presigned URL with cmd: ${awsCmd}`);
+    const { stdout } = await execAsync(awsCmd);
+    return stdout.trim();
+  } catch (err) {
+    console.error("[getPresignedUrl] Error generating presigned URL:", err.message);
+    throw err;
+  }
+};
+
+export const bootstrapWorkspaceFromS3 = async (session) => {
+  const bucket = ENV.testCasesBucket || 'vlab-dev-lab-files-0kdrg0q8';
+  const ttl = ENV.labBootstrapPresignTtlSeconds || 3600;
+  
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+
+  const isAndroid = labId === 'mobile-app-lab' || labId === 'android' || labType === 'android';
+  const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
+  const isDataScience = labType === 'datascience' || labId === 'data-science-lab' || labId.includes('datascience') || labId.includes('jupyter') || labId.includes('notebook');
+
+  let key = "";
+  if (isAndroid) {
+    key = "lab-assets/android-starter/latest.tar.gz";
+  } else if (isDotnet) {
+    const isMvc = labId.includes("mvc") || labId.includes("mvc-app") || labType.includes("mvc");
+    key = isMvc ? "lab-assets/dotnet/mvc/latest.tar.gz" : "lab-assets/dotnet/console-snippet/latest.tar.gz";
+  } else if (isDataScience) {
+    key = "lab-assets/datascience/notebook/latest.tar.gz";
+  } else {
+    console.log(`[bootstrapWorkspaceFromS3] Lab ${labId} (type: ${labType}) does not require S3 bootstrapping.`);
+    return null;
+  }
+
+  console.log(`[bootstrapWorkspaceFromS3] Generating presigned URL for s3://${bucket}/${key}...`);
+  try {
+    const presignedUrl = await getPresignedUrl(bucket, key, ttl);
+    console.log(`[bootstrapWorkspaceFromS3] Successfully generated presigned URL.`);
+
+    // Download to /tmp/bootstrap.tar.gz, extract via tar, and set executable permissions safely
+    const cmd = `mkdir -p /tmp/workspace/workspace && curl -sL "${presignedUrl}" -o /tmp/bootstrap.tar.gz && tar -xzf /tmp/bootstrap.tar.gz -C /tmp/workspace/workspace && (chmod +x /tmp/workspace/workspace/gradlew /tmp/workspace/workspace/build.sh 2>/dev/null || true) && rm /tmp/bootstrap.tar.gz`;
+
+    console.log(`[bootstrapWorkspaceFromS3] Running download & extract script inside container...`);
+    const payload = {
+      path: "/tmp/bootstrap.sh",
+      language: "shell",
+      content: cmd
+    };
+
+    const result = await executeInContainer(session, payload, { forceSsm: true });
+    console.log(`[bootstrapWorkspaceFromS3] Execution result:`, result?.output || 'No output');
+    return result;
+  } catch (err) {
+    console.error(`[bootstrapWorkspaceFromS3] Failed to bootstrap workspace from S3:`, err.message);
+    throw err;
+  }
 };

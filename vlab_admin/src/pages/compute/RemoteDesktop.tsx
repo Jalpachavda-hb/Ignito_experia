@@ -80,13 +80,14 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack }: EmbedProps) => {
           if (cancelled) return;
           try {
             const health = await fetchJupyterHealth(sessionId);
-            if (health.status === 'ok') {
-              // Wait an additional 3 seconds after health passes to ensure nginx proxy is fully bound
-              await new Promise((r) => setTimeout(r, 3000));
+            // Check both backend ready indicator and standard HTTP status code
+            if (health.status === 'ok' || health.ready || health.status === 200 || health.status === 302) {
+              // Wait an additional 2 seconds after health passes to ensure proxy is fully bound
+              await new Promise((r) => setTimeout(r, 2000));
               break;
             }
           } catch { }
-          await new Promise((r) => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 1500));
         }
       }
       if (!cancelled) {

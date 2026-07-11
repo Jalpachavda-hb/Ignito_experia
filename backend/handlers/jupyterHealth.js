@@ -1,7 +1,9 @@
+import net from "net";
 import { ok } from "../lib/apigw.js";
 import { forbidden, notFound } from "../lib/errors.js";
 import { getSession } from "../services/sessionRepository.js";
 import { getLabRuntime, getContainerHost } from "../lib/labTools.js";
+import { executeInContainer } from "../services/containerClient.js";
 import { ENV } from "../config/env.js";
 
 export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
@@ -24,31 +26,69 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
     });
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    const jupyterPath = `${ENV.apiPrefix}/lab-sessions/${sessionId}/jupyter/lab`;
-    const probe = await fetch(`http://${host}:${port}${jupyterPath}`, { signal: controller.signal });
-    clearTimeout(timer);
+  const checkPort = (host, port) => {
+    return new Promise((resolve) => {
+      const socket = new net.Socket();
+      let connected = false;
 
-    // Jupyter returns 200 or 302 (redirect to login) when it is ready.
-    // 404 means the server is up but base URL is mismatched.
-    const isReady = probe.ok || probe.status === 302 || probe.status === 404;
+      socket.setTimeout(2000);
+
+      socket.on('connect', () => {
+        connected = true;
+        socket.destroy();
+      });
+
+      socket.on('timeout', () => {
+        socket.destroy();
+      });
+
+      socket.on('error', () => {
+        socket.destroy();
+      });
+
+      socket.on('close', () => {
+        resolve(connected);
+      });
+
+      socket.connect(port, host);
+    });
+  };
+
+  try {
+    let isReady = await checkPort(host, port);
+
+    // SSM Fallback if direct TCP connection fails (e.g. local dev server trying to reach private VPC IP)
+    if (!isReady && session.taskArn) {
+      console.log(`[jupyterHealth] Direct TCP check failed for ${host}:${port}. Trying SSM container process check...`);
+      try {
+        const payload = {
+          path: "/tmp/jupyter_check.sh",
+          language: "bash",
+          content: "pgrep -f jupyter >/dev/null && echo 'OK' || echo 'FAIL'"
+        };
+        const res = await executeInContainer(session, payload, { forceSsm: true });
+        if (res && res.output && res.output.includes("OK")) {
+          console.log("[jupyterHealth] SSM container process check succeeded. Marking as ready!");
+          isReady = true;
+        }
+      } catch (ssmErr) {
+        console.warn("[jupyterHealth] SSM process check failed:", ssmErr.message);
+      }
+    }
+
     return ok({
       ready: isReady,
       reachable: isReady,
-      status: probe.status,
+      status: isReady ? 200 : 503,
       host,
       port,
     });
   } catch (err) {
-    console.error("[jupyterHealth] fetch failed for", host, port, err.message);
-    clearTimeout(timer);
+    console.error("[jupyterHealth] socket check failed for", host, port, err.message);
     return ok({
       ready: false,
       reachable: false,
-      message:
-        "Cannot reach Jupyter on port 8888. AWS engineer must allow inbound TCP 8888 on the ECS security group.",
+      message: "Jupyter container check encountered an error",
       host,
       port,
       error: err.message,

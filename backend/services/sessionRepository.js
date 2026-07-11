@@ -96,7 +96,7 @@ export const createSessionRecord = ({
 }) => {
   const sessionId = createSessionId();
   const sessionToken = createSessionToken();
-  const starterFiles = labType === 'android' ? ANDROID_STARTER_FILES : [];
+  const starterFiles = [];
   return {
     sessionId,
     userId,

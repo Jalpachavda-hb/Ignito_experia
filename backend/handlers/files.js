@@ -7,7 +7,7 @@ import {
   upsertFile,
   deleteFile,
 } from "../services/fileRepository.js";
-import { saveToContainer, deleteFromContainer, getContainerFiles, readFromContainer } from "../services/containerClient.js";
+import { saveToContainer, deleteFromContainer, getFilesFromContainer, readFromContainer } from "../services/containerClient.js";
 import { validateFile } from "../utils/validation.js";
 
 const getSessionId = (event) =>
@@ -32,7 +32,17 @@ const assertSessionAccess = async (event) => {
 
 export const filesListHandler = async (event) => {
   try {
-    const { sessionId } = await assertSessionAccess(event);
+    const { sessionId, session } = await assertSessionAccess(event);
+    
+    if (session && session.status === "running") {
+      try {
+        const files = await getFilesFromContainer(session);
+        return ok({ files });
+      } catch (err) {
+        console.warn("[filesListHandler] Failed to get files from container, falling back to database:", err.message);
+      }
+    }
+
     const files = await listFiles(sessionId);
     return ok({
       files: files.map(({ content, ...meta }) => meta),

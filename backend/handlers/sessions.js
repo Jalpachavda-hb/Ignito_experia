@@ -17,7 +17,9 @@ import {
   resolveTaskNetworking,
 } from "../services/ecsService.js";
 import { clearSessionFiles } from "../services/fileRepository.js";
-import { saveToContainer } from "../services/containerClient.js";
+import { saveToContainer, bootstrapWorkspaceFromS3 } from "../services/containerClient.js";
+
+const activeBootstraps = new Set();
 
 export const sessionsStartHandler = async ({ body, auth }) => {
   const labId = body?.labId;
@@ -98,19 +100,43 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
   if (session.status === "starting" && session.taskArn && isEcsEnabled()) {
     const net = await resolveTaskNetworking(session.taskArn, session.labId);
     if (net.status !== "starting") {
-      session = await updateSession(sessionId, net);
-      if (session.status === "running" && session.files && session.files.length > 0) {
-        // Run container file sync in background so as not to block sessionsGetHandler
-        (async () => {
-          console.log(`[Sync] Syncing ${session.files.length} seeded files to container ${session.sessionId}...`);
-          for (const file of session.files) {
-            try {
-              await saveToContainer(session, { path: file.path, content: file.content });
-            } catch (err) {
-              console.warn(`[Sync] Failed to sync ${file.path} to container:`, err.message);
-            }
+      const canonicalType = canonicalLabType(session.labId);
+      const isAndroid = canonicalType === 'android' || session.labType === 'android' || session.labId === 'mobile-app-lab' || session.labId === 'android';
+      const isDotnet = canonicalType === 'dotnet' || session.labType === 'dotnet' || session.labId === 'dotnet-lab' || session.labId.includes('dotnet');
+      const isDataScience = canonicalType === 'datascience' || session.labType === 'datascience' || session.labId === 'data-science-lab' || session.labId.includes('datascience') || session.labId.includes('jupyter') || session.labId.includes('notebook');
+
+      if (isAndroid || isDotnet || isDataScience) {
+        if (!activeBootstraps.has(sessionId)) {
+          activeBootstraps.add(sessionId);
+          const labName = isAndroid ? 'Android' : isDotnet ? 'Dotnet' : 'Data Science';
+          await updateSession(sessionId, { message: `Downloading and extracting ${labName} starter files from S3...` });
+          
+          try {
+            console.log(`[Bootstrap] Bootstrapping ${labName} workspace from S3 for session ${session.sessionId}...`);
+            await bootstrapWorkspaceFromS3(session);
+            session = await updateSession(sessionId, { ...net, status: "running", message: "Workspace ready" });
+          } catch (err) {
+            console.error(`[Bootstrap] Failed to bootstrap ${labName} workspace from S3:`, err.message);
+            session = await updateSession(sessionId, { ...net, status: "running", message: "Workspace loaded with errors" });
+          } finally {
+            activeBootstraps.delete(sessionId);
           }
-        })();
+        }
+      } else {
+        session = await updateSession(sessionId, net);
+        if (session.status === "running" && session.files && session.files.length > 0) {
+          // Run container file sync in background so as not to block sessionsGetHandler
+          (async () => {
+            console.log(`[Sync] Syncing ${session.files.length} seeded files to container ${session.sessionId}...`);
+            for (const file of session.files) {
+              try {
+                await saveToContainer(session, { path: file.path, content: file.content });
+              } catch (err) {
+                console.warn(`[Sync] Failed to sync ${file.path} to container:`, err.message);
+              }
+            }
+          })();
+        }
       }
     }
   }

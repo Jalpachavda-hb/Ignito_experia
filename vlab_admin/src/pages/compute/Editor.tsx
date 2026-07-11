@@ -330,6 +330,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string>('/workspace');
   const [restrictionMsg, setRestrictionMsg] = useState('');
   const [showRestrictionModal, setShowRestrictionModal] = useState(false);
 
@@ -370,12 +371,18 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
   const renderTreeNode = (node: any, depth: number) => {
     const isExpanded = expandedFolders.has(node.path);
+    const isFolderSelected = selectedFolderPath === node.path;
     if (node.type === 'folder') {
       return (
         <div key={node.path}>
           <div
-            onClick={() => toggleFolder(node.path)}
-            className="flex items-center gap-1.5 px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer transition-colors"
+            onClick={() => {
+              toggleFolder(node.path);
+              setSelectedFolderPath(node.path);
+            }}
+            className={`flex items-center gap-1.5 px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer transition-colors border-l-2 ${
+              isFolderSelected ? 'bg-[#37373d] border-red-500 text-white' : 'border-transparent text-slate-300'
+            }`}
             style={{ paddingLeft: `${depth * 12 + 16}px` }}
           >
             <ChevronRight
@@ -409,6 +416,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
               setOpenFilePaths(prev => [...prev, file.path]);
             }
             selectFile(i);
+            const parentDir = file.path.substring(0, file.path.lastIndexOf('/'));
+            setSelectedFolderPath(parentDir);
           }}
           className={`group flex items-center gap-2 py-1 cursor-pointer border-l-2 transition-all ${isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
             }`}
@@ -505,9 +514,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         });
 
         setOpenFilePaths(prev => {
-          if (prev.length === 0 && response.files.length > 0) {
-            return response.files.map((f: any) => f.path).slice(0, 8);
-          }
           const validPaths = response.files.map((f: any) => f.path);
           return prev.filter(p => validPaths.includes(p));
         });
@@ -1094,7 +1100,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
     } else if (rules.extensions.length > 0) {
       defaultExt = rules.extensions[0];
     }
-    const defaultName = isDotnet ? 'Program.cs' : `script.${defaultExt}`;
+    const defaultName = isDotnet ? 'Program.cs' : isAndroid ? 'SecondActivity.java' : `script.${defaultExt}`;
 
     const fileName = window.prompt(`Enter file name:`, defaultName);
     if (!fileName) return;
@@ -1110,7 +1116,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
       const newFile = {
         name: fileName,
-        path: `/workspace/${fileName}`,
+        path: `${selectedFolderPath}/${fileName}`,
         type: 'file',
         language: detectLanguage(fileName),
         content: isDotnet && fileName === 'Program.cs' ? DOTNET_CONSOLE_STARTER : '',
@@ -1353,42 +1359,44 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e]">
 
         {/* Top Header Bar */}
-        <div className="h-12 bg-[#252526] border-b border-[#1f1f1f] flex items-center justify-between pl-2 pr-4 shrink-0">
-          <div className="flex items-center gap-2">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-white/60 hover:text-white rounded transition-colors">
+        <div className="h-12 bg-[#252526] border-b border-[#1f1f1f] flex items-center justify-between pl-2 pr-4 shrink-0 gap-4">
+          <div className="flex-1 flex items-center min-w-0 h-full">
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-white/60 hover:text-white rounded transition-colors shrink-0">
               <Menu size={18} />
             </button>
 
-            {/* File Tabs */}
-            <div className="flex bg-[#252526] h-full items-center ml-2 space-x-1">
-              {openFilePaths.map((path) => {
-                const file = files.find(f => f.path === path);
-                if (!file) return null;
-                const idx = files.findIndex(f => f.path === path);
-                const isActive = activeFileIndex === idx;
-                return (
-                  <div
-                    key={path}
-                    onClick={() => selectFile(idx)}
-                    className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[100px] max-w-[180px] transition-colors ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
-                      }`}
-                  >
-                    {getFileIcon(file.name)}
-                    <span className="text-[11px] truncate flex-1 font-medium">{file.name}</span>
-                    <button
-                      onClick={(e) => handleCloseFile(e, path)}
-                      className={`p-0.5 rounded-full hover:bg-white/10 ${isActive ? 'text-white/60 hover:text-white' : 'text-transparent group-hover:text-white/40'}`}
+            {/* File Tabs with Horizontal Scroll */}
+            <div className="flex-1 flex items-center ml-2 overflow-x-auto scrollbar-none h-full min-w-0">
+              <div className="flex items-center space-x-1 h-full py-1">
+                {openFilePaths.map((path) => {
+                  const file = files.find(f => f.path === path);
+                  if (!file) return null;
+                  const idx = files.findIndex(f => f.path === path);
+                  const isActive = activeFileIndex === idx;
+                  return (
+                    <div
+                      key={path}
+                      onClick={() => selectFile(idx)}
+                      className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[100px] max-w-[180px] transition-colors shrink-0 ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
+                        }`}
                     >
-                      <X size={12} />
-                    </button>
-                  </div>
-                );
-              })}
+                      {getFileIcon(file.name)}
+                      <span className="text-[11px] truncate flex-1 font-medium">{file.name}</span>
+                      <button
+                        onClick={(e) => handleCloseFile(e, path)}
+                        className={`p-0.5 rounded-full hover:bg-white/10 ${isActive ? 'text-white/60 hover:text-white' : 'text-transparent group-hover:text-white/40'}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           {/* Right Toolbar */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={handleDownload}
               className="text-[#3b82f6] hover:text-blue-400 transition-colors p-1"

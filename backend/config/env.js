@@ -41,6 +41,8 @@ export const ENV = {
   apiPublicUrl: process.env.API_PUBLIC_URL || `http://localhost:${port}${apiPrefix}`,
   /** API server origin without path (for trusted origins, sockets, etc.). */
   apiOrigin: getApiOrigin(process.env.API_PUBLIC_URL || `http://localhost:${port}${apiPrefix}`),
+  testCasesBucket: process.env.TEST_CASES_BUCKET || "vlab-dev-lab-files-0kdrg0q8",
+  labBootstrapPresignTtlSeconds: Number(process.env.LAB_BOOTSTRAP_PRESIGN_TTL_SECONDS || 3600),
 };
 
 export const useDynamoDb = () => Boolean(ENV.sessionsTable);
