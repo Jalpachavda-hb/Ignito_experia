@@ -186,7 +186,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
   if (rt === "jupyter" || rt === "datascience") {
     environment.push({
       name: "JUPYTER_BASE_URL",
-      value: `${ENV.apiPrefix}/lab-sessions/${sessionId}/jupyter`,
+      value: `${ENV.apiPrefix}/lab/sessions/${sessionId}/jupyter`,
     });
   }
 

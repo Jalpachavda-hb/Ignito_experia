@@ -1816,3 +1816,36 @@ export const bootstrapWorkspaceFromS3 = async (session) => {
     throw err;
   }
 };
+
+export const readBinaryFromContainer = async (session, filePath) => {
+  const containerPath = getContainerFilePath(filePath);
+  const ctx = getEcsExecContext(session);
+  if (!ctx) return null;
+
+  if (session.taskArn) {
+    const { cluster, task } = getTaskDetails(session);
+    if (cluster && task) {
+      try {
+        const region = process.env.AWS_REGION || 'ap-south-1';
+        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'" --region ${region} < ${nullDev}`;
+
+        const { stdout } = await execAsync(execCmd, { env: process.env });
+        let cleanOut = stdout;
+        cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
+        cleanOut = cleanOut.replace(/Starting session with SessionId:\s*[\w-]+\s*/gi, '');
+        cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, '');
+
+        const lines = cleanOut.split('\n').map(l => l.trim()).filter(Boolean);
+        const lastLine = lines[lines.length - 1];
+        if (lastLine === "NOT_FOUND") return null;
+
+        const cleanBase64 = cleanOut.replace(/[^a-zA-Z0-9+/=]/g, '').trim();
+        return Buffer.from(cleanBase64, 'base64');
+      } catch (err) {
+        console.warn("[readBinaryFromContainer] SSM read failed:", err.message);
+        throw err;
+      }
+    }
+  }
+  return null;
+};

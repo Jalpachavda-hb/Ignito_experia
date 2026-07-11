@@ -30,6 +30,7 @@ import {
   filesContentHandler,
   filesSaveHandler,
   filesDeleteHandler,
+  filesDownloadHandler,
 } from "./handlers/files.js";
 import { submitHandler } from "./handlers/submit.js";
 import { jupyterHealthHandler } from "./handlers/jupyterHealth.js";
@@ -175,6 +176,7 @@ export const ROUTES = [
 
   { method: "GET", path: "/files", handler: filesListHandler, auth: true },
   { method: "GET", path: "/files/content", handler: filesContentHandler, auth: true },
+  { method: "GET", path: "/files/download", handler: filesDownloadHandler, auth: true },
   { method: "POST", path: "/save", handler: filesSaveHandler, auth: true },
   { method: "DELETE", path: "/files", handler: filesDeleteHandler, auth: true },
 ];

@@ -166,9 +166,10 @@ export const setupJupyterProxy = (app, apiPrefix) => {
     },
     pathRewrite: (path, req) => {
       const url = req.originalUrl || req.url || path || "";
-      const match = url.match(/\/lab-sessions\/([^/]+)\/jupyter/);
-      const sessionId = match ? match[1] : "";
-      const prefix = `${apiPrefix}/lab-sessions/${sessionId}/jupyter`;
+      const match = url.match(/\/(lab-sessions|lab\/sessions)\/([^/]+)\/jupyter/);
+      const sessionId = match ? match[2] : "";
+      const pathType = match ? match[1] : "lab-sessions";
+      const prefix = `${apiPrefix}/${pathType}/${sessionId}/jupyter`;
       return path.startsWith(prefix) ? path : `${prefix}${path}`;
     },
     on: {

@@ -1,3 +1,4 @@
+import path from "path";
 import { ok } from "../lib/apigw.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { getSession } from "../services/sessionRepository.js";
@@ -7,7 +8,7 @@ import {
   upsertFile,
   deleteFile,
 } from "../services/fileRepository.js";
-import { saveToContainer, deleteFromContainer, getFilesFromContainer, readFromContainer } from "../services/containerClient.js";
+import { saveToContainer, deleteFromContainer, getFilesFromContainer, readFromContainer, readBinaryFromContainer } from "../services/containerClient.js";
 import { validateFile } from "../utils/validation.js";
 
 const getSessionId = (event) =>
@@ -132,4 +133,32 @@ export const filesDeleteHandler = async (event) => {
   }
 
   return ok({ message: "File deleted successfully" });
+};
+
+export const filesDownloadHandler = async (event) => {
+  const { sessionId, session } = await assertSessionAccess(event);
+  const filePath = event.queryStringParameters?.path;
+
+  if (!filePath) throw badRequest("path query parameter is required");
+
+  if (session?.status === "running") {
+    try {
+      const buffer = await readBinaryFromContainer(session, filePath);
+      if (buffer) {
+        return {
+          statusCode: 200,
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": `attachment; filename="${path.basename(filePath)}"`,
+            "Content-Length": buffer.length.toString(),
+            "Access-Control-Allow-Origin": "*",
+          },
+          body: buffer,
+        };
+      }
+    } catch (err) {
+      console.warn("[filesDownloadHandler] Failed to download container file:", err.message);
+    }
+  }
+  throw notFound("File not found or session not running");
 };

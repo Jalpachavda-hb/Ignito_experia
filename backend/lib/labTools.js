@@ -75,8 +75,8 @@ export const buildJupyterProxyUrl = async (session) => {
   // otherwise fall back to just the path so the browser resolves it relative to its own origin.
   const isLocalhost = /localhost|127\.0\.0\.1/.test(base);
   const prefix = isLocalhost
-    ? `${ENV.apiPrefix}/lab-sessions/${session.sessionId}/jupyter`
-    : `${base}/lab-sessions/${session.sessionId}/jupyter`;
+    ? `${ENV.apiPrefix}/lab/sessions/${session.sessionId}/jupyter`
+    : `${base}/lab/sessions/${session.sessionId}/jupyter`;
 
   let targetPath = runtime.path || "";
   if (!targetPath || targetPath === "/" || targetPath === "/lab") {

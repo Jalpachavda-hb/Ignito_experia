@@ -9,6 +9,8 @@ import {
   Folder, FolderOpen, RotateCw
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
+import { useAuthStore } from '@/stores/auth-store';
+import { resolveApiRelativeUrl } from '@/config/env';
 
 const getFileIcon = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -483,6 +485,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [consoleSession, setConsoleSession] = useState<ConsoleSessionState | null>(null);
+  const [isAndroidBuilding, setIsAndroidBuilding] = useState(false);
+  const [androidBuildLogs, setAndroidBuildLogs] = useState<string>('No build logs yet. Click BUILD to start compiling your Android application.');
+  const [androidApkUrl, setAndroidApkUrl] = useState<string | null>(null);
 
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
 
@@ -1080,6 +1085,55 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
   const handleBuild = () => executeCode('build');
   const handleDotnetRun = () => executeCode('run');
 
+  const handleAndroidBuild = async () => {
+    if (!sessionId) return;
+    setIsAndroidBuilding(true);
+    setAndroidBuildLogs('Starting Android build...\nExecuting: ./gradlew assembleDebug\nThis may take a moment...\n');
+    setAndroidApkUrl(null);
+
+    try {
+      const runPayload = {
+        path: '/workspace/build.sh',
+        language: 'shell',
+        content: 'cd /workspace && chmod +x build.sh && ./build.sh',
+        labType: 'android'
+      };
+
+      const response = await runFile(runPayload, sessionId);
+      if (response) {
+        const runSuccess = response.success || response.status === 'COMPLETED';
+        const rawOutput = response.output || '';
+        const rawError = response.error || response.runtimeError || response.syntaxError || '';
+
+        const fullLogs = `${rawOutput}\n${rawError}`;
+        setAndroidBuildLogs(fullLogs.trim() || (runSuccess ? 'Build Succeeded.' : 'Build Failed. No output.'));
+
+        if (runSuccess) {
+          toast.success('Android build completed successfully!');
+          const token = useAuthStore.getState().token;
+          const downloadUrl = `${resolveApiRelativeUrl('/files/download')}?path=/workspace/app/build/outputs/apk/debug/app-debug.apk&sessionId=${sessionId}&token=${encodeURIComponent(token || '')}`;
+          setAndroidApkUrl(downloadUrl);
+        } else {
+          toast.error('Android build failed. Check logs.');
+        }
+      } else {
+        setAndroidBuildLogs(prev => prev + '\nError: No response received from the build engine.');
+        toast.error('Android build failed. No response received.');
+      }
+    } catch (err: any) {
+      const errMsg = err.message || 'Failed to call the build execution service.';
+      setAndroidBuildLogs(prev => prev + `\nError: ${errMsg}`);
+      toast.error(`Android build failed: ${errMsg}`);
+    } finally {
+      setIsAndroidBuilding(false);
+    }
+  };
+
+  const handleDownloadApk = () => {
+    if (!androidApkUrl) return;
+    window.open(androidApkUrl, '_blank');
+  };
+
   const handleAddFile = async () => {
     if (openFilePaths.length >= 8) {
       toast.error('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
@@ -1404,7 +1458,28 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
             >
               <Download size={18} />
             </button>
-            {isDotnetBuildMode ? (
+            {isAndroid ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAndroidBuild}
+                  disabled={isAndroidBuilding}
+                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isAndroidBuilding ? 'bg-amber-900/50 text-white/50 cursor-not-allowed' : 'bg-[#f59e0b] hover:bg-amber-600 shadow-lg shadow-amber-600/20'
+                    }`}
+                >
+                  <Play size={12} className="fill-current" />
+                  {isAndroidBuilding ? 'BUILDING...' : 'BUILD'}
+                </button>
+                {androidApkUrl && (
+                  <button
+                    onClick={handleDownloadApk}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20 animate-pulse"
+                  >
+                    <Download size={12} />
+                    DOWNLOAD APK
+                  </button>
+                )}
+              </div>
+            ) : isDotnetBuildMode ? (
               <>
                 <button
                   onClick={handleBuild}
@@ -1509,27 +1584,39 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
             )}
 
             {/* Right Preview Panel */}
-            <div className="w-[40%] bg-white flex flex-col shrink-0">
-              <div className="h-10 bg-white flex justify-center items-center border-b border-red-500/20 relative">
-                <span className="text-[#dc2626] text-[10px] font-black uppercase tracking-widest">Preview</span>
-                <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
+            {isAndroid ? (
+              <div className="w-[40%] bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col shrink-0">
+                <div className="h-10 bg-[#1e1e1e] flex justify-center items-center border-b border-amber-500/20 relative">
+                  <span className="text-[#f59e0b] text-[10px] font-black uppercase tracking-widest">Build Logs</span>
+                  <div className="absolute bottom-0 w-full h-[2px] bg-[#f59e0b]" />
+                </div>
+                <div className="flex-1 w-full p-4 bg-[#111] font-mono text-[12px] text-slate-300 overflow-y-auto whitespace-pre-wrap selection:bg-amber-500/30">
+                  {androidBuildLogs}
+                </div>
               </div>
-              <div className="flex-1 w-full bg-white relative">
-                {consoleSession?.active ? (
-                  <ConsoleInteractivePreview
-                    session={consoleSession}
-                    onSubmit={handleConsoleInputSubmit}
-                  />
-                ) : (
-                  <iframe
-                    srcDoc={webPreviewCode}
-                    className="absolute inset-0 w-full h-full border-0"
-                    title="Preview"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                  />
-                )}
+            ) : (
+              <div className="w-[40%] bg-white flex flex-col shrink-0">
+                <div className="h-10 bg-white flex justify-center items-center border-b border-red-500/20 relative">
+                  <span className="text-[#dc2626] text-[10px] font-black uppercase tracking-widest">Preview</span>
+                  <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
+                </div>
+                <div className="flex-1 w-full bg-white relative">
+                  {consoleSession?.active ? (
+                    <ConsoleInteractivePreview
+                      session={consoleSession}
+                      onSubmit={handleConsoleInputSubmit}
+                    />
+                  ) : (
+                    <iframe
+                      srcDoc={webPreviewCode}
+                      className="absolute inset-0 w-full h-full border-0"
+                      title="Preview"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    />
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       </div>
