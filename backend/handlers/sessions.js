@@ -63,6 +63,10 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     durationMinutes,
   });
 
+  if (body?.dotnetSubtype) {
+    session.dotnetSubtype = body.dotnetSubtype;
+  }
+
   if (!isEcsEnabled()) {
     session.status = "running";
     session.message = "Lab environment (local mock) is ready";

@@ -3,7 +3,6 @@ import { ENV, useDynamoDb } from "../config/env.js";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { ddbGet, ddbPut, ddbUpdate, ddbDelete, getDocClient } from "../lib/dynamodb.js";
 import { enrichSession } from "../lib/labTools.js";
-import { ANDROID_STARTER_FILES } from "../lib/androidStarter.js";
 
 const memorySessions = new Map();
 

@@ -63,9 +63,10 @@ interface EmbedProps {
   sessionId?: string;
   onStopLab: () => void;
   onBack: () => void;
+  remainingTime?: string | null;
 }
 
-const JupyterEmbed = ({ url, sessionId, onStopLab, onBack }: EmbedProps) => {
+const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: EmbedProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [iframeSrc, setIframeSrc] = useState('');
 
@@ -103,7 +104,14 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack }: EmbedProps) => {
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
       <div className="bg-[#1e1e1e] border-b border-white/10 px-4 py-2 flex items-center justify-between shrink-0">
-        <span className="text-white text-sm font-black uppercase tracking-wide">Data Science Lab</span>
+        <div className="flex items-center gap-4">
+          <span className="text-white text-sm font-black uppercase tracking-wide">Data Science Lab</span>
+          {remainingTime && (
+            <span className="text-red-500 font-mono text-xs font-black bg-red-950/40 border border-red-500/20 px-2 py-0.5 rounded animate-pulse">
+              Time Remaining: {remainingTime}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <button onClick={onBack} className="flex items-center gap-1 text-[9px] font-black h-7 px-4 bg-red-600 text-white uppercase tracking-widest shrink-0 rounded">
             <ArrowLeft size={14} /> Back to Dashboard
@@ -140,7 +148,7 @@ export const RemoteDesktop = () => {
   const [showStopModal, setShowStopModal] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const user = useAuthStore(state => state.auth.user);
-  const { stopLab } = useLabSessionStore();
+  const { stopLab, elapsedTime: remainingTime, setActiveSession } = useLabSessionStore();
 
   const search = location.search as Record<string, string>;
   const labId = search.labId || '';
@@ -180,10 +188,12 @@ export const RemoteDesktop = () => {
           maxAttempts: isAndroid ? 300 : 90,
           intervalMs: 2000
         });
-        setSession({
+        const sessionWithRuntime = {
           ...readySession,
           runtimeType: getEffectiveRuntimeType(readySession, catalogRuntimeType),
-        });
+        };
+        setSession(sessionWithRuntime);
+        setActiveSession(sessionWithRuntime);
         setConnecting(false);
       } catch (err: any) {
         setError(err.message || 'Failed to initialize session');
@@ -264,7 +274,7 @@ export const RemoteDesktop = () => {
   if (session && isTerminalSession) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
-        <Terminal session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
+        <Terminal session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
@@ -274,7 +284,7 @@ export const RemoteDesktop = () => {
   if (session && isBuiltInEditorSession) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
-        <CloudEditor session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
+        <CloudEditor session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
@@ -284,7 +294,7 @@ export const RemoteDesktop = () => {
   if (session && isEmulatorSession) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
-        <AndroidEmulator session={session} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
+        <AndroidEmulator session={session} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>
@@ -295,7 +305,7 @@ export const RemoteDesktop = () => {
   if (isJupyterSession && typeof labToolUrl === 'string' && labToolUrl.startsWith('http')) {
     return (
       <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
-        <JupyterEmbed url={labToolUrl} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} />
+        <JupyterEmbed url={labToolUrl} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
       </div>

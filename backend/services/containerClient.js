@@ -7,6 +7,9 @@ import { exec } from "child_process";
 import util from "util";
 import os from "os";
 import { describeTask } from "./ecsService.js";
+import { updateSession } from "./sessionRepository.js";
+import { runCommandInContainer } from "./executeCommandService.js";
+import { getSsmEnv } from "./awsExecuteCommand.js";
 const execAsync = util.promisify(exec);
 const nullDev = os.platform() === "win32" ? "NUL" : "/dev/null";
 
@@ -58,7 +61,7 @@ const DOTNET_ALLOWED_CSHARP_VIEW = "index.cshtml";
 const isDotnetAllowedCshtml = (fileName) =>
   (fileName || "").toLowerCase() === DOTNET_ALLOWED_CSHARP_VIEW;
 
-const isDotnetWorkspaceFileAllowed = (filePath, fileName) => {
+const isDotnetWorkspaceFileAllowed = (filePath, fileName, subtype) => {
   if (isDotnetBuildArtifact(filePath, fileName)) {
     return false;
   }
@@ -66,14 +69,21 @@ const isDotnetWorkspaceFileAllowed = (filePath, fileName) => {
   const parts = normalized.split("/").filter(Boolean);
   const name = (fileName || parts[parts.length - 1] || "").toLowerCase();
 
-  if (name.endsWith(".csproj")) return true;
-  if (name.endsWith(".cshtml")) return isDotnetAllowedCshtml(name);
-  if (DOTNET_ALLOWED_FILE_NAMES.has(name)) return true;
-  return false;
+  const isMvc = subtype === "mvc" || normalized.toLowerCase().includes("mywebapp") || normalized.toLowerCase().includes("mvc");
+
+  if (isMvc) {
+    if (name.endsWith(".csproj")) return true;
+    if (name === "index.cshtml") return true;
+    const mvcAllowed = ["program.cs", "homecontroller.cs", "appsettings.json", "appsettings.development.json"];
+    return mvcAllowed.includes(name);
+  } else {
+    // Console: Show only Program.cs
+    return name === "program.cs";
+  }
 };
 
-const filterDotnetWorkspaceFiles = (files) =>
-  (files || []).filter((file) => isDotnetWorkspaceFileAllowed(file.path, file.name));
+const filterDotnetWorkspaceFiles = (files, subtype) =>
+  (files || []).filter((file) => isDotnetWorkspaceFileAllowed(file.path, file.name, subtype));
 
 const DOTNET_LIST_FILES_SCRIPT = `import os
 import json
@@ -366,6 +376,7 @@ const isPrivateHost = (host) =>
 const shouldPreferSsmExecution = (host, ctx) =>
   Boolean(
     ctx &&
+    process.env.DISABLE_SSM !== "true" &&
     (ENV.containerHostMode === "private" || isPrivateHost(host) || !host),
   );
 
@@ -897,33 +908,7 @@ const resolveAwsCli = () => {
   return { awsExePath, argsPrepend: [], isLocalWinSetup: false };
 };
 
-const getSsmEnv = () => {
-  const env = { ...process.env };
-  if (os.platform() === "win32") {
-    const userHome = os.homedir();
-    const additions = [
-      "C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin",
-      "C:\\Program Files\\Amazon\\AWSCLIV2",
-    ];
 
-    // Dynamically find any python core scripts directories to add to PATH
-    const pythonDir = path.join(userHome, "AppData", "Local", "Python");
-    if (fs.existsSync(pythonDir)) {
-      try {
-        const folders = fs.readdirSync(pythonDir);
-        for (const folder of folders) {
-          additions.push(path.join(pythonDir, folder, "Scripts"));
-        }
-      } catch (e) { }
-    }
-
-    env.PATH = [
-      ...additions,
-      env.PATH || "",
-    ].join(";");
-  }
-  return env;
-};
 
 const stripSsmNoise = (stdout) => {
   let cleanOut = stdout || "";
@@ -978,39 +963,7 @@ const waitForExecuteCommandAgent = async (session) => {
   );
 };
 const runSsmShellCommand = async (session, commandValue, { timeoutMs = 120000 } = {}) => {
-  const ctx = getEcsExecContext(session);
-  if (!ctx) {
-    throw new Error("Missing ECS task info for SSM execution");
-  }
-  await waitForExecuteCommandAgent(session);
-  const region = ENV.awsRegion;
-  const aws = resolveAwsCli();
-  let awsPrefix = `"${aws.awsExePath}"`;
-  if (aws.argsPrepend.length > 0) {
-    awsPrefix = `"${aws.awsExePath}" ${aws.argsPrepend.map((a) => `"${a}"`).join(" ")}`;
-  } else if (!aws.awsExePath.includes("\\") && !aws.awsExePath.includes("/")) {
-    awsPrefix = aws.awsExePath;
-  }
-
-  const execCmd =
-    os.platform() === "win32"
-      ? `${awsPrefix} ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${ctx.container} --interactive --command "${commandValue}" --region ${region} < NUL`
-      : `${awsPrefix} ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${ctx.container} --interactive --command "${commandValue}" --region ${region}`;
-
-  try {
-    const { stdout } = await execAsync(execCmd, {
-      env: getSsmEnv(),
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: timeoutMs,
-    });
-
-    return stripSsmNoise(stdout);
-  } catch (err) {
-    if (err.killed || err.code === "ETIMEDOUT") {
-      throw new Error(`SSM command timed out after ${Math.round(timeoutMs / 1000)}s`);
-    }
-    throw err;
-  }
+  return await runCommandInContainer(session, commandValue, { timeoutMs });
 };
 
 const executeViaSsm = async (session, payload) => {
@@ -1175,13 +1128,8 @@ const executeViaHttp = async (session, payload, baseUrl) => {
                 runner = "python3"; ext = "py";
               }
 
-              let execCmd = `aws ecs execute-command --cluster ${ctx.cluster} --task ${ctx.taskId} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'" --region ${region} < ${nullDev}`;
-              const { stdout } = await execAsync(execCmd, { env: process.env });
-
-              let cleanOut = stdout;
-              cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
-              cleanOut = cleanOut.replace(/Starting session with SessionId:\s*[\w-]+\s*/gi, '');
-              cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, '');
+              const commandValue = `sh -c 'echo ${b64} | base64 -d > /tmp/ssm_exec.${ext} && ${runner} /tmp/ssm_exec.${ext} 2>&1'`;
+              const cleanOut = await runSsmShellCommand(session, commandValue);
 
               return {
                 success: true,
@@ -1238,7 +1186,7 @@ except Exception as e:
       content: pythonScript,
     };
 
-    const result = await executeInContainer(session, payload, { forceSsm: true });
+    const result = await executeInContainer(session, payload);
     if (result && result.output && result.output.includes("SUCCESS")) {
       console.log(`[saveToContainer] SSM Python sync successful for ${containerPath}`);
       return { proxied: true, method: "ssm" };
@@ -1374,7 +1322,7 @@ if os.path.exists(__file__):
   };
 
   try {
-    const result = await executeInContainer(session, payload, { forceSsm: true });
+    const result = await executeInContainer(session, payload);
     if (!result || !result.output || (!result.output.includes("Deleted successfully") && !result.output.includes("No targets found"))) {
       throw new Error("Unable to access container workspace. Please refresh or restart the session.");
     }
@@ -1469,7 +1417,7 @@ print("---FILES_START---" + json.dumps(result) + "---FILES_END---")`
   };
 
   try {
-    const result = await executeInContainer(session, payload, { forceSsm: true });
+    const result = await executeInContainer(session, payload);
     if (result && result.output) {
       const output = result.output;
       const startMarker = "---FILES_START---";
@@ -1498,7 +1446,7 @@ print("---FILES_START---" + json.dumps(result) + "---FILES_END---")`
           }
         }
 
-        return isDotnet ? filterDotnetWorkspaceFiles(filesList) : filesList;
+        return isDotnet ? filterDotnetWorkspaceFiles(filesList, session?.dotnetSubtype) : filesList;
       }
     }
     throw new Error("Unable to access container workspace. Please refresh or restart the session.");
@@ -1532,7 +1480,7 @@ except Exception as e:
   };
 
   try {
-    const result = await executeInContainer(session, payload, { forceSsm: true });
+    const result = await executeInContainer(session, payload);
     if (result && result.output) {
       const output = result.output;
       const startMarker = "---CONTENT_START---";
@@ -1642,10 +1590,8 @@ print("###" + json.dumps(files_list) + "###")`
     const { cluster, task } = getTaskDetails(session);
     if (cluster && task) {
       try {
-        const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'mkdir -p /tmp/workspace/workspace && (if [ -z \\"\\\$(ls -A /tmp/workspace/workspace 2>/dev/null)\\" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && find /tmp/workspace/workspace -maxdepth 8 -type f 2>/dev/null'" --region ${region} < ${nullDev}`;
-
-        const { stdout } = await execAsync(execCmd, { env: process.env });
+        const commandValue = `sh -c 'mkdir -p /tmp/workspace/workspace && (if [ -z "\\$(ls -A /tmp/workspace/workspace 2>/dev/null)" ] && [ -d /workspace ]; then cp -rn /workspace/* /tmp/workspace/workspace/ 2>/dev/null || true; fi) && find /tmp/workspace/workspace -maxdepth 8 -type f 2>/dev/null'`;
+        const stdout = await runSsmShellCommand(session, commandValue);
         const files = stdout.split('\n')
           .map(line => line.trim())
           .filter(line => {
@@ -1715,7 +1661,7 @@ else:
   };
 
   try {
-    const result = await executeInContainer(session, payload, { forceSsm: true });
+    const result = await executeInContainer(session, payload);
     if (result && result.success && result.output) {
       const match = result.output.match(/###(.*?)###/s);
       if (match) {
@@ -1733,14 +1679,8 @@ else:
     const { cluster, task } = getTaskDetails(session);
     if (cluster && task) {
       try {
-        const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'" --region ${region} < ${nullDev}`;
-
-        const { stdout } = await execAsync(execCmd, { env: process.env });
-        let cleanOut = stdout;
-        cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
-        cleanOut = cleanOut.replace(/Starting session with SessionId:\s*[\w-]+\s*/gi, '');
-        cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, '');
+        const commandValue = `sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'`;
+        const cleanOut = await runSsmShellCommand(session, commandValue);
 
         const lines = cleanOut.split('\n').map(l => l.trim()).filter(Boolean);
         const lastLine = lines[lines.length - 1];
@@ -1761,7 +1701,7 @@ export const getPresignedUrl = async (bucket, key, ttlSeconds = 3600) => {
   try {
     const awsCmd = `aws s3 presign s3://${bucket}/${key} --expires-in ${ttlSeconds}`;
     console.log(`[S3] Generating presigned URL with cmd: ${awsCmd}`);
-    const { stdout } = await execAsync(awsCmd);
+    const { stdout } = await execAsync(awsCmd, { env: getSsmEnv() });
     return stdout.trim();
   } catch (err) {
     console.error("[getPresignedUrl] Error generating presigned URL:", err.message);
@@ -1769,10 +1709,120 @@ export const getPresignedUrl = async (bucket, key, ttlSeconds = 3600) => {
   }
 };
 
+const readFilesRecursively = async (dir, baseDir) => {
+  const results = [];
+  const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    const relPath = path.relative(baseDir, fullPath).replace(/\\/g, "/");
+
+    const ignored = ['.git', 'node_modules', '.gradle', '.idea', '__pycache__', 'tmp'];
+    if (ignored.some(i => relPath.split('/').includes(i))) {
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      results.push(...(await readFilesRecursively(fullPath, baseDir)));
+    } else {
+      const ext = entry.name.split('.').pop()?.toLowerCase();
+      const skipExts = ['apk', 'zip', 'tar.gz', 'png', 'jpg', 'jpeg', 'gif', 'ico', 'pyc', 'class'];
+      if (skipExts.includes(ext)) {
+        continue;
+      }
+
+      let content = "";
+      try {
+        const stats = await fs.promises.stat(fullPath);
+        if (stats.size < 500 * 1024) {
+          content = await fs.promises.readFile(fullPath, "utf-8");
+        }
+      } catch (e) {
+        console.warn(`[bootstrapWorkspaceLocally] Failed to read ${relPath}:`, e.message);
+      }
+
+      let lang = "";
+      if (ext === 'py') lang = 'python';
+      else if (ext === 'java') lang = 'java';
+      else if (ext === 'cs') lang = 'csharp';
+      else if (ext === 'cshtml') lang = 'razor';
+      else if (ext === 'html') lang = 'html';
+      else if (ext === 'css') lang = 'css';
+      else if (ext === 'js' || ext === 'jsx') lang = 'javascript';
+      else if (ext === 'json') lang = 'json';
+      else if (ext === 'md') lang = 'markdown';
+      else if (ext === 'gradle') lang = 'groovy';
+      else if (ext === 'sh') lang = 'shell';
+      else if (ext === 'xml') lang = 'xml';
+
+      results.push({
+        name: entry.name,
+        path: "/workspace/" + relPath,
+        type: "file",
+        content,
+        language: lang
+      });
+    }
+  }
+
+  return results;
+};
+
+export const bootstrapWorkspaceLocally = async (session, presignedUrl) => {
+  const tempDir = path.join(process.cwd(), "..", "tmp_s3_extract_" + session.sessionId);
+  
+  try {
+    await fs.promises.mkdir(tempDir, { recursive: true });
+
+    const tarballPath = path.join(tempDir, "bootstrap.tar.gz");
+
+    console.log(`[bootstrapWorkspaceLocally] Downloading tarball from S3. Session: ${session.sessionId}`);
+    const res = await fetch(presignedUrl);
+    if (!res.ok) {
+      throw new Error(`Failed to download tarball: HTTP ${res.status}`);
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    await fs.promises.writeFile(tarballPath, buffer);
+    console.log(`[bootstrapWorkspaceLocally] Successfully downloaded tarball. Size: ${buffer.length} bytes.`);
+
+    console.log(`[bootstrapWorkspaceLocally] Extracting tarball locally on host...`);
+    const normalizedTarballPath = tarballPath.replace(/\\/g, "/");
+    const normalizedTempDir = tempDir.replace(/\\/g, "/");
+    const extractCmd = `tar -xf "${normalizedTarballPath}" -C "${normalizedTempDir}"`;
+    
+    console.log(`[bootstrapWorkspaceLocally] Running extraction command: ${extractCmd}`);
+    try {
+      const { stdout, stderr } = await execAsync(extractCmd);
+      console.log(`[bootstrapWorkspaceLocally] Extraction stdout: ${stdout || '(empty)'}, stderr: ${stderr || '(empty)'}`);
+    } catch (tarErr) {
+      console.error(`[bootstrapWorkspaceLocally] Tar extraction execution failed:`, tarErr.message);
+      throw tarErr;
+    }
+
+    console.log(`[bootstrapWorkspaceLocally] Parsing files list recursively...`);
+    const files = await readFilesRecursively(tempDir, tempDir);
+    console.log(`[bootstrapWorkspaceLocally] Total files found under tempDir: ${files.length}`);
+
+    const filteredFiles = files.filter(f => !f.path.endsWith("bootstrap.tar.gz"));
+    console.log(`[bootstrapWorkspaceLocally] Filtered files count: ${filteredFiles.length}`);
+
+    console.log(`[bootstrapWorkspaceLocally] Cleaning up temp files...`);
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
+
+    return filteredFiles;
+  } catch (err) {
+    console.error(`[bootstrapWorkspaceLocally] Error during local S3 bootstrap extraction:`, err.message);
+    try {
+      await fs.promises.rm(tempDir, { recursive: true, force: true });
+    } catch {}
+    throw err;
+  }
+};
+
 export const bootstrapWorkspaceFromS3 = async (session) => {
   const bucket = ENV.testCasesBucket || 'vlab-dev-lab-files-0kdrg0q8';
   const ttl = ENV.labBootstrapPresignTtlSeconds || 3600;
-  
+
   const labId = (session?.labId || "").toLowerCase();
   const labType = (session?.labType || "").toLowerCase();
 
@@ -1782,9 +1832,14 @@ export const bootstrapWorkspaceFromS3 = async (session) => {
 
   let key = "";
   if (isAndroid) {
-    key = "lab-assets/android-starter/latest.tar.gz";
+    key = "lab-assets/android/starter/latest.tar.gz";
   } else if (isDotnet) {
-    const isMvc = labId.includes("mvc") || labId.includes("mvc-app") || labType.includes("mvc");
+    let isMvc = false;
+    if (session?.dotnetSubtype) {
+      isMvc = session.dotnetSubtype === "mvc";
+    } else {
+      isMvc = labId.includes("mvc") || labId.includes("mvc-app") || labType.includes("mvc");
+    }
     key = isMvc ? "lab-assets/dotnet/mvc/latest.tar.gz" : "lab-assets/dotnet/console-snippet/latest.tar.gz";
   } else if (isDataScience) {
     key = "lab-assets/datascience/notebook/latest.tar.gz";
@@ -1798,19 +1853,68 @@ export const bootstrapWorkspaceFromS3 = async (session) => {
     const presignedUrl = await getPresignedUrl(bucket, key, ttl);
     console.log(`[bootstrapWorkspaceFromS3] Successfully generated presigned URL.`);
 
-    // Download to /tmp/bootstrap.tar.gz, extract via tar, and set executable permissions safely
-    const cmd = `mkdir -p /tmp/workspace/workspace && curl -sL "${presignedUrl}" -o /tmp/bootstrap.tar.gz && tar -xzf /tmp/bootstrap.tar.gz -C /tmp/workspace/workspace && (chmod +x /tmp/workspace/workspace/gradlew /tmp/workspace/workspace/build.sh 2>/dev/null || true) && rm /tmp/bootstrap.tar.gz`;
+    // 1. Download and parse files locally on the host machine to populate DB cache immediately
+    console.log(`[bootstrapWorkspaceFromS3] Extracting S3 starter files locally on host...`);
+    const files = await bootstrapWorkspaceLocally(session, presignedUrl);
+    if (files && files.length > 0) {
+      const filtered = isDotnet ? filterDotnetWorkspaceFiles(files, session?.dotnetSubtype) : files;
+      const dbFiles = filtered.map(({ content, ...rest }) => rest);
+      await updateSession(session.sessionId, { files: dbFiles }).catch((e) => {
+        console.warn("[bootstrapWorkspaceFromS3] Failed to cache files to DB:", e.message);
+      });
+      console.log(`[bootstrapWorkspaceFromS3] Successfully cached ${dbFiles.length} files to database.`);
+    }
 
-    console.log(`[bootstrapWorkspaceFromS3] Running download & extract script inside container...`);
-    const payload = {
-      path: "/tmp/bootstrap.sh",
-      language: "shell",
-      content: cmd
-    };
+    // 2. Download and extract inside container in background (if container is running)
+    (async () => {
+      try {
+        const pythonScript = `import urllib.request
+import tarfile
+import os
 
-    const result = await executeInContainer(session, payload, { forceSsm: true });
-    console.log(`[bootstrapWorkspaceFromS3] Execution result:`, result?.output || 'No output');
-    return result;
+presigned_url = "${presignedUrl}"
+dest_dir = "/tmp/workspace/workspace"
+tmp_tar = "/tmp/bootstrap.tar.gz"
+
+try:
+    os.makedirs(dest_dir, exist_ok=True)
+    urllib.request.urlretrieve(presigned_url, tmp_tar)
+    with tarfile.open(tmp_tar, "r:gz") as tar:
+        tar.extractall(path=dest_dir)
+    if os.path.exists(tmp_tar):
+        os.remove(tmp_tar)
+    
+    for filename in ["gradlew", "build.sh"]:
+        filepath = os.path.join(dest_dir, filename)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "rb") as f:
+                    content = f.read()
+                content = content.replace(b"\\r\\n", b"\\n")
+                with open(filepath, "wb") as f:
+                    f.write(content)
+            except Exception as e:
+                print("CLEAN_ERR:", str(e))
+            os.chmod(filepath, 0o755)
+    print("SUCCESS")
+except Exception as e:
+    print("ERROR:", str(e))
+`;
+        const payload = {
+          path: "/tmp/bootstrap.py",
+          language: "python",
+          content: pythonScript
+        };
+
+        console.log(`[bootstrapWorkspaceFromS3] Syncing S3 assets to container task in background...`);
+        const result = await executeInContainer(session, payload);
+        console.log(`[bootstrapWorkspaceFromS3] Container sync outcome:`, result?.output || 'No output');
+      } catch (err) {
+        console.warn(`[bootstrapWorkspaceFromS3] Container sync failed (non-blocking):`, err.message);
+      }
+    })();
+
+    return { success: true };
   } catch (err) {
     console.error(`[bootstrapWorkspaceFromS3] Failed to bootstrap workspace from S3:`, err.message);
     throw err;
@@ -1826,14 +1930,8 @@ export const readBinaryFromContainer = async (session, filePath) => {
     const { cluster, task } = getTaskDetails(session);
     if (cluster && task) {
       try {
-        const region = process.env.AWS_REGION || 'ap-south-1';
-        let execCmd = `aws ecs execute-command --cluster ${cluster} --task ${task} --container ${session.ContainerName || 'lab-runtime'} --interactive --command "sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'" --region ${region} < ${nullDev}`;
-
-        const { stdout } = await execAsync(execCmd, { env: process.env });
-        let cleanOut = stdout;
-        cleanOut = cleanOut.replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/gi, '');
-        cleanOut = cleanOut.replace(/Starting session with SessionId:\s*[\w-]+\s*/gi, '');
-        cleanOut = cleanOut.replace(/Exiting session with sessionId:\s*[\w-]+\.?\s*/gi, '');
+        const commandValue = `sh -c 'if [ -f \\"${containerPath}\\" ]; then cat \\"${containerPath}\\" | base64; else echo NOT_FOUND; fi'`;
+        const cleanOut = await runSsmShellCommand(session, commandValue);
 
         const lines = cleanOut.split('\n').map(l => l.trim()).filter(Boolean);
         const lastLine = lines[lines.length - 1];

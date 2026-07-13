@@ -191,7 +191,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         {isRunning && (
           <div className="mt-auto mb-2 w-full">
             <div className="flex justify-between text-[10px] mb-1.5">
-              <span className="font-semibold uppercase text-slate-400 tracking-wider">Elapsed Time</span>
+              <span className="font-semibold uppercase text-slate-400 tracking-wider">Time Remaining</span>
               <span className="font-bold text-emerald-600 dark:text-emerald-400">{elapsedTime || '0:00'}</span>
             </div>
             <Progress value={100} className={`h-1.5 bg-slate-100 dark:bg-slate-800 [&>div]:bg-emerald-500`} />

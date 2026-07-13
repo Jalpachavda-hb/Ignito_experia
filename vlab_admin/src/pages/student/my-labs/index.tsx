@@ -13,6 +13,7 @@ import { useLabSessionStore } from '@/stores/labSessionStore';
 import { SessionTimeoutModal } from './components/session-timeout-modal';
 import { PaymentGateway } from './components/payment-gateway';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { DotnetSelectionModal } from './components/dotnet-selection-modal';
 
 export default function MyLabs() {
   const { labs, isLoading, error, loadLabs } = useLabStore();
@@ -30,6 +31,8 @@ export default function MyLabs() {
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState<any>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [showDotnetModal, setShowDotnetModal] = useState(false);
+  const [selectedDotnetLabId, setSelectedDotnetLabId] = useState<string | null>(null);
 
   useEffect(() => {
     loadLabs();
@@ -107,7 +110,29 @@ export default function MyLabs() {
       return;
     }
 
+    const isDotnet = labId.toLowerCase().includes('dotnet') ||
+                     lab.category?.toLowerCase().includes('dotnet') ||
+                     lab.title?.toLowerCase().includes('.net');
+
+    if (isDotnet) {
+      setSelectedDotnetLabId(labId);
+      setShowDotnetModal(true);
+      return;
+    }
+
     const readySession = await startLab(labId);
+    if (readySession) {
+      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: readySession.sessionId } });
+    }
+  };
+
+  const handleConfirmDotnetLab = async (subtype: 'console' | 'mvc') => {
+    setShowDotnetModal(false);
+    const labId = selectedDotnetLabId;
+    if (!labId) return;
+    setSelectedDotnetLabId(null);
+
+    const readySession = await startLab(labId, subtype);
     if (readySession) {
       navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: readySession.sessionId } });
     }
@@ -276,6 +301,13 @@ export default function MyLabs() {
       {/* Timeout Modal */}
       <SessionTimeoutModal
         session={activeSession}
+      />
+
+      {/* Dotnet Project Selection Modal */}
+      <DotnetSelectionModal
+        open={showDotnetModal}
+        onOpenChange={setShowDotnetModal}
+        onConfirm={handleConfirmDotnetLab}
       />
     </>
   );

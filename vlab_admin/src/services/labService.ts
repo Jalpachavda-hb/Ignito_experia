@@ -14,6 +14,7 @@ export interface LabSession {
   };
   startedAt?: string;
   expiresAt?: string;
+  durationMinutes?: number;
 }
 
 export interface LabLaunchResponse {
@@ -39,13 +40,13 @@ export async function fetchLabDetails(labId: string) {
   return apiRequest(`/labs/${labId}`);
 }
 
-export async function startLabSession({ labId, duration }: { labId: string; duration?: number }): Promise<LabLaunchResponse> {
+export async function startLabSession({ labId, duration, dotnetSubtype }: { labId: string; duration?: number; dotnetSubtype?: string }): Promise<LabLaunchResponse> {
   if (!labId) {
     throw new Error('labId is required to start a lab session');
   }
   return apiRequest('/lab-sessions', {
     method: 'POST',
-    body: JSON.stringify({ labId, ...(duration ? { duration } : {}) }),
+    body: JSON.stringify({ labId, ...(duration ? { duration } : {}), ...(dotnetSubtype ? { dotnetSubtype } : {}) }),
   });
 }
 

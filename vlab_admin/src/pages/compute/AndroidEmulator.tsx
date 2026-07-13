@@ -10,9 +10,10 @@ interface AndroidEmulatorProps {
   session: any;
   onStopLab: () => void;
   onBack: () => void;
+  remainingTime?: string | null;
 }
 
-export default function AndroidEmulator({ session, onStopLab, onBack }: AndroidEmulatorProps) {
+export default function AndroidEmulator({ session, onStopLab, onBack, remainingTime }: AndroidEmulatorProps) {
   const [booting, setBooting] = useState(true);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>([
@@ -308,6 +309,11 @@ export default function AndroidEmulator({ session, onStopLab, onBack }: AndroidE
         </div>
         
         <div className="flex items-center gap-3">
+          {remainingTime && (
+            <div className="text-red-500 font-mono text-[10px] font-black bg-red-950/40 border border-red-500/20 px-2.5 py-1 rounded animate-pulse shrink-0">
+              TIME REMAINING: {remainingTime}
+            </div>
+          )}
           <button 
             onClick={onBack}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#222] hover:bg-[#333] border border-white/10 text-white text-[11px] font-black uppercase tracking-wider transition-all"

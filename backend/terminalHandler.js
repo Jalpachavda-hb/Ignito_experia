@@ -172,8 +172,9 @@ export const setupTerminal = (io) => {
           region,
         ];
 
+        const { getSsmEnv } = await import('./services/awsExecuteCommand.js');
         const ptyEnv = {
-          ...process.env,
+          ...getSsmEnv(),
           TERM: "xterm-256color",
           AWS_PAGER: "",
         };

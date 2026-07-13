@@ -43,6 +43,11 @@ export const ENV = {
   apiOrigin: getApiOrigin(process.env.API_PUBLIC_URL || `http://localhost:${port}${apiPrefix}`),
   testCasesBucket: process.env.TEST_CASES_BUCKET || "vlab-dev-lab-files-0kdrg0q8",
   labBootstrapPresignTtlSeconds: Number(process.env.LAB_BOOTSTRAP_PRESIGN_TTL_SECONDS || 3600),
+  executeCommandMaxRetries: Number(process.env.EXECUTE_COMMAND_MAX_RETRIES || 6),
+  executeCommandTimeout: Number(process.env.EXECUTE_COMMAND_TIMEOUT || 120000),
+  executeCommandInitialDelay: Number(process.env.EXECUTE_COMMAND_INITIAL_DELAY || 2000),
+  executeCommandMaxDelay: Number(process.env.EXECUTE_COMMAND_MAX_DELAY || 30000),
+  executeCommandBackoffFactor: Number(process.env.EXECUTE_COMMAND_BACKOFF_FACTOR || 1.5),
 };
 
 export const useDynamoDb = () => Boolean(ENV.sessionsTable);

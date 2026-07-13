@@ -55,7 +55,7 @@ export const runsCreateHandler = async ({ body, auth }) => {
     language,
     labType: body?.labType,
   });
-  
+
   const isAndroid = labType === "android" || session.labId === "android" || session.labId === "mobile-app-lab";
 
   // Fallback to DB file content if not found anywhere

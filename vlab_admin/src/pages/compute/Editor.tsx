@@ -318,7 +318,7 @@ const ConsoleInteractivePreview = ({
   );
 };
 
-const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
+const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }: any) => {
   const location = useLocation();
   const editorRef = useRef<any>(null);
   const mountedRef = useRef(true);
@@ -382,9 +382,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
               toggleFolder(node.path);
               setSelectedFolderPath(node.path);
             }}
-            className={`flex items-center gap-1.5 px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer transition-colors border-l-2 ${
-              isFolderSelected ? 'bg-[#37373d] border-red-500 text-white' : 'border-transparent text-slate-300'
-            }`}
+            className={`flex items-center gap-1.5 px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer transition-colors border-l-2 ${isFolderSelected ? 'bg-[#37373d] border-red-500 text-white' : 'border-transparent text-slate-300'
+              }`}
             style={{ paddingLeft: `${depth * 12 + 16}px` }}
           >
             <ChevronRight
@@ -870,7 +869,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
         // Clean up openFilePaths and loadedPaths for deleted files
         const newPaths = new Set(newFilesList.map((f: any) => f.path));
-        
+
         let newActiveIdx = -1;
         if (activePathBefore && newPaths.has(activePathBefore)) {
           newActiveIdx = mergedFiles.findIndex((f: any) => f.path === activePathBefore);
@@ -958,24 +957,24 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       setConsoleSession((prev) =>
         prev
           ? {
-              ...prev,
-              isRunning: false,
-              output,
-              stdinLines,
-              success: runSuccess,
-              error: runSuccess ? null : rawError || 'Program exited with an error',
-            }
+            ...prev,
+            isRunning: false,
+            output,
+            stdinLines,
+            success: runSuccess,
+            error: runSuccess ? null : rawError || 'Program exited with an error',
+          }
           : prev,
       );
     } catch (err: any) {
       setConsoleSession((prev) =>
         prev
           ? {
-              ...prev,
-              isRunning: false,
-              success: false,
-              error: err.message || 'Failed to run program',
-            }
+            ...prev,
+            isRunning: false,
+            success: false,
+            error: err.message || 'Failed to run program',
+          }
           : prev,
       );
     }
@@ -1168,13 +1167,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
       return;
     }
 
-      const newFile = {
-        name: fileName,
-        path: `${selectedFolderPath}/${fileName}`,
-        type: 'file',
-        language: detectLanguage(fileName),
-        content: isDotnet && fileName === 'Program.cs' ? DOTNET_CONSOLE_STARTER : '',
-      };
+    const newFile = {
+      name: fileName,
+      path: `${selectedFolderPath}/${fileName}`,
+      type: 'file',
+      language: detectLanguage(fileName),
+      content: isDotnet && fileName === 'Program.cs' ? DOTNET_CONSOLE_STARTER : '',
+    };
     if (sessionId) {
       // Optimistically add to files, open tab, and select it
       setFiles(prev => {
@@ -1197,7 +1196,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
         console.error('Failed to save newly added file on backend:', err);
       }
       // Select the newly created file (best-effort; file list is async state)
-      selectFile(files.length, [...files, newFile]).catch(() => {});
+      selectFile(files.length, [...files, newFile]).catch(() => { });
 
       // Save to backend and refresh in background
       (async () => {
@@ -1336,7 +1335,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
 
       {/* Sidebar Explorer */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="w-[260px] bg-[#252526] border-r border-[#1f1f1f] flex flex-col shrink-0"
         >
           <div className="h-12 px-4 flex items-center justify-between border-b border-[#1f1f1f]">
@@ -1511,6 +1510,11 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack }: any) => {
                 <Play size={12} className="fill-current" />
                 {isRunning ? 'RUNNING...' : 'RUN'}
               </button>
+            )}
+            {remainingTime && (
+              <div className="text-red-500 font-mono text-[10px] font-black bg-red-950/40 border border-red-500/20 px-2.5 py-1 rounded animate-pulse shrink-0 ml-2">
+                TIME REMAINING: {remainingTime}
+              </div>
             )}
             <button
               onClick={onBack}

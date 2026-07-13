@@ -225,7 +225,7 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isL
   );
 });
 
-const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, onTerminalCommand, isLabBusy }: any, ref) => {
+const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, onTerminalCommand, isLabBusy, remainingTime }: any, ref) => {
   const [tabs, setTabs] = useState([
     { id: 'default', name: 'bash' }
   ]);
@@ -290,6 +290,12 @@ const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, 
           </div>
 
           <div className="flex-1" />
+
+          {remainingTime && (
+            <div className="text-red-500 font-mono text-[10px] font-black bg-red-950/40 border border-red-500/20 px-2 py-1 rounded animate-pulse shrink-0 mr-3">
+              Time Remaining: {remainingTime}
+            </div>
+          )}
 
           <div className="flex items-center gap-3 mr-2">
             {onBack && (

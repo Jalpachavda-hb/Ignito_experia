@@ -9,6 +9,7 @@ import { useLabSessionStore } from '@/stores/labSessionStore';
 import { useAuthStore } from '@/stores/auth-store';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useNavigate } from '@tanstack/react-router';
+import { DotnetSelectionModal } from '../my-labs/components/dotnet-selection-modal';
 
 export default function LabCatalogue() {
   const { labs, isLoading, error, loadLabs } = useLabStore();
@@ -20,6 +21,8 @@ export default function LabCatalogue() {
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [showStopModal, setShowStopModal] = useState(false);
   const [pendingStop, setPendingStop] = useState<{ sessionId: string, labId: string } | null>(null);
+  const [showDotnetModal, setShowDotnetModal] = useState(false);
+  const [selectedDotnetLabId, setSelectedDotnetLabId] = useState<string | null>(null);
 
   useEffect(() => {
     loadLabs();
@@ -80,7 +83,30 @@ export default function LabCatalogue() {
       return;
     }
 
+    const lab = labs.find(l => l.id === id);
+    const isDotnet = id.toLowerCase().includes('dotnet') ||
+                     lab?.category?.toLowerCase().includes('dotnet') ||
+                     lab?.title?.toLowerCase().includes('.net');
+
+    if (isDotnet) {
+      setSelectedDotnetLabId(id);
+      setShowDotnetModal(true);
+      return;
+    }
+
     const readySession = await startLab(id);
+    if (readySession) {
+      navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: readySession.sessionId } });
+    }
+  };
+
+  const handleConfirmDotnetLab = async (subtype: 'console' | 'mvc') => {
+    setShowDotnetModal(false);
+    const id = selectedDotnetLabId;
+    if (!id) return;
+    setSelectedDotnetLabId(null);
+
+    const readySession = await startLab(id, subtype);
     if (readySession) {
       navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: readySession.sessionId } });
     }
@@ -257,6 +283,13 @@ export default function LabCatalogue() {
         desc="Are you sure you want to stop this lab? This action will terminate the running environment."
         confirmText="Stop Lab"
         cancelBtnText="Cancel"
+      />
+
+      {/* Dotnet Project Selection Modal */}
+      <DotnetSelectionModal
+        open={showDotnetModal}
+        onOpenChange={setShowDotnetModal}
+        onConfirm={handleConfirmDotnetLab}
       />
     </>
   );
