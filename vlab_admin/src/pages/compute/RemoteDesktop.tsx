@@ -82,7 +82,7 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: Embe
           try {
             const health = await fetchJupyterHealth(sessionId);
             // Check both backend ready indicator and standard HTTP status code
-            if (health.status === 'ok' || health.ready || health.status === 200 || health.status === 302) {
+            if (health.status === 'ok') {
               // Wait an additional 2 seconds after health passes to ensure proxy is fully bound
               await new Promise((r) => setTimeout(r, 2000));
               break;

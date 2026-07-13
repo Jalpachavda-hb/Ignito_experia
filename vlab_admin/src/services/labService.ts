@@ -1,6 +1,6 @@
 import { apiRequest } from '../lib/apiClient';
 
-export type LabStatus = 'pending' | 'running' | 'failed' | 'stopped';
+export type LabStatus = 'pending' | 'starting' | 'running' | 'failed' | 'stopped';
 
 export interface LabSession {
   sessionId: string;

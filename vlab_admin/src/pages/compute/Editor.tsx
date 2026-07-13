@@ -1109,7 +1109,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
         if (runSuccess) {
           toast.success('Android build completed successfully!');
-          const token = useAuthStore.getState().token;
+          const token = useAuthStore.getState().auth.accessToken;
           const downloadUrl = `${resolveApiRelativeUrl('/files/download')}?path=/workspace/app/build/outputs/apk/debug/app-debug.apk&sessionId=${sessionId}&token=${encodeURIComponent(token || '')}`;
           setAndroidApkUrl(downloadUrl);
         } else {
