@@ -24,13 +24,7 @@ export const getLabRuntime = async (labId) => {
 /** Container host: public IP for browser; private IP for Lambda in VPC */
 export const getContainerHost = (session) => {
   if (!session) return null;
-  if (process.env.NODE_ENV === "development" || ENV.nodeEnv === "development") {
-    return session.publicIp || session.taskPrivateIp;
-  }
-  if (ENV.containerHostMode === "private") {
-    return session.taskPrivateIp || session.publicIp;
-  }
-  return session.publicIp || session.taskPrivateIp;
+  return session.taskPrivateIp || null;
 };
 
 export const getContainerPort = async (labId) => {

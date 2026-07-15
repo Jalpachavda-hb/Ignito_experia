@@ -3,7 +3,6 @@ import { ok } from "../lib/apigw.js";
 import { forbidden, notFound } from "../lib/errors.js";
 import { getSession } from "../services/sessionRepository.js";
 import { getLabRuntime, getContainerHost } from "../lib/labTools.js";
-import { executeInContainer } from "../services/containerClient.js";
 import { ENV } from "../config/env.js";
 
 export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
@@ -57,24 +56,7 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
   try {
     let isReady = await checkPort(host, port);
 
-    // SSM Fallback if direct TCP connection fails (e.g. local dev server trying to reach private VPC IP)
-    if (!isReady && session.taskArn) {
-      console.log(`[jupyterHealth] Direct TCP check failed for ${host}:${port}. Trying SSM container process check...`);
-      try {
-        const payload = {
-          path: "/tmp/jupyter_check.sh",
-          language: "bash",
-          content: "pgrep -f jupyter >/dev/null && echo 'OK' || echo 'FAIL'"
-        };
-        const res = await executeInContainer(session, payload, { forceSsm: true });
-        if (res && res.output && res.output.includes("OK")) {
-          console.log("[jupyterHealth] SSM container process check succeeded. Marking as ready!");
-          isReady = true;
-        }
-      } catch (ssmErr) {
-        console.warn("[jupyterHealth] SSM process check failed:", ssmErr.message);
-      }
-    }
+
 
     return ok({
       ready: isReady,

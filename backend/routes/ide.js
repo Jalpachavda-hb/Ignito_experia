@@ -9,10 +9,7 @@ import {
   deleteFile,
   clearSessionFiles
 } from "../services/fileRepository.js";
-import {
-  executeInContainer,
-} from "../services/containerClient.js";
-import { executeLocally } from "../services/localExecutor.js";
+import { executeCode } from "../services/ExecutionService.js";
 import { getAllowedExtensions } from "../lib/labTypeMapper.js";
 
 const router = express.Router();
@@ -131,25 +128,13 @@ router.post(
       content: req.body.content !== undefined ? req.body.content : file.content,
     };
 
-    if (session.status === "running" && (session.publicIp || session.taskArn)) {
-      try {
-        const result = await executeInContainer(session, payload);
-        if (result) {
-          return ok(res, result);
-        }
-      } catch (err) {
-        console.error("[IDE] Container execution failed:", err.message);
-      }
+    try {
+      const result = await executeCode(session, payload);
+      return ok(res, result);
+    } catch (err) {
+      console.error("[IDE] Container execution failed:", err.message);
+      return fail(res, err.message || "Execution failed", 500);
     }
-
-    const local = await executeLocally(payload);
-    ok(res, {
-      ...local,
-      runId: `run_${Date.now().toString(36)}`,
-      message: session.publicIp || session.taskArn
-        ? "Executed locally (container unreachable)"
-        : "Executed locally (mock session)",
-    });
   }),
 );
 

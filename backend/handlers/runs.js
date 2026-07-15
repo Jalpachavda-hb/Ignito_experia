@@ -3,8 +3,8 @@ import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { getSession } from "../services/sessionRepository.js";
 import { createRun, getRun, completeRun } from "../services/runRepository.js";
 import { getFile, upsertFile } from "../services/fileRepository.js";
-import { executeInContainer, saveToContainer, readFromContainer } from "../services/containerClient.js";
-import { executeLocally } from "../services/localExecutor.js";
+import { readFromContainer } from "../services/containerClient.js";
+import { executeCode } from "../services/ExecutionService.js";
 import { resolveLabType } from "../lib/labTypeMapper.js";
 import { getContainerHost, getContainerPort } from "../lib/labTools.js";
 import { validateFile } from "../utils/validation.js";
@@ -135,7 +135,8 @@ except Exception as e:
       content: wrapperContent,
       labType: "big-data"
     };
-  } console.log("\n=========================================");
+  }
+  console.log("\n=========================================");
   console.log("             RUN CODE REQUEST            ");
   console.log("=========================================");
   console.log(`Session ID:  ${sessionId}`);
@@ -146,109 +147,15 @@ except Exception as e:
   console.log(`Code length: ${code.length} chars`);
 
   let result;
-
-  const host = getContainerHost(session);
-  const port = (await getContainerPort(session.labId)) || session.containerPort || 8080;
-  const baseUrl = host ? `http://${host}:${port}` : null;
-
-  console.log("\n========== SESSION DEBUG ==========");
-  console.log(JSON.stringify(session, null, 2));
-  console.log("Host:", host);
-  console.log("Port:", port);
-  console.log("Base URL:", baseUrl);
-  console.log("===================================\n");
-
-  let isReachable = false;
-
-  if (session.status === "running" && baseUrl) {
-    if (process.env.FORCE_CONTAINER_EXECUTION === "true") {
-      console.log(
-        "[Reachability Check] FORCE_CONTAINER_EXECUTION=true"
-      );
-      isReachable = true;
-    } else {
-      console.log(
-        `[Reachability Check] Checking ${baseUrl}/health`
-      );
-
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
-
-      try {
-        const response = await fetch(
-          `${baseUrl}/health`,
-          {
-            method: "GET",
-            signal: controller.signal,
-          }
-        );
-
-        console.log(
-          `[Reachability Check] Status ${response.status}`
-        );
-
-        if (
-          response.ok ||
-          response.status === 404
-        ) {
-          isReachable = true;
-        }
-      } catch (err) {
-        console.log(
-          `[Reachability Check] Failed: ${err.message}`
-        );
-      } finally {
-        clearTimeout(timer);
-      }
-    }
-  }
-
-  let containerAttempted = false;
-  let containerError = null;
-
-  if (session.status === "running" && (session.taskArn || (host && isReachable))) {
-    console.log("-----------------------------------------");
-    console.log(`[EXECUTION SOURCE] >> CONTAINER (AWS Fargate)`);
-    console.log(`Container Host:   ${host || "(SSM only)"}`);
-    console.log(`Reachable (HTTP): ${isReachable}`);
-    console.log(`ECS Task:         ${session.taskArn ? "yes" : "no"}`);
-    console.log("-----------------------------------------");
-    containerAttempted = true;
-
-    try {
-      console.log("[Container Run] Sending execution request to container...");
-      result = await executeInContainer(session, payload);
-
-      console.log("[Container Run] Raw Result:");
-      console.log(JSON.stringify(result, null, 2));
-
-      if (!result) {
-        throw new Error("No response received from container execution server.");
-      }
-    } catch (err) {
-      containerError = err.message;
-      console.log(`[Runs Handler] Container run failed: ${err.message}`);
-      result = null;
-    }
-  }
-
-  if (!result) {
-    console.log("-----------------------------------------");
-    console.log("[EXECUTION SOURCE] >> LOCAL FALLBACK");
-    if (containerAttempted) {
-      console.log(`Reason:            Container execution failed (${containerError || "unknown"})`);
-    } else if (!isReachable && host) {
-      console.log("Reason:            Container HTTP unreachable and no ECS task for SSM");
-    } else {
-      console.log(`Reason:            Session status is "${session.status}"`);
-    }
-    console.log("-----------------------------------------");
-    const local = await executeLocally(payload);
+  try {
+    result = await executeCode(session, payload, { runId: run.runId });
+  } catch (err) {
     result = {
-      success: !local.error,
-      output: local.output,
-      error: local.error,
-      runtimeError: local.error,
+      success: false,
+      output: "",
+      error: err.message || "Execution failed",
+      syntaxError: "",
+      runtimeError: err.message || "Execution failed",
     };
   }
 
