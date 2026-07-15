@@ -1,4 +1,4 @@
-import { getContainerPort } from "../lib/labTools.js";
+import { getContainerPort, getContainerHost } from "../lib/labTools.js";
 import { ENV } from "../config/env.js";
 import { updateSession } from "./sessionRepository.js";
 import { executeCode } from "./ExecutionService.js";
@@ -81,10 +81,10 @@ export const getPresignedUrl = async (bucket, key, ttlSeconds = 3600) => {
  * Resolves the private runtime base URL for direct HTTP VPC communication.
  */
 const getPrivateBaseUrl = async (session) => {
-  const privateIp = session.taskPrivateIp;
-  if (!privateIp) return null;
+  const host = getContainerHost(session);
+  if (!host) return null;
   const port = (await getContainerPort(session.labId)) || session.containerPort || 8080;
-  return `http://${privateIp}:${port}`;
+  return `http://${host}:${port}`;
 };
 
 /**
@@ -103,7 +103,7 @@ const buildHeaders = (session) => {
  */
 export const saveToContainer = async (session, { path: filePath, content }) => {
   const baseUrl = await getPrivateBaseUrl(session);
-  if (!baseUrl) throw new Error("Container unreachable (no private IP resolved)");
+  if (!baseUrl) throw new Error("Container unreachable (no host IP resolved)");
 
   const response = await fetch(`${baseUrl}/save`, {
     method: "POST",
@@ -127,7 +127,7 @@ export const saveToContainer = async (session, { path: filePath, content }) => {
  */
 export const deleteFromContainer = async (session, filePath) => {
   const baseUrl = await getPrivateBaseUrl(session);
-  if (!baseUrl) throw new Error("Container unreachable (no private IP resolved)");
+  if (!baseUrl) throw new Error("Container unreachable (no host IP resolved)");
 
   const url = `${baseUrl}/file?path=${encodeURIComponent(filePath)}`;
   const response = await fetch(url, {

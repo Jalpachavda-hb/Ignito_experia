@@ -1,4 +1,4 @@
-import { getContainerPort } from "../lib/labTools.js";
+import { getContainerPort, getContainerHost } from "../lib/labTools.js";
 import { ENV } from "../config/env.js";
 
 const EXECUTION_TIMEOUT_MS = ENV.executeCommandTimeout || 120000;
@@ -44,9 +44,9 @@ export const executeCode = async (session, payload, options = {}) => {
     };
   }
 
-  // 2. Resolve private runtime endpoint
-  const privateIp = session.taskPrivateIp;
-  if (!privateIp) {
+  // 2. Resolve runtime endpoint
+  const host = getContainerHost(session);
+  if (!host) {
     return {
       success: false,
       status: "FAILED",
@@ -57,11 +57,11 @@ export const executeCode = async (session, payload, options = {}) => {
   }
 
   const port = (await getContainerPort(session.labId)) || session.containerPort || 8080;
-  const baseUrl = `http://${privateIp}:${port}`;
+  const baseUrl = `http://${host}:${port}`;
 
   // 3. Resolve the endpoint mapping based on the action
   const action = (payload.action || "").toLowerCase();
-  let endpoint = "/run";
+  let endpoint = "/execute";
   if (action === "build") {
     endpoint = "/build";
   } else if (action === "format") {
@@ -80,7 +80,7 @@ export const executeCode = async (session, payload, options = {}) => {
       headers["X-Session-Token"] = session.sessionToken;
     }
 
-    console.log(`[ExecutionService] Sending POST request to private endpoint: ${baseUrl}${endpoint} (RunId: ${runId})`);
+    console.log(`[ExecutionService] Sending POST request to resolved endpoint: ${baseUrl}${endpoint} (RunId: ${runId})`);
 
     const response = await fetch(`${baseUrl}${endpoint}`, {
       method: "POST",

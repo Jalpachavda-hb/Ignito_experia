@@ -24,7 +24,10 @@ export const ENV = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "24h",
   awsRegion: process.env.AWS_REGION || "ap-south-1",
   ecsCluster: process.env.ECS_CLUSTER || "",
-  ecsSubnets: (process.env.ECS_SUBNETS || "").split(",").map((s) => s.trim()).filter(Boolean),
+  ecsSubnets: ((process.env.CONTAINER_HOST_MODE === "public" ? process.env.ECS_PUBLIC_SUBNETS : process.env.ECS_PRIVATE_SUBNETS) || process.env.ECS_SUBNETS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
   ecsSecurityGroups: (process.env.ECS_SECURITY_GROUPS || "")
     .split(",")
     .map((s) => s.trim())
