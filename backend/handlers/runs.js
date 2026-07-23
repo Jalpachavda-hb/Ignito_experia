@@ -68,7 +68,7 @@ export const runsCreateHandler = async ({ body, auth }) => {
 
   // Enforce runtime-specific validation before running
   if (filePath && !isAndroid) {
-    const validation = validateFile(filePath, code, labType);
+    const validation = validateFile(filePath, code, labType, { isRun: true });
     if (!validation.valid) {
       return ok({
         runId: `run_err_${Date.now()}`,

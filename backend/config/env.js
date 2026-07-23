@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { isPrivateMode } from "../lib/ipManager.js";
 
 dotenv.config();
 
@@ -24,7 +25,7 @@ export const ENV = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "24h",
   awsRegion: process.env.AWS_REGION || "ap-south-1",
   ecsCluster: process.env.ECS_CLUSTER || "",
-  ecsSubnets: ((process.env.CONTAINER_HOST_MODE === "public" ? process.env.ECS_PUBLIC_SUBNETS : process.env.ECS_PRIVATE_SUBNETS) || process.env.ECS_SUBNETS || "")
+  ecsSubnets: ((isPrivateMode ? process.env.ECS_PRIVATE_SUBNETS : process.env.ECS_PUBLIC_SUBNETS) || process.env.ECS_SUBNETS || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
@@ -36,7 +37,7 @@ export const ENV = {
   runsTable: process.env.RUNS_TABLE_NAME || "",
   submissionsTable: process.env.SUBMISSIONS_TABLE_NAME || "",
   resultsTable: process.env.RESULTS_TABLE_NAME || "",
-  containerHostMode: process.env.CONTAINER_HOST_MODE || "private",
+  containerHostMode: isPrivateMode ? "private" : "public",
   defaultSessionMinutes: Number(process.env.DEFAULT_SESSION_TIMEOUT || 120),
   corsOrigin: process.env.CORS_ORIGIN || "*",
   frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",

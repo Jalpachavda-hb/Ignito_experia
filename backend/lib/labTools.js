@@ -1,6 +1,9 @@
   import { LAB_PORTS, getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { signJupyterEmbedToken } from "./jwt.js";
+import { getContainerHost } from "./ipManager.js";
+
+export { getContainerHost };
 
 const joinUrl = (base, path = "/") => {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -19,15 +22,6 @@ export const getLabRuntime = async (labId) => {
       port: lab.runtime?.containerApi?.port || lab.ContainerApiPort || lab.containerApiPort || 8080,
     }
   };
-};
-
-/** Container host: public IP for browser; private IP for Lambda in VPC */
-export const getContainerHost = (session) => {
-  if (!session) return null;
-  if (ENV.containerHostMode === "public") {
-    return session.publicIp || session.taskPrivateIp || null;
-  }
-  return session.taskPrivateIp || null;
 };
 
 export const getContainerPort = async (labId) => {

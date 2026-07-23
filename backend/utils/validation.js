@@ -4,7 +4,7 @@ import path from "path";
  * Validates a file's extension and matches its contents against language rules.
  * Returns { valid: true } or { valid: false, error: string }.
  */
-export const validateFile = (filePath, content, labIdOrType) => {
+export const validateFile = (filePath, content, labIdOrType, options = {}) => {
   const ext = filePath.split('.').pop()?.toLowerCase();
   const idOrType = (labIdOrType || '').toLowerCase();
 
@@ -62,6 +62,21 @@ export const validateFile = (filePath, content, labIdOrType) => {
           valid: false,
           error: "Validation Error: File has a .java extension but contains Python or invalid code. Java files must follow Java syntax."
         };
+      }
+
+      // Check if public class name matches file name (ONLY on code execution/run, not on save)
+      if (options.isRun) {
+        const publicClassMatch = codeStr.match(/\bpublic\s+(?:(?:final|abstract)\s+)?class\s+([a-zA-Z0-9_]+)/);
+        if (publicClassMatch) {
+          const className = publicClassMatch[1];
+          const fileName = path.basename(filePath, '.java');
+          if (className !== fileName) {
+            return {
+              valid: false,
+              error: `Validation Error: Class '${className}' is public, should be declared in a file named ${className}.java`
+            };
+          }
+        }
       }
     }
 
