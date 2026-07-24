@@ -32,9 +32,12 @@ const assertSessionAccess = async (event) => {
 };
 
 export const filesListHandler = async (event) => {
+  console.log("[filesListHandler] Request received for session verification and file listing.");
   try {
     const { sessionId } = await assertSessionAccess(event);
+    console.log(`[filesListHandler] Session authorized successfully. sessionId: ${sessionId}`);
     const files = await listFiles(sessionId);
+    console.log(`[filesListHandler] File list retrieved successfully for sessionId: ${sessionId}. Count: ${files?.length || 0}`);
     return ok({
       files,
     });

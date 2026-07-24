@@ -17,9 +17,8 @@ import {
   resolveTaskNetworking,
 } from "../services/ecsService.js";
 import { clearSessionFiles } from "../services/fileRepository.js";
-import { saveToContainer, bootstrapWorkspaceFromS3 } from "../services/containerClient.js";
-
-const activeBootstraps = new Set();
+import { bootstrap as bootstrapSession } from "../services/workspaceBootstrapService.js";
+import { saveToContainer } from "../services/containerClient.js";
 
 export const sessionsStartHandler = async ({ body, auth }) => {
   const labId = body?.labId;
@@ -68,8 +67,9 @@ export const sessionsStartHandler = async ({ body, auth }) => {
   }
 
   if (!isEcsEnabled()) {
-    session.status = "running";
-    session.message = "Lab environment (local mock) is ready";
+    session.status = "starting";
+    session.bootstrapState = "NOT_STARTED";
+    session.message = "Lab environment (local mock) is provisioning...";
     session.publicIp = null;
     await saveSession(session);
     return ok(session);
@@ -83,6 +83,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     });
     session.taskArn = taskArn;
     session.taskPort = taskPort;
+    session.bootstrapState = "NOT_STARTED";
     await saveSession(session);
     return ok(session);
   } catch (err) {
@@ -90,7 +91,6 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     throw badRequest(`Failed to start lab: ${err.message}`);
   }
 };
-
 export const sessionsGetHandler = async ({ pathParameters, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
   const sessionId = pathParameters?.sessionId;
@@ -101,47 +101,37 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     throw forbidden("You do not own this session");
   }
 
-  if (session.status === "starting" && session.taskArn && isEcsEnabled()) {
-    const net = await resolveTaskNetworking(session.taskArn, session.labId);
-    if (net.status !== "starting") {
-      const canonicalType = canonicalLabType(session.labId);
-      const isAndroid = canonicalType === 'android' || session.labType === 'android' || session.labId === 'mobile-app-lab' || session.labId === 'android';
-      const isDotnet = canonicalType === 'dotnet' || session.labType === 'dotnet' || session.labId === 'dotnet-lab' || session.labId.includes('dotnet');
-      const isDataScience = canonicalType === 'datascience' || session.labType === 'datascience' || session.labId === 'data-science-lab' || session.labId.includes('datascience') || session.labId.includes('jupyter') || session.labId.includes('notebook');
-
-      if (isAndroid || isDotnet || isDataScience) {
-        if (!activeBootstraps.has(sessionId)) {
-          activeBootstraps.add(sessionId);
-          const labName = isAndroid ? 'Android' : isDotnet ? 'Dotnet' : 'Data Science';
-          await updateSession(sessionId, { message: `Downloading and extracting ${labName} starter files from S3...` });
-          
-          try {
-            console.log(`[Bootstrap] Bootstrapping ${labName} workspace from S3 for session ${session.sessionId}...`);
-            await bootstrapWorkspaceFromS3(session);
-            session = await updateSession(sessionId, { ...net, status: "running", message: "Workspace ready" });
-          } catch (err) {
-            console.error(`[Bootstrap] Failed to bootstrap ${labName} workspace from S3:`, err.message);
-            session = await updateSession(sessionId, { ...net, status: "running", message: "Workspace loaded with errors" });
-          } finally {
-            activeBootstraps.delete(sessionId);
+  if (session.status === "starting") {
+    if (isEcsEnabled()) {
+      if (session.taskArn) {
+        const net = await resolveTaskNetworking(session.taskArn, session.labId);
+        if (net.status !== "starting") {
+          // Task networking is ready, trigger bootstrap asynchronously if not already bootstrapping/ready
+          if (!session.bootstrapState || session.bootstrapState === "NOT_STARTED") {
+            console.log(`[sessionsGetHandler] Triggering background bootstrap for ECS session: ${sessionId}`);
+            // Save networking info to DB first
+            session = await updateSession(sessionId, net);
+            bootstrapSession(session, net).catch((err) => {
+              console.error(`[sessionsGetHandler] Async ECS bootstrap failed for ${sessionId}:`, err.message);
+            });
+            // Brief sleep to let initial DB update reflect
+            await new Promise(r => setTimeout(r, 100));
           }
-        }
-      } else {
-        session = await updateSession(sessionId, net);
-        if (session.status === "running" && session.files && session.files.length > 0) {
-          // Run container file sync in background so as not to block sessionsGetHandler
-          (async () => {
-            console.log(`[Sync] Syncing ${session.files.length} seeded files to container ${session.sessionId}...`);
-            for (const file of session.files) {
-              try {
-                await saveToContainer(session, { path: file.path, content: file.content });
-              } catch (err) {
-                console.warn(`[Sync] Failed to sync ${file.path} to container:`, err.message);
-              }
-            }
-          })();
+          // Refresh session state
+          session = await getSession(sessionId);
         }
       }
+    } else {
+      // Local session mock bootstrap
+      if (!session.bootstrapState || session.bootstrapState === "NOT_STARTED") {
+        console.log(`[sessionsGetHandler] Triggering background bootstrap for Local session: ${sessionId}`);
+        bootstrapSession(session).catch((err) => {
+          console.error(`[sessionsGetHandler] Async Local bootstrap failed for ${sessionId}:`, err.message);
+        });
+        // Brief sleep
+        await new Promise(r => setTimeout(r, 100));
+      }
+      session = await getSession(sessionId);
     }
   }
 

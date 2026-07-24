@@ -5,9 +5,9 @@ import {
   getFilesFromContainer,
   getFileContentFromContainer,
   saveToContainer,
-  deleteFromContainer
+  deleteFromContainer,
 } from "./containerClient.js";
-import { getAllowedExtensions } from "../lib/labTypeMapper.js";
+import { ENV } from "../config/env.js";
 
 // Dynamically resolve the parent directory of backend as the local workspace root
 const getLocalWorkspaceRoot = () => {
@@ -21,6 +21,9 @@ const getLocalFilePath = (filePath) => {
   const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
   return path.join(getLocalWorkspaceRoot(), cleanPath);
 };
+
+
+// downloadFile, extractTar, and bootstrapLocalWorkspace helper functions were refactored and moved to WorkspaceBootstrapService.
 
 const scanLocalFiles = (dir, baseDir = dir) => {
   let results = [];
@@ -92,52 +95,159 @@ const scanLocalFiles = (dir, baseDir = dir) => {
   return results;
 };
 
+const filterDotnetFiles = (files, session) => {
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+
+  if (!isDotnet) return files;
+
+  return files.filter(file => {
+    const pathLower = (file.path || "").toLowerCase();
+    const nameLower = (file.name || "").toLowerCase();
+
+    // 1. Hide build artifacts, binary outputs and IDE metadata
+    if (
+      pathLower.includes("/obj/") ||
+      pathLower.includes("/bin/") ||
+      pathLower.includes("/properties/") ||
+      pathLower.includes("/.vs/") ||
+      pathLower.includes("/.idea/")
+    ) {
+      return false;
+    }
+
+    // 2. Hide static libraries and assets in wwwroot (bootstrap, jquery, etc.)
+    if (
+      pathLower.includes("/wwwroot/lib/") ||
+      pathLower.includes("/wwwroot/favicon.ico")
+    ) {
+      return false;
+    }
+
+    // 3. Hide project files and build configurations
+    if (
+      nameLower.endsWith(".csproj") ||
+      nameLower.endsWith(".sln") ||
+      nameLower.endsWith(".suo") ||
+      nameLower.endsWith(".user")
+    ) {
+      return false;
+    }
+
+    // 4. Hide package restore/build manifests
+    if (
+      nameLower === "appsettings.json" ||
+      nameLower === "appsettings.development.json" ||
+      nameLower === "project.assets.json" ||
+      nameLower.endsWith(".nuget.g.props") ||
+      nameLower.endsWith(".nuget.g.targets") ||
+      nameLower === "project.nuget.cache"
+    ) {
+      return false;
+    }
+
+    // 5. Hide map files
+    if (nameLower.endsWith(".map")) {
+      return false;
+    }
+
+    // 6. Hide licenses and readmes
+    if (
+      nameLower === "license" ||
+      nameLower === "license.txt" ||
+      nameLower === "readme.md"
+    ) {
+      return false;
+    }
+
+    // 7. Hide boilerplate MVC helpers that students do not edit
+    if (
+      nameLower === "_viewimports.cshtml" ||
+      nameLower === "_viewstart.cshtml" ||
+      nameLower === "_validationscriptspartial.cshtml"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+};
+
 export const listFiles = async (sessionId) => {
+  console.log(`[listFiles] Fetching session details for sessionId: ${sessionId}`);
   const session = await getSession(sessionId);
 
-  // If the file tree is already cached, return it instantly!
-  if (session?.files && session.files.length > 0) {
-    return session.files;
-  }
+  let result = [];
 
-  const hasLiveContainer =
-    session?.status === "running" &&
-    Boolean(session.taskArn || session.apiBaseUrl);
-
-  // Running ECS lab sessions must list the container workspace, not the dev machine repo.
-  if (hasLiveContainer) {
-    try {
-      const files = await getFilesFromContainer(session);
-      const result = files || [];
-      if (result.length > 0) {
-        const dbFiles = result.map(({ content, ...rest }) => rest);
-        await updateSession(sessionId, { files: dbFiles }).catch(() => {});
-      }
-      return result;
-    } catch (err) {
-      console.error("[listFiles] Container list failed:", err.message);
-      if (session.files?.length) return session.files;
-      return [];
+  const getUnfilteredList = async () => {
+    // If the file tree is already cached, return it instantly!
+    if (session?.files && session.files.length > 0) {
+      console.log(`[listFiles] Cache hit. Returning ${session.files.length} files from session DB cache.`);
+      return session.files;
     }
-  }
 
-  // Local disk fallback only for mock/offline sessions without an ECS task.
-  if (!session?.taskArn) {
-    const root = getLocalWorkspaceRoot();
-    if (fs.existsSync(root)) {
+    const hasLiveContainer =
+      session?.status === "running" &&
+      Boolean(session.taskArn || session.apiBaseUrl);
+
+    console.log(`[listFiles] Cache miss. sessionStatus: ${session?.status}, hasLiveContainer: ${hasLiveContainer}`);
+
+    // Running ECS lab sessions must list the container workspace, not the dev machine repo.
+    if (hasLiveContainer) {
       try {
-        const scanned = scanLocalFiles(root);
-        if (scanned?.length > 0) {
-          return scanned;
+        console.log(`[listFiles] Listing files from live container runtime for session: ${sessionId}`);
+        const files = await getFilesFromContainer(session);
+        const containerFiles = files || [];
+        console.log(`[listFiles] Live container returned ${containerFiles.length} files. Updating session cache...`);
+        if (containerFiles.length > 0) {
+          const dbFiles = containerFiles.map(({ content, ...rest }) => rest);
+          await updateSession(sessionId, { files: dbFiles }).catch((e) => {
+            console.warn(`[listFiles] Failed to update session files cache in DB: ${e.message}`);
+          });
         }
+        return containerFiles;
       } catch (err) {
-        console.error("[listFiles] Local scan error:", err.message);
+        console.error("[listFiles] Container list failed:", err.message);
+        if (session.files?.length) {
+          console.log(`[listFiles] Falling back to stale session files cache (${session.files.length} files) due to error.`);
+          return session.files;
+        }
+        return [];
       }
     }
-  }
 
-  if (session?.files) return session.files;
-  return [];
+    // Local disk fallback only for mock/offline sessions without an ECS task.
+    if (!session?.taskArn) {
+      const root = getLocalWorkspaceRoot();
+      console.log(`[listFiles] Checking local workspace fallback. root: ${root}`);
+
+      if (fs.existsSync(root)) {
+        try {
+          console.log(`[listFiles] Scanning local files at: ${root}`);
+          const scanned = scanLocalFiles(root);
+          console.log(`[listFiles] Local scan completed. Found ${scanned?.length || 0} files.`);
+          if (scanned?.length > 0) {
+            return scanned;
+          }
+        } catch (err) {
+          console.error("[listFiles] Local scan error:", err.message);
+        }
+      } else {
+        console.warn(`[listFiles] Local workspace directory does not exist: ${root}`);
+      }
+    }
+
+    if (session?.files) {
+      console.log(`[listFiles] Returning cached files list as final fallback (${session.files.length} files).`);
+      return session.files;
+    }
+
+    return [];
+  };
+
+  result = await getUnfilteredList();
+  return filterDotnetFiles(result, session);
 };
 
 export const getFile = async (sessionId, filePath) => {
