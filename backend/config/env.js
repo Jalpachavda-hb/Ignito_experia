@@ -52,6 +52,10 @@ export const ENV = {
   executeCommandInitialDelay: Number(process.env.EXECUTE_COMMAND_INITIAL_DELAY || 2000),
   executeCommandMaxDelay: Number(process.env.EXECUTE_COMMAND_MAX_DELAY || 30000),
   executeCommandBackoffFactor: Number(process.env.EXECUTE_COMMAND_BACKOFF_FACTOR || 1.5),
+  awsCliPath: process.env.AWS_CLI_PATH || "aws",
+  awsPtyPathAdditions: process.env.AWS_PTY_PATH_ADDITIONS || "",
+  ecsContainerName: process.env.ECS_CONTAINER_NAME || "lab-runtime",
+  ecsInteractiveShell: process.env.ECS_INTERACTIVE_SHELL || 'sh -c "[ -x /bin/bash ] && exec bash || exec sh"',
 };
 
 export const useDynamoDb = () => Boolean(ENV.sessionsTable);

@@ -132,3 +132,53 @@ Individual file operations follow the same decoupled REST-first pattern, fallbac
 ### C. Deleting a File (`DELETE /file` or SSM Fallback)
 1. **REST call**: Backend makes a `DELETE /file?path=...` request to the container.
 2. **SSM Fallback**: If it returns `404`, it executes a simple shell command: `rm -f "/tmp/workspace/workspace/...""` via SSM execution.
+
+---
+
+## 4. Interactive Lab Terminal Execution Flow (AWS SSM / Execute-Command)
+
+The interactive student terminal connects out-of-band using **AWS Systems Manager (SSM) Session Manager** through the ECS agent control plane. This completely decouples the shell access from direct container IPs and ports:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Student
+    participant Frontend as Student Browser (xterm.js)
+    participant Backend as Express Backend (node-pty)
+    participant AWS as AWS ECS API
+    participant Agent as Container (ssm-agent)
+
+    Student->>Frontend: Opens Lab Console / Terminal tab
+    Frontend->>Backend: Establish Socket.IO WebSocket (query: sessionId)
+    Backend->>Backend: Fetch session & verify container state
+    Backend->>AWS: DescribeTask (Check if ExecuteCommandAgent is RUNNING)
+    AWS-->>Backend: ExecuteCommandAgent is READY
+    
+    Backend->>Backend: Spawn local pty (pty.spawn) running:<br/>aws ecs execute-command --cluster... --task... --container... --interactive
+    Backend->>AWS: Initiate SSM session stream handshake
+    AWS->>Agent: Bridge SSM session directly into container shell
+    Agent-->>Backend: Return PTY connection stream
+    Backend-->>Frontend: Emit 'terminal-status' (status="ready")
+
+    loop Interactive Session
+        Student->>Frontend: Keypress / Input
+        Frontend->>Backend: Emit 'terminal-input' (keystrokes)
+        Backend->>Backend: Write directly to spawned pty stdin
+        Backend->>Agent: Pipe inputs via AWS SSM CLI stream
+        Agent->>Agent: Execute keys inside container /bin/bash shell
+        Agent-->>Backend: Stream stdout/stderr outputs
+        Backend-->>Frontend: Emit 'terminal-output' (ANSI text stream)
+        Frontend->>Student: Render terminal changes in xterm.js viewport
+    end
+
+    Student->>Frontend: Close Terminal / Disconnect
+    Frontend->>Backend: Socket.IO connection close
+    Backend->>Backend: Kill local spawned pty subprocess (sigkill/exit)
+    Backend->>AWS: Terminate SSM session
+```
+
+### Key Architectural details:
+1. **No Port Dependency:** The terminal does not require ports `8080`, `8888`, or any public/private IP interfaces to be mapped or exposed in Fargate security groups. All communication is routed securely over AWS HTTPS APIs.
+2. **Stateful Reconnection:** When a socket disconnects, the backend waits a short timeout before clean termination to handle browser page refreshes seamlessly.
+3. **Piped Terminal I/O:** Keystrokes (`terminal-input`) and output chunks (`terminal-output`) are translated directly from the WebSocket frames of Socket.IO into raw standard I/O streams on the backend, ensuring full terminal screen capabilities (vi, nano, top, arrows/tab completion).
+
