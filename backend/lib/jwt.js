@@ -78,7 +78,7 @@ export const requireAuth = (event) => {
   const fromAuthorizer = authFromAuthorizerContext(event);
   if (fromAuthorizer) return fromAuthorizer;
 
-  const token = getBearerToken(event.headers || {});
+  const token = getBearerToken(event.headers || {}) || event.queryStringParameters?.token;
   if (!token) throw unauthorized("Missing Authorization Bearer token");
   const claims = verifyAccessToken(token);
   return {

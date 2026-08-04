@@ -54,22 +54,27 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
   };
 
   try {
-    let isReady = await checkPort(host, port);
-
-
+    const isReady = await checkPort(host, port);
 
     return ok({
+      status: isReady ? "ok" : "error",
+      httpStatus: isReady ? 200 : 503,
       ready: isReady,
       reachable: isReady,
-      status: isReady ? 200 : 503,
+      service: "jupyter",
+      timestamp: new Date().toISOString(),
       host,
       port,
     });
   } catch (err) {
     console.error("[jupyterHealth] socket check failed for", host, port, err.message);
     return ok({
+      status: "error",
+      httpStatus: 503,
       ready: false,
       reachable: false,
+      service: "jupyter",
+      timestamp: new Date().toISOString(),
       message: "Jupyter container check encountered an error",
       host,
       port,

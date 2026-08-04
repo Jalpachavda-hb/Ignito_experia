@@ -32,9 +32,12 @@ export async function runFile(payload: any, sessionId: string) {
     payload?.labType === 'dotnet' ||
     payload?.language === 'csharp' ||
     String(payload?.path || '').toLowerCase().endsWith('.cs');
-  const isBuild = payload?.action === 'build';
+  const isAndroid =
+    payload?.labType === 'android' ||
+    String(payload?.path || '').toLowerCase().includes('build.sh');
+  const isBuild = payload?.action === 'build' || payload?.path?.includes('build');
   const controller = new AbortController();
-  const timeoutMs = isDotnet ? (isBuild ? 360000 : 300000) : 60000;
+  const timeoutMs = isDotnet || isAndroid ? (isBuild ? 360000 : 300000) : 60000;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -81,3 +84,18 @@ export function connectTerminalStream({ sessionId, runId, onMessage }: TerminalC
 
   return socket;
 }
+
+export async function startAndroidBuild(sessionId: string) {
+  return apiRequest('/android/build', {
+    method: 'POST',
+    headers: { 'x-session-id': sessionId },
+    body: JSON.stringify({ sessionId, projectPath: '/workspace' }),
+  });
+}
+
+export async function fetchAndroidBuildStatus(sessionId: string, offset: number) {
+  return apiRequest(`/android/build/status?sessionId=${encodeURIComponent(sessionId)}&offset=${offset}`, {
+    headers: { 'x-session-id': sessionId }
+  });
+}
+

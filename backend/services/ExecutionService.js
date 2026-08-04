@@ -92,6 +92,8 @@ export const executeCode = async (session, payload, options = {}) => {
         stdin: payload.stdin || "",
         labType: payload.labType,
         sessionId: session.sessionId,
+        timeout: 360000,
+        timeoutMs: 360000,
       }),
       signal: controller.signal,
     });
@@ -104,6 +106,68 @@ export const executeCode = async (session, payload, options = {}) => {
     }
 
     const data = await response.json();
+
+    if (data.output && data.output.includes("BUILD_STARTED")) {
+      console.log(`[ExecutionService] Android background build started for session ${session.sessionId}. Starting polling loop...`);
+      const startTime = Date.now();
+      const timeoutMs = 360000; // 6 minutes
+      let completed = false;
+      let exitCode = 1;
+      let output = "";
+      
+      const runHttpCmd = async (cmdPath, cmdContent) => {
+        try {
+          const res = await fetch(`${baseUrl}/execute`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              path: cmdPath,
+              content: cmdContent,
+              language: "shell",
+              labType: "android",
+              sessionId: session.sessionId,
+            }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            return json.output || "";
+          }
+        } catch (e) {
+          console.warn("[ExecutionService] runHttpCmd failed:", e.message);
+        }
+        return "";
+      };
+
+      while (Date.now() - startTime < timeoutMs) {
+        const statusContent = await runHttpCmd("/workspace/read_status.sh", "cat build.status");
+        if (statusContent && statusContent.trim() && !statusContent.includes("No such file")) {
+          const parsedCode = parseInt(statusContent.trim(), 10);
+          if (!isNaN(parsedCode)) {
+            exitCode = parsedCode;
+            completed = true;
+            break;
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      output = await runHttpCmd("/workspace/read_log.sh", "cat build.log");
+      if (!output) {
+        output = "Failed to read build log from container.";
+      }
+      
+      await runHttpCmd("/workspace/clean_build.sh", "rm -f build.status build.log").catch(() => {});
+      
+      return {
+        success: completed && exitCode === 0,
+        status: completed && exitCode === 0 ? "COMPLETED" : "FAILED",
+        runId,
+        output: output,
+        error: completed ? (exitCode === 0 ? null : `Build failed with exit code ${exitCode}`) : "Build timed out after 6 minutes",
+        syntaxError: "",
+        runtimeError: completed && exitCode !== 0 ? `exit code ${exitCode}` : "",
+      };
+    }
 
     return {
       success: data.success !== false,

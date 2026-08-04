@@ -1,7 +1,12 @@
 import { getContainerPort, getContainerHost } from "../lib/labTools.js";
 import { ENV } from "../config/env.js";
+import { updateSession } from "./sessionRepository.js";
 import { executeCode } from "./ExecutionService.js";
+import { executeViaSsm } from "./executeCommandService.js";
 import crypto from "crypto";
+import path from "path";
+
+const activeS3Bootstraps = new Set();
 
 /**
  * Pure Node.js cryptographic helper to generate S3 presigned URLs without AWS CLI.
@@ -95,13 +100,6 @@ const buildHeaders = (session) => {
   return headers;
 };
 
-/**
- * Backward compatibility stub mapping execution requests directly to ExecutionService.
- */
-export const executeInContainer = async (session, payload, options = {}) => {
-  return await executeCode(session, payload, options);
-};
-
 /* --- SSM FALLBACK HELPERS --- */
 
 const getFilesSsmFallback = async (session) => {
@@ -135,7 +133,7 @@ EOF
 python3 /tmp/list_files.py
 `;
 
-  const execRes = await executeInContainer(session, {
+  const execRes = await executeViaSsm(session, {
     action: "run",
     path: "/tmp/list_files.sh",
     language: "shell",
@@ -159,15 +157,16 @@ const saveSsmFallback = async (session, filePath, content) => {
   console.log(`[containerClient] Running SSM-based save fallback for file: ${filePath}`);
   const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
   const containerPath = `/tmp/workspace/workspace/${cleanPath}`;
+  const containerDir = path.dirname(containerPath).replace(/\\/g, "/");
   const b64 = Buffer.from(content || "").toString("base64");
 
   const shellScript = `#!/bin/sh
-mkdir -p "$(dirname "${containerPath}")"
+mkdir -p "${containerDir}"
 echo "${b64}" | base64 -d > "${containerPath}"
 echo "SUCCESS"
 `;
 
-  const execRes = await executeInContainer(session, {
+  const execRes = await executeViaSsm(session, {
     action: "run",
     path: "/tmp/save_file.sh",
     language: "shell",
@@ -183,13 +182,16 @@ echo "SUCCESS"
 
 const deleteSsmFallback = async (session, filePath) => {
   console.log(`[containerClient] Running SSM-based delete fallback for file: ${filePath}`);
-  const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-  const containerPath = `/tmp/workspace/workspace/${cleanPath}`;
+  let containerPath = filePath;
+  if (!filePath.startsWith("/tmp/workspace/workspace/")) {
+    const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
+    containerPath = `/tmp/workspace/workspace/${cleanPath}`;
+  }
   const shellScript = `#!/bin/sh\nrm -f "${containerPath}"\necho "SUCCESS"`;
 
-  const execRes = await executeInContainer(session, {
+  const execRes = await executeViaSsm(session, {
     action: "run",
-    path: "/tmp/delete_file.sh",
+    path: "/workspace/.vlab_tmp/delete_file.sh",
     language: "shell",
     labType: "linux",
     content: shellScript,
@@ -202,8 +204,11 @@ const deleteSsmFallback = async (session, filePath) => {
 
 const readSsmFallback = async (session, filePath) => {
   console.log(`[containerClient] Running SSM-based read fallback for file: ${filePath}`);
-  const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-  const containerPath = `/tmp/workspace/workspace/${cleanPath}`;
+  let containerPath = filePath;
+  if (!filePath.startsWith("/tmp/workspace/workspace/")) {
+    const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
+    containerPath = `/tmp/workspace/workspace/${cleanPath}`;
+  }
   
   const shellScript = `#!/bin/sh
 target="${containerPath}"
@@ -216,9 +221,9 @@ else
 fi
 `;
 
-  const execRes = await executeInContainer(session, {
+  const execRes = await executeViaSsm(session, {
     action: "run",
-    path: "/tmp/read_file.sh",
+    path: "/workspace/.vlab_tmp/read_file.sh",
     language: "shell",
     labType: "linux",
     content: shellScript,
@@ -231,7 +236,7 @@ fi
     const endIdx = output.indexOf("###END###");
     if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
       const b64 = output.substring(startIdx + 11, endIdx).trim().replace(/\s/g, "");
-      return Buffer.from(b64, "base64").toString("utf-8");
+      return Buffer.from(b64, "base64");
     }
   }
   return null;
@@ -323,7 +328,8 @@ export const readFromContainer = async (session, filePath) => {
       console.warn(`[containerClient] HTTP read failed: ${err.message}. Checking SSM fallback...`);
     }
   }
-  return await readSsmFallback(session, filePath);
+  const buffer = await readSsmFallback(session, filePath);
+  return buffer ? buffer.toString("utf-8") : null;
 };
 
 export const getFileContentFromContainer = readFromContainer;
@@ -354,8 +360,7 @@ export const readBinaryFromContainer = async (session, filePath) => {
       console.warn(`[containerClient] HTTP download failed: ${err.message}. Checking SSM fallback...`);
     }
   }
-  const content = await readSsmFallback(session, filePath);
-  return content ? Buffer.from(content) : null;
+  return await readSsmFallback(session, filePath);
 };
 
 /**
@@ -363,6 +368,10 @@ export const readBinaryFromContainer = async (session, filePath) => {
  */
 export const getFilesFromContainer = async (session) => {
   const baseUrl = await getPrivateBaseUrl(session);
+  const isAndroid = session?.labType === 'android' || session?.labId === 'android' || session?.labId === 'mobile-app-lab';
+  const isDotnet = (session?.labId || "").toLowerCase().includes("dotnet") || (session?.labType || "").toLowerCase() === "dotnet";
+  const isDataScience = (session?.labType || "").toLowerCase() === 'datascience' || (session?.labId || "").toLowerCase().includes('datascience') || (session?.labId || "").toLowerCase().includes('jupyter');
+
   if (baseUrl) {
     try {
       console.log(`[containerClient] Sending GET request to: ${baseUrl}/files`);
@@ -375,6 +384,20 @@ export const getFilesFromContainer = async (session) => {
         console.warn(`[containerClient] /files endpoint returned HTTP 404 (not implemented yet). Falling back to SSM...`);
       } else if (response.ok) {
         const filesList = await response.json();
+        if ((isAndroid || isDotnet) && (!filesList || filesList.length === 0)) {
+          if (!activeS3Bootstraps.has(session.sessionId)) {
+            activeS3Bootstraps.add(session.sessionId);
+            console.log(`[getFilesFromContainer] Workspace empty. Triggering S3 bootstrap for session ${session.sessionId}...`);
+            try {
+              await bootstrapWorkspaceFromS3(session);
+              return await getFilesFromContainer(session);
+            } catch (err) {
+              console.error("[getFilesFromContainer] S3 bootstrap failed:", err.message);
+            } finally {
+              activeS3Bootstraps.delete(session.sessionId);
+            }
+          }
+        }
         return filesList || [];
       } else {
         throw new Error(`Failed to fetch files list from container: HTTP ${response.status}`);
@@ -387,3 +410,95 @@ export const getFilesFromContainer = async (session) => {
 };
 
 export const getContainerFiles = getFilesFromContainer;
+
+/**
+ * Triggers workspace extraction from S3 directly inside the container runtime.
+ */
+export const bootstrapWorkspaceFromS3 = async (session) => {
+  const bucket = ENV.testCasesBucket || 'vlab-dev-lab-files-0kdrg0q8';
+  const ttl = ENV.labBootstrapPresignTtlSeconds || 3600;
+
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+
+  const isAndroid = labId === 'mobile-app-lab' || labId === 'android' || labType === 'android';
+  const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
+  const isDataScience = labType === 'datascience' || labId === 'data-science-lab' || labId.includes('datascience') || labId.includes('jupyter') || labId.includes('notebook');
+
+  let key = "";
+  if (isAndroid) {
+    key = "lab-assets/android/starter/latest.tar.gz";
+  } else if (isDotnet) {
+    let isMvc = false;
+    if (session?.dotnetSubtype) {
+      isMvc = session.dotnetSubtype === "mvc";
+    } else {
+      isMvc = labId.includes("mvc") || labId.includes("mvc-app") || labType.includes("mvc");
+    }
+    key = isMvc ? "lab-assets/dotnet/mvc/latest.tar.gz" : "lab-assets/dotnet/console-snippet/latest.tar.gz";
+  } else {
+    console.log(`[bootstrapWorkspaceFromS3] Lab ${labId} does not require S3 bootstrapping.`);
+    return null;
+  }
+
+  console.log(`[bootstrapWorkspaceFromS3] Generating presigned URL for s3://${bucket}/${key}...`);
+  try {
+    const presignedUrl = await getPresignedUrl(bucket, key, ttl);
+
+    // Download and extract inside container via a python process executed inside the container
+    const pythonScript = `import urllib.request
+import tarfile
+import os
+
+presigned_url = "${presignedUrl}"
+dest_dir = "/tmp/workspace/workspace"
+tmp_tar = "/tmp/bootstrap.tar.gz"
+
+try:
+    os.makedirs(dest_dir, exist_ok=True)
+    urllib.request.urlretrieve(presigned_url, tmp_tar)
+    with tarfile.open(tmp_tar, "r:gz") as tar:
+        tar.extractall(path=dest_dir)
+    if os.path.exists(tmp_tar):
+        os.remove(tmp_tar)
+    
+    for filename in ["gradlew", "build.sh"]:
+        filepath = os.path.join(dest_dir, filename)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "rb") as f:
+                    content = f.read()
+                content = content.replace(b"\\r\\n", b"\\n")
+                with open(filepath, "wb") as f:
+                    f.write(content)
+            except Exception as e:
+                print("CLEAN_ERR:", str(e))
+            os.chmod(filepath, 0o755)
+    print("SUCCESS")
+except Exception as e:
+    print("ERROR:", str(e))
+`;
+    const payload = {
+      action: "run",
+      path: "/tmp/bootstrap.py",
+      language: "python",
+      content: pythonScript
+    };
+
+    console.log(`[bootstrapWorkspaceFromS3] Executing bootstrap sync inside container...`);
+    const result = await executeCode(session, payload);
+    console.log(`[bootstrapWorkspaceFromS3] Container bootstrap outcome:`, result?.output || 'No output');
+
+    return { success: result?.success || false };
+  } catch (err) {
+    console.error(`[bootstrapWorkspaceFromS3] Failed to bootstrap workspace:`, err.message);
+    throw err;
+  }
+};
+
+/**
+ * Backward compatibility stub mapping execution requests directly to ExecutionService.
+ */
+export const executeInContainer = async (session, payload, options = {}) => {
+  return await executeCode(session, payload, options);
+};

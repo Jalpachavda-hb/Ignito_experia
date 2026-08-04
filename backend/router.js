@@ -179,6 +179,11 @@ export const ROUTES = [
   { method: "GET", path: "/files/download", handler: filesDownloadHandler, auth: true },
   { method: "POST", path: "/save", handler: filesSaveHandler, auth: true },
   { method: "DELETE", path: "/files", handler: filesDeleteHandler, auth: true },
+
+  // Android build pipeline
+  { method: "POST", path: "/android/build", handler: (event) => import("./handlers/android.js").then(m => m.androidBuildHandler(event)), auth: true },
+  { method: "GET", path: "/android/build/status", handler: (event) => import("./handlers/android.js").then(m => m.androidBuildStatusHandler(event)), auth: true },
+  { method: "GET", path: "/android/download", handler: (event) => import("./handlers/android.js").then(m => m.androidDownloadHandler(event)), auth: true },
 ];
 
 export const lambdaHandlers = Object.fromEntries(

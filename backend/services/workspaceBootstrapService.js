@@ -10,6 +10,7 @@ import { getContainerPort, getContainerHost } from "../lib/labTools.js";
 import { getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { executeCode } from "./ExecutionService.js";
+import { executeViaSsm } from "./executeCommandService.js";
 
 const execAsync = promisify(exec);
 const BOOTSTRAP_VERSION = "1.0.0";
@@ -118,8 +119,7 @@ const getTemplateConfig = (session, lab) => {
 
   if (isDataScience) {
     return {
-      assetKey: "lab-assets/datascience/notebook/latest.tar.gz",
-      requiredFiles: ["notebook.ipynb"],
+      skipBootstrap: true,
     };
   }
 
@@ -174,6 +174,14 @@ if [ -f "$TMP_TAR" ]; then
             chmod +x "$filepath"
         fi
     done
+    
+    # Change ownership back to container's non-root user
+    if [ -f "/app/lab_server.py" ]; then
+        chown -R $(stat -c '%U:%G' /app/lab_server.py) /tmp/workspace
+    else
+        chown -R labuser:labuser /tmp/workspace || true
+    fi
+
     echo "SUCCESS"
 else
     echo "ERROR: Failed to download archive"
@@ -190,7 +198,7 @@ fi
   };
 
   console.log(`[WorkspaceBootstrap] Executing SSM bootstrap sync inside container...`);
-  const result = await executeCode(session, payload);
+  const result = await executeViaSsm(session, payload);
   console.log(`[WorkspaceBootstrap] Container SSM bootstrap outcome:`, result?.output || "No output");
   if (!result || !result.success || !result.output.includes("SUCCESS")) {
     throw new Error(`SSM Bootstrap shell script failed: ${result?.error || result?.output}`);
@@ -201,12 +209,11 @@ const verifyContainerWorkspace = async (session, requiredFiles) => {
   if (!requiredFiles || requiredFiles.length === 0) return;
 
   const checks = requiredFiles.map((file) => {
-    if (file.endsWith("/")) {
-      const cleanDir = file.slice(0, -1);
-      return `[ -d "/tmp/workspace/workspace/${cleanDir}" ]`;
-    } else {
-      return `[ -f "/tmp/workspace/workspace/${file}" ]`;
-    }
+    const isDir = file.endsWith("/");
+    const cleanFile = isDir ? file.slice(0, -1) : file;
+    const testFlag = isDir ? "-d" : "-f";
+    
+    return `( [ ${testFlag} "/tmp/workspace/workspace/${cleanFile}" ] || find /tmp/workspace/workspace -maxdepth 3 -name "${cleanFile}" | grep -q . )`;
   }).join(" && ");
 
   const shellScript = `#!/bin/sh
@@ -227,7 +234,7 @@ fi
   };
 
   console.log(`[WorkspaceBootstrap] Verifying container workspace with required files: ${requiredFiles.join(", ")}`);
-  const result = await executeCode(session, payload);
+  const result = await executeViaSsm(session, payload);
   if (!result || !result.success || !result.output.includes("VERIFY_SUCCESS")) {
     throw new Error(`Workspace verification failed. Required files not found: ${requiredFiles.join(", ")}. Container output: ${result?.output || "None"}`);
   }
@@ -240,7 +247,22 @@ const verifyLocalWorkspace = (localDestDir, requiredFiles) => {
   for (const file of requiredFiles) {
     const fullPath = path.join(localDestDir, file);
     if (!fs.existsSync(fullPath)) {
-      throw new Error(`Workspace verification failed. Required local file or folder missing: ${file}`);
+      // Check if it exists in any immediate subdirectory (like MyWebApp)
+      let found = false;
+      try {
+        const subdirs = fs.readdirSync(localDestDir).filter(f => fs.statSync(path.join(localDestDir, f)).isDirectory());
+        for (const subdir of subdirs) {
+          if (fs.existsSync(path.join(localDestDir, subdir, file))) {
+            found = true;
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn(`[verifyLocalWorkspace] Subdirectory scan failed:`, err.message);
+      }
+      if (!found) {
+        throw new Error(`Workspace verification failed. Required local file or folder missing: ${file}`);
+      }
     }
   }
   console.log(`[WorkspaceBootstrap] Local workspace verification PASSED.`);
@@ -291,6 +313,11 @@ export const bootstrap = async (session, netInfo = null) => {
       return;
     }
 
+    if (config.skipBootstrap) {
+      console.log(`[WorkspaceBootstrap] Lab ${freshSession.labId} has skipBootstrap configured. Skipping template sync.`);
+      return;
+    }
+
     const { assetKey, requiredFiles } = config;
     const bucket = ENV.testCasesBucket || "vlab-dev-lab-files-0kdrg0q8";
     const ttl = ENV.labBootstrapPresignTtlSeconds || 3600;
@@ -303,48 +330,57 @@ export const bootstrap = async (session, netInfo = null) => {
     if (isEcs) {
       // Container boot
       console.log(`[WorkspaceBootstrap] Performing container bootstrap for session ${sessionId}`);
-      const { host, port } = await waitForContainerReady(freshSession);
-      const baseUrl = `http://${host}:${port}`;
-
-      console.log(`[WorkspaceBootstrap] Sending POST /bootstrap to container API: ${baseUrl}/bootstrap`);
-      const headers = { "Content-Type": "application/json" };
-      if (freshSession.sessionToken) {
-        headers["X-Session-Token"] = freshSession.sessionToken;
-      }
       
       let ssmFallbackNeeded = false;
+      let baseUrl = "";
       try {
-        const response = await fetch(`${baseUrl}/bootstrap`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            sessionId: freshSession.sessionId,
-            labType: freshSession.labType,
-            starterUrl: presignedUrl,
-            bootstrapVersion: "1"
-          }),
-        });
-
-        if (response.status === 404) {
-          console.warn(`[WorkspaceBootstrap] Container bootstrap endpoint returned HTTP 404 (not implemented yet). Falling back to SSM...`);
-          ssmFallbackNeeded = true;
-        } else if (!response.ok) {
-          throw new Error(`Container bootstrap endpoint returned HTTP ${response.status}`);
-        } else {
-          const resData = await response.json();
-          console.log(`[WorkspaceBootstrap] Container bootstrap response:`, resData);
-
-          if (resData.success !== true || resData.bootstrapped !== true || resData.verified !== true) {
-            throw new Error(resData.reason || resData.message || "Workspace verification failed inside the container runtime");
-          }
-          console.log(`[WorkspaceBootstrap] Container bootstrap and verification passed.`);
-        }
+        const ready = await waitForContainerReady(freshSession, 6000); // 6s timeout for readiness check
+        baseUrl = `http://${ready.host}:${ready.port}`;
       } catch (err) {
-        console.warn(`[WorkspaceBootstrap] HTTP bootstrap attempt failed: ${err.message}. Checking SSM fallback...`);
-        if (err.message.includes("404") || err.message.includes("fetch failed") || err.message.includes("refused")) {
-          ssmFallbackNeeded = true;
-        } else {
-          throw err;
+        console.warn(`[WorkspaceBootstrap] Container TCP probe failed: ${err.message}. Direct HTTP REST is unreachable. Falling back to SSM...`);
+        ssmFallbackNeeded = true;
+      }
+
+      if (!ssmFallbackNeeded) {
+        console.log(`[WorkspaceBootstrap] Sending POST /bootstrap to container API: ${baseUrl}/bootstrap`);
+        const headers = { "Content-Type": "application/json" };
+        if (freshSession.sessionToken) {
+          headers["X-Session-Token"] = freshSession.sessionToken;
+        }
+        
+        try {
+          const response = await fetch(`${baseUrl}/bootstrap`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              sessionId: freshSession.sessionId,
+              labType: freshSession.labType,
+              starterUrl: presignedUrl,
+              bootstrapVersion: "1"
+            }),
+          });
+
+          if (response.status === 404) {
+            console.warn(`[WorkspaceBootstrap] Container bootstrap endpoint returned HTTP 404. Falling back to SSM...`);
+            ssmFallbackNeeded = true;
+          } else if (!response.ok) {
+            throw new Error(`Container bootstrap endpoint returned HTTP ${response.status}`);
+          } else {
+            const resData = await response.json();
+            console.log(`[WorkspaceBootstrap] Container bootstrap response:`, resData);
+
+            if (resData.success !== true || resData.bootstrapped !== true || resData.verified !== true) {
+              throw new Error(resData.reason || resData.message || "Workspace verification failed inside the container runtime");
+            }
+            console.log(`[WorkspaceBootstrap] Container bootstrap and verification passed.`);
+          }
+        } catch (err) {
+          console.warn(`[WorkspaceBootstrap] HTTP bootstrap attempt failed: ${err.message}. Checking SSM fallback...`);
+          if (err.message.includes("404") || err.message.includes("fetch failed") || err.message.includes("refused") || err.message.includes("timeout")) {
+            ssmFallbackNeeded = true;
+          } else {
+            throw err;
+          }
         }
       }
 

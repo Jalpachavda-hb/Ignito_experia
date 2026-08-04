@@ -94,7 +94,7 @@ export const expressRoute = (app, route, apiPrefix) => {
     try {
       if (route.auth) {
         const { requireAuth } = await import("./jwt.js");
-        event.auth = requireAuth({ headers: req.headers });
+        event.auth = requireAuth({ headers: req.headers, queryStringParameters: req.query });
       }
       const parsed = parseApiEvent(event);
       if (route.auth) parsed.auth = event.auth;

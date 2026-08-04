@@ -54,9 +54,72 @@ app.use(upload.any());
 
 
 
+// URL rewrite fallback to handle download requests missing the /api prefix
+app.use((req, res, next) => {
+  if (req.path === "/files/download") {
+    req.url = `/api${req.url}`;
+  }
+  next();
+});
+
 for (const route of ROUTES) {
   expressRoute(app, route, ENV.apiPrefix);
 }
+
+// Global active SSE logs streams registry
+global.activeLogStreams = global.activeLogStreams || new Map();
+
+app.get("/api/runs/:runId/logs", (req, res) => {
+  const { runId } = req.params;
+  
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.flushHeaders();
+
+  let streamEntry = global.activeLogStreams.get(runId);
+  if (!streamEntry) {
+    streamEntry = { clients: [], history: [], completed: false };
+    global.activeLogStreams.set(runId, streamEntry);
+  }
+
+  // Send history logs
+  for (const log of streamEntry.history) {
+    res.write(`data: ${JSON.stringify(log)}\n\n`);
+  }
+
+  // Add client to stream
+  streamEntry.clients.push(res);
+
+  // Send initial message if empty to establish connection
+  if (streamEntry.history.length === 0) {
+    const initMsg = { type: "info", message: "Connecting to execution logs stream...", timestamp: new Date().toISOString() };
+    res.write(`data: ${JSON.stringify(initMsg)}\n\n`);
+  }
+
+  // Heartbeat ping every 15s to prevent cloud proxy disconnects
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(`data: ${JSON.stringify({ type: "heartbeat", timestamp: new Date().toISOString() })}\n\n`);
+    } catch (err) {
+      clearInterval(pingInterval);
+    }
+  }, 15000);
+
+  req.on("close", () => {
+    clearInterval(pingInterval);
+    const entry = global.activeLogStreams.get(runId);
+    if (entry) {
+      entry.clients = entry.clients.filter((client) => client !== res);
+      if (entry.clients.length === 0 && entry.completed) {
+        global.activeLogStreams.delete(runId);
+      }
+    }
+  });
+});
+
 
 setupJupyterProxy(app, ENV.apiPrefix);
 attachJupyterProxyUpgrade(httpServer, ENV.apiPrefix);

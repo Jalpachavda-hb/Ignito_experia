@@ -247,6 +247,11 @@ export const listFiles = async (sessionId) => {
   };
 
   result = await getUnfilteredList();
+  result = result.filter(file => 
+    file.name !== 'run_android_build.sh' &&
+    !file.path.includes('.vlab_tmp') &&
+    !file.path.includes('.tmp')
+  );
   return filterDotnetFiles(result, session);
 };
 

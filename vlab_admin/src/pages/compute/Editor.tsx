@@ -2,15 +2,17 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
 import { useLocation } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile } from '../../services/ideService';
+import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, startAndroidBuild, fetchAndroidBuildStatus } from '../../services/ideService';
 import {
   File, Code2, Plus, Upload, Play, Save, AlignLeft,
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RotateCw
+  Folder, FolderOpen, RotateCw, Globe
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
 import { resolveApiRelativeUrl } from '@/config/env';
+import { TestingWorkspace } from './TestingWorkspace';
+import { SeleniumExecutionDialog } from '@/components/SeleniumExecutionDialog';
 
 const getFileIcon = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -330,6 +332,29 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const labType = propSession?.labType || '';
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
   const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
+  const isSelenium = labType === 'testing';
+
+  const [seleniumRunState, setSeleniumRunState] = useState<{
+    status: 'IDLE' | 'STARTING' | 'CONNECTING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'ERROR' | 'DISCONNECTED';
+    browserUrl: string | null;
+    logStreamUrl: string | null;
+    runId: string | null;
+    errorMsg: string | null;
+  }>({
+    status: 'IDLE',
+    browserUrl: null,
+    logStreamUrl: null,
+    runId: null,
+    errorMsg: null
+  });
+
+  const [showPreview, setShowPreview] = useState(false);
+  const [isPreviewTabActive, setIsPreviewTabActive] = useState(false);
+  const [browserTitle, setBrowserTitle] = useState('Ignito VLab Dashboard');
+  const [extractedUrl, setExtractedUrl] = useState('http://localhost:5173/login');
+  const testingWorkspaceRef = useRef<any>(null);
+  const [isSeleniumDialogOpen, setIsSeleniumDialogOpen] = useState(false);
+  const [seleniumResolve, setSeleniumResolve] = useState<((mode: 'gui' | 'headless') => void) | null>(null);
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [selectedFolderPath, setSelectedFolderPath] = useState<string>('/workspace');
@@ -342,6 +367,32 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       mountedRef.current = false;
     };
   }, []);
+
+  // Automatically close chrome-preview tab and return to the code file after successful run / disconnect
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    if (
+      seleniumRunState.status === 'PASSED' ||
+      seleniumRunState.status === 'FAILED' ||
+      seleniumRunState.status === 'ERROR' ||
+      seleniumRunState.status === 'DISCONNECTED'
+    ) {
+      timeoutId = setTimeout(() => {
+        handleCloseFile({ stopPropagation: () => {} } as any, 'chrome-preview');
+        setSeleniumRunState({
+          status: 'IDLE',
+          browserUrl: null,
+          logStreamUrl: null,
+          runId: null,
+          errorMsg: null
+        });
+      }, 5000);
+    }
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [seleniumRunState.status]);
 
   // Auto-expand all folders when files load for Android
   useEffect(() => {
@@ -581,7 +632,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
 
   const selectFile = async (newIdx: number, newFilesList?: any[]) => {
-    if (newIdx === activeFileIndex) return;
+    if (newIdx === activeFileIndex && !isPreviewTabActive) return;
 
     const currentFiles = newFilesList || files;
 
@@ -594,6 +645,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
     // 2. Set active file index
     setActiveFileIndex(newIdx);
+    setIsPreviewTabActive(false);
 
     // 3. Fetch latest content for the newly selected file if not already loaded
     if (newIdx >= 0 && currentFiles[newIdx]) {
@@ -986,8 +1038,54 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     runConsoleInteractive(consoleSession.code, newLines);
   };
 
+  const getExecutionMode = () => new Promise<'gui' | 'headless'>((resolve) => {
+    setSeleniumResolve(() => resolve);
+    setIsSeleniumDialogOpen(true);
+  });
+
   const executeCode = async (dotnetAction?: 'build' | 'run') => {
     if (!sessionId || (!isAndroid && !activeFile)) return;
+
+    if (isSelenium) {
+      setRunningAction('run');
+      try {
+        const mode = await getExecutionMode();
+        if (!mode) return;
+
+        if (!openFilePaths.includes('chrome-preview')) {
+          setOpenFilePaths(prev => [...prev, 'chrome-preview']);
+        }
+        setIsPreviewTabActive(true);
+
+        const runPayload = {
+          path: activeFile.path,
+          language: activeFile.language,
+          content: activeFile.content,
+          labType: 'testing',
+          executionMode: mode
+        };
+        
+        const response = await runFile(runPayload, sessionId);
+        if (response && response.success) {
+          if (response.browser?.title) {
+            setBrowserTitle(response.browser.title);
+          }
+          // Dynamically pass the browserUrl to the TestingWorkspace component
+          const browserUrl = response.viewerUrl || response.browser?.url || null;
+          setSeleniumRunState(prev => ({
+            ...prev,
+            browserUrl,
+            logStreamUrl: response.logs?.streamUrl || prev.logStreamUrl,
+            runId: response.runId || prev.runId,
+            status: browserUrl ? 'RUNNING' : prev.status
+          }));
+        }
+        await refreshFiles(false);
+        return response;
+      } finally {
+        setRunningAction(null);
+      }
+    }
 
     const previewMode: 'build' | 'run' | 'execute' =
       isDotnet && dotnetAction === 'build' ? 'build' : isDotnet && dotnetAction === 'run' ? 'run' : 'execute';
@@ -1080,57 +1178,99 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     }
   };
 
-  const handleRun = () => executeCode();
+  const handleRun = () => {
+    if (isSelenium) {
+      let initialUrl = 'http://localhost:5173/login';
+      if (activeFile && activeFile.content) {
+        // Try direct get/navigate matches first
+        const directMatch = activeFile.content.match(/driver\.(?:get|navigate\(\)\.to)\s*\(\s*['"](https?:\/\/[^'"]+)['"]\s*\)/i);
+        if (directMatch) {
+          initialUrl = directMatch[1];
+        } else {
+          // Fallback: extract the first URL literal starting with http anywhere in the code
+          const fallbackMatch = activeFile.content.match(/https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9._]*\.[a-zA-Z]{2,}(?:\/[^'"\s]*)?/);
+          if (fallbackMatch) {
+            initialUrl = fallbackMatch[0];
+          }
+        }
+      }
+      setExtractedUrl(initialUrl);
+      executeCode();
+    } else {
+      executeCode();
+    }
+  };
   const handleBuild = () => executeCode('build');
   const handleDotnetRun = () => executeCode('run');
 
   const handleAndroidBuild = async () => {
     if (!sessionId) return;
     setIsAndroidBuilding(true);
-    setAndroidBuildLogs('Starting Android build...\nExecuting: ./gradlew assembleDebug\nThis may take a moment...\n');
+    setAndroidBuildLogs('Starting Android build...\nLive gradle logs will stream below shortly...\n');
     setAndroidApkUrl(null);
 
     try {
-      const runPayload = {
-        path: '/workspace/build.sh',
-        language: 'shell',
-        content: 'cd /workspace && chmod +x build.sh && ./build.sh',
-        labType: 'android'
-      };
+      const response = await startAndroidBuild(sessionId);
+      if (response && response.success) {
+        toast.info('Android build pipeline initiated.');
 
-      const response = await runFile(runPayload, sessionId);
-      if (response) {
-        const runSuccess = response.success || response.status === 'COMPLETED';
-        const rawOutput = response.output || '';
-        const rawError = response.error || response.runtimeError || response.syntaxError || '';
+        let offset = 0;
+        let isDone = false;
 
-        const fullLogs = `${rawOutput}\n${rawError}`;
-        setAndroidBuildLogs(fullLogs.trim() || (runSuccess ? 'Build Succeeded.' : 'Build Failed. No output.'));
+        const pollInterval = setInterval(async () => {
+          if (isDone) {
+            clearInterval(pollInterval);
+            return;
+          }
 
-        if (runSuccess) {
-          toast.success('Android build completed successfully!');
-          const token = useAuthStore.getState().auth.accessToken;
-          const downloadUrl = `${resolveApiRelativeUrl('/files/download')}?path=/workspace/app/build/outputs/apk/debug/app-debug.apk&sessionId=${sessionId}&token=${encodeURIComponent(token || '')}`;
-          setAndroidApkUrl(downloadUrl);
-        } else {
-          toast.error('Android build failed. Check logs.');
-        }
+          try {
+            const statusRes = await fetchAndroidBuildStatus(sessionId, offset);
+            if (statusRes) {
+              if (statusRes.logs) {
+                setAndroidBuildLogs(prev => prev + statusRes.logs);
+              }
+              offset = statusRes.offset;
+
+              if (statusRes.status === 'SUCCESS') {
+                isDone = true;
+                clearInterval(pollInterval);
+                setIsAndroidBuilding(false);
+                toast.success('Android build completed successfully!');
+                const token = useAuthStore.getState().auth.accessToken;
+                const downloadUrl = `${resolveApiRelativeUrl('/api/android/download')}?sessionId=${sessionId}&token=${encodeURIComponent(token || '')}`;
+                setAndroidApkUrl(downloadUrl);
+              } else if (statusRes.status === 'FAILED') {
+                isDone = true;
+                clearInterval(pollInterval);
+                setIsAndroidBuilding(false);
+                toast.error('Android build failed. Check logs.');
+              }
+            }
+          } catch (pollErr: any) {
+            console.error('Error polling android build status:', pollErr);
+          }
+        }, window.location.hostname === 'localhost' ? 5000 : 2000);
       } else {
-        setAndroidBuildLogs(prev => prev + '\nError: No response received from the build engine.');
-        toast.error('Android build failed. No response received.');
+        setAndroidBuildLogs(prev => prev + '\nError: No response received or build failed to trigger.');
+        toast.error('Android build failed to start.');
+        setIsAndroidBuilding(false);
       }
     } catch (err: any) {
-      const errMsg = err.message || 'Failed to call the build execution service.';
+      const errMsg = err.message || 'Failed to start build.';
       setAndroidBuildLogs(prev => prev + `\nError: ${errMsg}`);
       toast.error(`Android build failed: ${errMsg}`);
-    } finally {
       setIsAndroidBuilding(false);
     }
   };
 
   const handleDownloadApk = () => {
     if (!androidApkUrl) return;
-    window.open(androidApkUrl, '_blank');
+    const link = document.createElement('a');
+    link.href = androidApkUrl;
+    link.setAttribute('download', 'app-debug.apk');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleAddFile = async () => {
@@ -1295,16 +1435,38 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
   const handleCloseFile = (e: React.MouseEvent, path: string) => {
     e.stopPropagation();
-    setOpenFilePaths(prev => {
-      const next = prev.filter(p => p !== path);
-      const closedFileIdx = files.findIndex(f => f.path === path);
-      if (activeFileIndex === closedFileIdx) {
+    if (path === 'chrome-preview') {
+      setOpenFilePaths(prev => {
+        const next = prev.filter(p => p !== 'chrome-preview');
+        setIsPreviewTabActive(false);
         if (next.length > 0) {
           const newActivePath = next[next.length - 1];
           const newActiveIdx = files.findIndex(f => f.path === newActivePath);
           setActiveFileIndex(newActiveIdx);
         } else {
           setActiveFileIndex(-1);
+        }
+        return next;
+      });
+      return;
+    }
+
+    setOpenFilePaths(prev => {
+      const next = prev.filter(p => p !== path);
+      const closedFileIdx = files.findIndex(f => f.path === path);
+      if (activeFileIndex === closedFileIdx) {
+        if (next.length > 0) {
+          const newActivePath = next[next.length - 1];
+          if (newActivePath === 'chrome-preview') {
+            setIsPreviewTabActive(true);
+          } else {
+            const newActiveIdx = files.findIndex(f => f.path === newActivePath);
+            setActiveFileIndex(newActiveIdx);
+            setIsPreviewTabActive(false);
+          }
+        } else {
+          setActiveFileIndex(-1);
+          setIsPreviewTabActive(false);
         }
       }
       return next;
@@ -1422,10 +1584,31 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             <div className="flex-1 flex items-center ml-2 overflow-x-auto scrollbar-none h-full min-w-0">
               <div className="flex items-center space-x-1 h-full py-1">
                 {openFilePaths.map((path) => {
+                  if (path === 'chrome-preview') {
+                    const isActive = isPreviewTabActive;
+                    return (
+                      <div
+                        key={path}
+                        onClick={() => setIsPreviewTabActive(true)}
+                        className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[120px] max-w-[180px] transition-colors shrink-0 ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
+                          }`}
+                      >
+                        <Globe size={12} className="text-emerald-400 shrink-0" />
+                        <span className="text-[11px] truncate flex-1 font-medium">{browserTitle}</span>
+                        <button
+                          onClick={(e) => handleCloseFile(e, 'chrome-preview')}
+                          className={`p-0.5 rounded-full hover:bg-white/10 ${isActive ? 'text-white/60 hover:text-white' : 'text-transparent group-hover:text-white/40'}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    );
+                  }
+
                   const file = files.find(f => f.path === path);
                   if (!file) return null;
                   const idx = files.findIndex(f => f.path === path);
-                  const isActive = activeFileIndex === idx;
+                  const isActive = activeFileIndex === idx && !isPreviewTabActive;
                   return (
                     <div
                       key={path}
@@ -1535,7 +1718,20 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 flex overflow-hidden">
-            {activeFileIndex !== -1 && activeFile ? (
+            {isPreviewTabActive ? (
+              <div className="flex-1 flex flex-col relative bg-[#0c0c0c] min-h-0">
+                <TestingWorkspace
+                  ref={testingWorkspaceRef}
+                  session={propSession}
+                  sessionId={sessionId}
+                  runState={seleniumRunState}
+                  setRunState={setSeleniumRunState}
+                  onRun={executeCode}
+                  onClose={() => handleCloseFile(new MouseEvent('click') as any, 'chrome-preview')}
+                  initialAddressUrl={extractedUrl}
+                />
+              </div>
+            ) : activeFileIndex !== -1 && activeFile ? (
               <div className="flex-1 flex flex-col relative border-r border-[#1f1f1f]">
                 <div className="absolute top-4 right-6 z-10 flex gap-2">
                   <button
@@ -1598,6 +1794,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   {androidBuildLogs}
                 </div>
               </div>
+            ) : isSelenium ? (
+              null // Selenium preview is now opened in the Editor Tab bar instead of a split layout
             ) : (
               <div className="w-[40%] bg-white flex flex-col shrink-0">
                 <div className="h-10 bg-white flex justify-center items-center border-b border-red-500/20 relative">
@@ -1625,6 +1823,25 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         </div>
       </div>
 
+      <SeleniumExecutionDialog
+        open={isSeleniumDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsSeleniumDialogOpen(false);
+            if (seleniumResolve) {
+              seleniumResolve(null as any);
+              setSeleniumResolve(null);
+            }
+          }
+        }}
+        onConfirm={(mode) => {
+          setIsSeleniumDialogOpen(false);
+          if (seleniumResolve) {
+            seleniumResolve(mode);
+            setSeleniumResolve(null);
+          }
+        }}
+      />
     </div>
   );
 };
