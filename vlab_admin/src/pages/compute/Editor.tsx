@@ -6,7 +6,7 @@ import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, startAndro
 import {
   File, Code2, Plus, Upload, Play, Save, AlignLeft,
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RotateCw, Globe
+  Folder, FolderOpen, RotateCw, Globe, Copy, Check
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
@@ -538,6 +538,19 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const [isAndroidBuilding, setIsAndroidBuilding] = useState(false);
   const [androidBuildLogs, setAndroidBuildLogs] = useState<string>('No build logs yet. Click BUILD to start compiling your Android application.');
   const [androidApkUrl, setAndroidApkUrl] = useState<string | null>(null);
+  const [copiedLogs, setCopiedLogs] = useState(false);
+
+  const handleCopyLogs = () => {
+    if (!androidBuildLogs) return;
+    navigator.clipboard.writeText(androidBuildLogs).then(() => {
+      setCopiedLogs(true);
+      toast.success('Build logs copied to clipboard!');
+      setTimeout(() => setCopiedLogs(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy logs:', err);
+      toast.error('Failed to copy build logs');
+    });
+  };
 
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
 
@@ -631,92 +644,64 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
 
 
+  const pendingFetchRef = useRef<Set<string>>(new Set());
+
   const selectFile = async (newIdx: number, newFilesList?: any[]) => {
     if (newIdx === activeFileIndex && !isPreviewTabActive) return;
 
     const currentFiles = newFilesList || files;
 
-    // 1. Save current active file first in the background if it exists
+    // 1. Save current active file before switching ONLY if it was modified by the user
     if (activeFileIndex >= 0 && files[activeFileIndex]) {
-      saveFile(files[activeFileIndex], sessionId).catch(err => {
-        console.error('Failed to save file before switching:', err);
-      });
+      const prevFile = files[activeFileIndex];
+      const lastSaved = lastSavedContentRef.current.get(prevFile.path);
+      if (prevFile.content !== undefined && lastSaved !== undefined && lastSaved !== prevFile.content) {
+        saveFile(prevFile, sessionId).catch(err => {
+          console.error('Failed to save modified file before switching:', err);
+        });
+      }
     }
 
     // 2. Set active file index
     setActiveFileIndex(newIdx);
     setIsPreviewTabActive(false);
 
-    // 3. Fetch latest content for the newly selected file if not already loaded
+    // 3. Fetch content for the newly selected file ONLY if not already loaded or pending
     if (newIdx >= 0 && currentFiles[newIdx]) {
       const targetFile = currentFiles[newIdx];
-      // Skip fetching if content is already populated to avoid overwriting edits or newly uploaded/created files
-      if (targetFile.content !== undefined && targetFile.content !== '') {
-        markPathLoaded(targetFile.path);
+      const targetPath = targetFile.path;
+
+      // If content is already loaded in memory or already being fetched, skip API call
+      if (targetFile.content !== undefined || loadedPaths.has(targetPath) || pendingFetchRef.current.has(targetPath)) {
+        markPathLoaded(targetPath);
         return;
       }
 
-      const targetPath = targetFile.path;
+      pendingFetchRef.current.add(targetPath);
       try {
         const response = await fetchFileContent(targetPath, sessionId);
         if (response.success) {
           markPathLoaded(targetPath);
-          const content = response.content || '';
+          const content = response.content ?? '';
           lastSavedContentRef.current.set(targetPath, content);
           setFiles(prev => {
             const updated = [...prev];
             const currentIdx = updated.findIndex(f => f.path === targetPath);
             if (currentIdx !== -1) {
-              // Only update if it wasn't edited in the meantime
-              if (updated[currentIdx].content === undefined || updated[currentIdx].content === '') {
-                updated[currentIdx].content = response.content || '';
-              }
+              updated[currentIdx] = { ...updated[currentIdx], content };
             }
             return updated;
           });
         }
       } catch (err: any) {
-        console.error('Load files error:', err);
+        console.error('Load file content error:', err);
         toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
       } finally {
+        pendingFetchRef.current.delete(targetPath);
         if (mountedRef.current) setIsLoading(false);
       }
     }
   };
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadActiveFile = async () => {
-      if (activeFileIndex < 0 || !files[activeFileIndex] || !sessionId) return;
-      const file = files[activeFileIndex];
-      if (!file) return;
-      if (file.content !== undefined) {
-        markPathLoaded(file.path);
-        return;
-      }
-
-      try {
-        const response = await fetchFileContent(file.path, sessionId);
-        if (isMounted && response.success) {
-          markPathLoaded(file.path);
-          const content = response.content || '';
-          lastSavedContentRef.current.set(file.path, content);
-          setFiles(prev => {
-            const updated = [...prev];
-            const idx = updated.findIndex(f => f.path === file.path);
-            if (idx !== -1) {
-              updated[idx].content = response.content || '';
-            }
-            return updated;
-          });
-        }
-      } catch (err: any) {
-        console.error('Content load error:', err);
-        toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
-      }
-    };
-    loadActiveFile();
-  }, [activeFileIndex, sessionId]);
 
   const latestSaveRef = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -954,7 +939,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   };
 
   const handleSave = async (showFeedback = true) => {
-    if (!activeFile || !sessionId) return;
+    if (!activeFile || !sessionId || activeFile.content === undefined) return;
+    const lastSaved = lastSavedContentRef.current.get(activeFile.path);
+    if (!showFeedback && lastSaved === activeFile.content) return; // Skip background auto-save if content was not changed
     setIsSaving(true);
     try {
       await saveFile(activeFile, sessionId);
@@ -1786,9 +1773,17 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             {/* Right Preview Panel */}
             {isAndroid ? (
               <div className="w-[40%] bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col shrink-0">
-                <div className="h-10 bg-[#1e1e1e] flex justify-center items-center border-b border-amber-500/20 relative">
+                <div className="h-10 bg-[#1e1e1e] flex justify-between items-center px-4 border-b border-amber-500/20 relative">
                   <span className="text-[#f59e0b] text-[10px] font-black uppercase tracking-widest">Build Logs</span>
-                  <div className="absolute bottom-0 w-full h-[2px] bg-[#f59e0b]" />
+                  <button
+                    onClick={handleCopyLogs}
+                    title="Copy Build Logs"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#2a2d2e] hover:bg-[#37373d] text-slate-300 hover:text-white text-[11px] font-medium transition-all cursor-pointer"
+                  >
+                    {copiedLogs ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    <span>{copiedLogs ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                  <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#f59e0b]" />
                 </div>
                 <div className="flex-1 w-full p-4 bg-[#111] font-mono text-[12px] text-slate-300 overflow-y-auto whitespace-pre-wrap selection:bg-amber-500/30">
                   {androidBuildLogs}

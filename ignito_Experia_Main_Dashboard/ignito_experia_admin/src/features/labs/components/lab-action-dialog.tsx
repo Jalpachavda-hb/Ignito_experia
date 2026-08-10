@@ -40,7 +40,7 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
   const form = useForm<LabFormInput, any, LabFormOutput>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      id: '', title: '', subtitle: '', semester: '', logoUrl: '',
+      id: '', title: '', subtitle: '', logoUrl: '',
       category: '', credits: 100, durationMinutes: 60, complexity: 'Intermediate',
       runtimeType: 'ide', runtimePort: 8080, runtimePath: '/workspace',
       containerApiEnabled: false, containerApiPort: null,
@@ -56,7 +56,6 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
         id: currentRow.id,
         title: currentRow.title,
         subtitle: currentRow.subtitle || '',
-        semester: currentRow.semester || '',
         logoUrl: currentRow.logoUrl || '',
         category: currentRow.category || '',
         credits: currentRow.credits || 0,
@@ -75,7 +74,7 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
       })
     } else {
       form.reset({
-        id: '', title: '', subtitle: '', semester: '', logoUrl: '',
+        id: '', title: '', subtitle: '', logoUrl: '',
         category: '', credits: 100, durationMinutes: 60, complexity: 'Intermediate',
         runtimeType: 'ide', runtimePort: 8080, runtimePath: '/workspace',
         containerApiEnabled: false, containerApiPort: null,
@@ -132,22 +131,19 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
                 <Field label="Subtitle">
                   <input {...form.register('subtitle')} placeholder="Brief subtitle" className={inputCls()} />
                 </Field>
-                <Field label="Semester">
-                  <input {...form.register('semester')} placeholder="e.g. Semester 1" className={inputCls()} />
+                <Field label="Category">
+                  <input {...form.register('category')} placeholder="e.g. Data Science" className={inputCls()} />
                 </Field>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Logo URL">
                   <input {...form.register('logoUrl')} placeholder="https://..." className={inputCls()} />
                 </Field>
-                <Field label="Category">
-                  <input {...form.register('category')} placeholder="e.g. Data Science" className={inputCls()} />
-                </Field>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
                 <Field label="Complexity">
                   <input {...form.register('complexity')} placeholder="e.g. Beginner, Intermediate" className={inputCls()} />
                 </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <Field label="Display Order">
                   <input type="number" {...form.register('displayOrder', { valueAsNumber: true })} className={inputCls()} />
                 </Field>
@@ -183,8 +179,10 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
                 <Field label="Port">
                   <input
                     type="number"
+                    placeholder="8080"
+                    className={inputCls()}
                     {...form.register("runtimePort", {
-                      setValueAs: (v) => (v === "" ? null : Number(v)),
+                      setValueAs: (v) => (v === "" || v == null ? null : Number(v)),
                     })}
                   />
                 </Field>

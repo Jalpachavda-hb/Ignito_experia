@@ -23,10 +23,10 @@ export function AppSidebar() {
   const currentSidebarData = isStudentRoute ? getStudentSidebarData() : sidebarData
 
   const activeUser = auth.user ? {
-    name: auth.user.fullName || auth.user.email.split('@')[0],
-    email: auth.user.email,
+    name: auth.user.fullName || (auth.user.email ? auth.user.email.split('@')[0] : (auth.user.role || 'Super Admin')),
+    email: auth.user.email || 'admin@vlab.enterprise',
     avatar: '/avatars/shadcn.jpg'
-  } : currentSidebarData.user;
+  } : (currentSidebarData?.user || { name: 'Admin', email: 'admin@vlab.enterprise', avatar: '/avatars/shadcn.jpg' });
 
   return (
     <Sidebar collapsible={collapsible} variant={variant}>

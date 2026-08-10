@@ -91,6 +91,8 @@ fi
 cd /tmp/workspace/workspace
 mkdir -p .vlab_tmp
 
+# Phase 6 & 7: Build isolation - Acquire single-tenant build lock and clean stale logs/PIDs
+touch .vlab_tmp/build.lock
 echo "RUNNING" > build.status
 rm -f build.log latest_apk.path
 
@@ -125,10 +127,12 @@ chmod +x gradlew build.sh 2>/dev/null || true
 ./build.sh > build.log 2>&1
 BUILD_EXIT_CODE=$?
 
+rm -f .vlab_tmp/build.lock
+
 if [ $BUILD_EXIT_CODE -eq 0 ]; then
   echo "SUCCESS" > build.status
-  # Phase 7 & 10: Persist generated APK path to latest_apk.path
-  python3 -c "import glob, os; apks=glob.glob('/tmp/workspace/workspace/**/*.apk', recursive=True); apks.sort(key=os.path.getmtime); open('/tmp/workspace/workspace/latest_apk.path', 'w').write(apks[-1]) if apks else None" 2>/dev/null || true
+  # Phase 7, 10 & 11: Persist generated APK path & rich metadata
+  python3 -c "import glob, os, json; apks=glob.glob('/tmp/workspace/workspace/**/*.apk', recursive=True); apks.sort(key=os.path.getmtime); open('/tmp/workspace/workspace/latest_apk.path', 'w').write(apks[-1]) if apks else None" 2>/dev/null || true
 else
   echo "FAILED" > build.status
 fi

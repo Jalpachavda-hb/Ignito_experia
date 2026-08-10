@@ -83,8 +83,6 @@ export function LabDetailsDrawer({ lab, open, onOpenChange, onEdit, onDelete }: 
                 { label: 'Task Definition', value: lab.taskDefinition },
                 { label: 'Runtime Path', value: lab.runtimePath },
                 { label: 'Runtime Port', value: lab.runtimePort ? String(lab.runtimePort) : null },
-                { label: 'Semester', value: lab.semester },
-                { label: 'Complexity', value: lab.complexity },
                 { label: 'Display Order', value: String(lab.displayOrder ?? 0) },
               ].filter(item => item.value).map(({ label, value }) => (
                 <div key={label} className="flex items-center justify-between py-2 border-b border-border/50">

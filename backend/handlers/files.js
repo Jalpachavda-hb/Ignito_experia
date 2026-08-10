@@ -48,35 +48,18 @@ export const filesListHandler = async (event) => {
 };
 
 export const filesContentHandler = async (event) => {
-  const { sessionId, session } = await assertSessionAccess(event);
+  const { sessionId } = await assertSessionAccess(event);
   const filePath = event.queryStringParameters?.path;
 
-  if (session?.status === "running") {
-    try {
-      const containerContent = await readFromContainer(session, filePath);
-      if (containerContent !== null) {
-        return ok({
-          path: filePath,
-          content: containerContent,
-          language: filePath.endsWith('.py') ? 'python' :
-                    filePath.endsWith('.js') || filePath.endsWith('.jsx') ? 'javascript' :
-                    filePath.endsWith('.java') ? 'java' :
-                    filePath.endsWith('.html') ? 'html' :
-                    filePath.endsWith('.css') ? 'css' :
-                    filePath.endsWith('.json') ? 'json' :
-                    filePath.endsWith('.sh') ? 'shell' : 'plaintext',
-        });
-      }
-    } catch (err) {
-      console.warn("[filesContentHandler] Failed to read container file content:", err.message);
-    }
-  }
+  if (!filePath) throw badRequest("path is required");
 
+  // Use fileRepository getFile which utilizes fast in-memory fileContentCache (< 1ms)!
   const file = await getFile(sessionId, filePath);
   if (!file) throw notFound("File not found");
+
   return ok({
     path: file.path,
-    content: file.content,
+    content: file.content ?? "",
     language: file.language,
   });
 };

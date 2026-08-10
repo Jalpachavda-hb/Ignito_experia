@@ -7,16 +7,13 @@ import {
   authLogoutHandler,
   authMeHandler,
   ssoLoginHandler,
+  tenantResolveHandler,
 } from "./handlers/auth.js";
 import {
   labsListHandler,
   labsGetHandler,
   subLabsHandler,
   labsAdminListHandler,
-  labsCreateHandler,
-  labsUpdateHandler,
-  labsDeleteHandler,
-  labsUpdateStatusHandler,
 } from "./handlers/labs.js";
 import {
   sessionsStartHandler,
@@ -46,13 +43,6 @@ import {
   usersAddCreditsHandler,
 } from "./handlers/users.js";
 import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
-import {
-  rolesListHandler,
-  rolesGetHandler,
-  rolesCreateHandler,
-  rolesUpdateHandler,
-  rolesDeleteHandler,
-} from "./handlers/roles.js";
 
 /**
  * Route table — paths match AWS API Gateway (no /api prefix).
@@ -63,6 +53,7 @@ export const ROUTES = [
   { method: "GET", path: "/health", handler: healthHandler, auth: false },
   { method: "GET", path: "/health/database", handler: databaseHealthHandler, auth: false },
 
+  { method: "GET", path: "/tenant/resolve", handler: tenantResolveHandler, auth: false },
   { method: "POST", path: "/auth/register", handler: authRegisterHandler, auth: false },
   { method: "POST", path: "/auth/login", handler: authLoginHandler, auth: false },
   { method: "POST", path: "/auth/refresh", handler: authRefreshHandler, auth: false },
@@ -113,35 +104,11 @@ export const ROUTES = [
   { method: "POST", path: "/users/:userId/credits", handler: usersAddCreditsHandler, auth: true },
   { method: "POST", path: "/users/import", handler: usersImportHandler, auth: true },
 
-  { method: "GET", path: "/roles", handler: rolesListHandler, auth: true },
-  { method: "GET", path: "/roles/:roleId", handler: rolesGetHandler, auth: true },
-  { method: "POST", path: "/roles", handler: rolesCreateHandler, auth: true },
-  { method: "PATCH", path: "/roles/:roleId", handler: rolesUpdateHandler, auth: true },
-  { method: "DELETE", path: "/roles/:roleId", handler: rolesDeleteHandler, auth: true },
 
 
-
-
-
-
-
-
-
-  // Labs 
-  
+  // Labs (Read-only for VLab Platform; Write/Management belongs exclusively to Owner Platform)
   { method: "GET", path: "/admin/labs", handler: labsAdminListHandler, auth: true },
   { method: "GET", path: "/admin/labs/:labId", handler: labsGetHandler, auth: true },
-  { method: "POST", path: "/admin/labs", handler: labsCreateHandler, auth: true },
-  { method: "PUT", path: "/admin/labs/:labId", handler: labsUpdateHandler, auth: true },
-  { method: "DELETE", path: "/admin/labs/:labId", handler: labsDeleteHandler, auth: true },
-  { method: "PATCH", path: "/admin/labs/:labId/status", handler: labsUpdateStatusHandler, auth: true },
-  
-
-
-
-
-
-
   { method: "GET", path: "/labs", handler: labsListHandler, auth: true },
   { method: "GET", path: "/labs/:labId", handler: labsGetHandler, auth: true },
   { method: "GET", path: "/sub-labs", handler: subLabsHandler, auth: true },

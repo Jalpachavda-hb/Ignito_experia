@@ -55,8 +55,17 @@ export function UserAuthForm({
   async function onSubmit(data: z.infer<typeof formSchema>) {
     setIsLoading(true)
 
+    let slug = ''
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      const parts = host.split('.')
+      if (parts.length > 1 && parts[0] !== 'www' && parts[0] !== 'localhost') {
+        slug = parts[0]
+      }
+    }
+
     toast.promise(
-      loginWithCredentials({ email: data.email, password: data.password }),
+      loginWithCredentials({ email: data.email, password: data.password, slug }),
       {
         loading: 'Signing in...',
         success: (response: any) => {
@@ -68,8 +77,11 @@ export function UserAuthForm({
             userId: sessionUser.id,
             fullName: sessionUser.name || 'User',
             email: sessionUser.email || data.email,
-            role: sessionUser.role || 'Student',
+            role: sessionUser.role || 'SuperAdmin',
             roleId: sessionUser.roleId,
+            tenantId: sessionUser.tenantId,
+            tenantSlug: sessionUser.tenantSlug,
+            tenantName: sessionUser.tenantName,
             status: sessionUser.status || 'Active',
             programId: sessionUser.programId,
             semesterId: sessionUser.semesterId,
@@ -81,12 +93,13 @@ export function UserAuthForm({
           auth.setAccessToken(response?.accessToken || response?.token)
 
           let targetPath = redirectTo || '/'
-          if (user.role === 'Student' && targetPath === '/') {
+          const isStudentRole = (user.role || '').toLowerCase() === 'student'
+          if (isStudentRole && targetPath === '/') {
             targetPath = '/student/dashboard'
           }
           navigate({ to: targetPath, replace: true })
 
-          return `Welcome back, ${user.email}!`
+          return `Welcome back, ${user.fullName || user.email}!`
         },
         error: (err) => {
           setIsLoading(false)

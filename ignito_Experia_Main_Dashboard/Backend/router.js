@@ -1,6 +1,7 @@
 import express from "express";
 import { authMiddleware } from "./middleware/auth.js";
-import { loginHandler, meHandler } from "./handlers/auth.js";
+import { loginHandler, meHandler, getProfileHandler, updateProfileHandler } from "./handlers/auth.js";
+
 import {
   labsAdminListHandler,
   labsListHandler,
@@ -11,6 +12,18 @@ import {
   deleteLabHandler,
 } from "./handlers/labs.js";
 import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
+import {
+  universitiesListHandler,
+  universitiesCreateHandler,
+  universitiesStatusHandler,
+  universitiesUpdateHandler,
+  universitiesDeleteHandler,
+} from "./handlers/universities.js";
+import { uploadMiddleware, uploadFileHandler } from "./handlers/upload.js";
+import {
+  internalTenantBySlugHandler,
+  internalTenantLoginHandler,
+} from "./handlers/internal.js";
 
 export function setupRoutes(app, apiPrefix) {
   const router = express.Router();
@@ -20,9 +33,19 @@ export function setupRoutes(app, apiPrefix) {
     res.json({ success: true, service: "ignito-experia-owner-backend", status: "ok" })
   );
 
-  // ── Auth ─────────────────────────────────────────────────────
+  // ── Internal Backend-to-Backend APIs ──────────────────────────
+  router.get("/internal/tenants/by-slug/:slug", internalTenantBySlugHandler);
+  router.post("/internal/auth/tenant-login", internalTenantLoginHandler);
+
+  // ── Image / File Upload ─────────────────────────────────────
+  router.post("/upload", uploadMiddleware, uploadFileHandler);
+
+  // ── Auth & Profile ───────────────────────────────────────────
   router.post("/auth/login", loginHandler);
   router.get("/auth/me", authMiddleware, meHandler);
+  router.get("/admin/profile", authMiddleware, getProfileHandler);
+  router.put("/admin/profile", authMiddleware, updateProfileHandler);
+
 
   // ── Labs (Owner — full CRUD) ─────────────────────────────────
   router.get("/admin/labs", authMiddleware, labsAdminListHandler);
@@ -38,6 +61,13 @@ export function setupRoutes(app, apiPrefix) {
 
   // ── Runtime Types ────────────────────────────────────────────
   router.get("/admin/runtime-types", authMiddleware, runtimeTypesListHandler);
+
+  // ── University Tenants (Phase 1 Tenant Provisioning) ────────
+  router.get("/admin/universities", universitiesListHandler);
+  router.post("/admin/universities", universitiesCreateHandler);
+  router.put("/admin/universities/:tenantId", universitiesUpdateHandler);
+  router.patch("/admin/universities/:tenantId/status", universitiesStatusHandler);
+  router.delete("/admin/universities/:tenantId", universitiesDeleteHandler);
 
   app.use(apiPrefix, router);
 }

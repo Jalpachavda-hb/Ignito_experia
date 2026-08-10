@@ -59,17 +59,78 @@ export const authRegisterHandler = async ({ body }) => {
   });
 };
 
-export const authLoginHandler = async ({ body, headers, requestContext }) => {
+export const tenantResolveHandler = async ({ queryStringParameters = {}, headers = {} }) => {
+  const host = headers.host || headers.Host || "";
+  let slug = queryStringParameters?.slug || "";
+
+  if (!slug && host) {
+    const parts = host.split(":")[0].split(".");
+    if (parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost") {
+      slug = parts[0];
+    }
+  }
+
+  if (!slug) {
+    return ok({ success: false, message: "No tenant domain specified" });
+  }
+
+  try {
+    const ownerRes = await fetch(`http://localhost:4000/api/internal/tenants/by-slug/${slug.toLowerCase()}`);
+    if (ownerRes.ok) {
+      const ownerData = await ownerRes.json();
+      if (ownerData.success) {
+        return ok({
+          success: true,
+          tenant: {
+            tenantId: ownerData.tenantId,
+            name: ownerData.name,
+            slug: ownerData.slug,
+            officialDomain: ownerData.officialDomain,
+            logoUrl: ownerData.logoUrl,
+            status: ownerData.status,
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Owner Tenant API unreachable, using local fallback:", err.message);
+  }
+
+  const [rows] = await pool.query(
+    "SELECT TenantId, Name, Slug, OfficialDomain, LogoUrl, Status FROM tenants WHERE LOWER(Slug) = ?",
+    [slug.toLowerCase()]
+  );
+
+  if (!rows.length) {
+    return ok({ success: false, message: `No tenant found for domain '${slug}'` });
+  }
+
+  const tenant = rows[0];
+  return ok({
+    success: true,
+    tenant: {
+      tenantId: tenant.TenantId,
+      name: tenant.Name,
+      slug: tenant.Slug,
+      officialDomain: tenant.OfficialDomain,
+      logoUrl: tenant.LogoUrl,
+      status: tenant.Status,
+    },
+  });
+};
+
+export const authLoginHandler = async ({ body, headers = {}, requestContext }) => {
   const validatedBody = validate(loginDto, body || {});
-  // Use sourceIp if available via APIGW or req.ip
   const ipAddress = requestContext?.identity?.sourceIp || "unknown";
   
   const result = await authService.login({
     ...validatedBody,
     ipAddress,
     browser: headers['user-agent'] || 'unknown',
-    os: 'unknown', // Could parse from user-agent
-    device: 'unknown'
+    os: 'unknown',
+    device: 'unknown',
+    host: headers.host || headers.Host || '',
+    slug: body?.slug || ''
   });
   const { user, accessToken, refreshToken } = result;
 

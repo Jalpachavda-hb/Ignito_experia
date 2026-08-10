@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import { hasPermission } from '@/lib/permissions'
 
 const pathPermissions: Record<string, string> = {
-  '/roles': 'ROLE_MANAGEMENT',
   '/users': 'USER_MANAGEMENT',
   '/labs': 'LAB_MANAGEMENT',
   '/programs': 'PROGRAM_MANAGEMENT',
@@ -22,7 +21,14 @@ const pathPermissions: Record<string, string> = {
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ location }) => {
     let { accessToken, user } = useAuthStore.getState().auth
-    
+
+    // If user token is expired, clear user state
+    if (user && user.exp && user.exp < Date.now()) {
+      useAuthStore.getState().auth.reset()
+      user = null
+      accessToken = ''
+    }
+
     // If we have an access token but no user (page refresh), try to restore the user state before deciding to redirect.
     if (accessToken && !user) {
       try {
@@ -42,9 +48,15 @@ export const Route = createFileRoute('/_authenticated')({
             exp: Date.now() + 24 * 60 * 60 * 1000,
           })
           user = useAuthStore.getState().auth.user
+        } else {
+          useAuthStore.getState().auth.reset()
+          user = null
+          accessToken = ''
         }
       } catch (err) {
-        // API client might handle token refresh. If it fails, user will be redirected.
+        useAuthStore.getState().auth.reset()
+        user = null
+        accessToken = ''
       }
     }
 
@@ -52,18 +64,19 @@ export const Route = createFileRoute('/_authenticated')({
       throw redirect({
         to: '/sign-in',
         search: {
-          redirect: location.href,
+          redirect: location.pathname,
         },
       })
     }
-    
-    const userRole = user.role;
+
+    const userRole = (user.role || '').toLowerCase();
+    const isStudent = userRole === 'student';
     const path = location.pathname;
 
     const isStudentPath = path.startsWith('/student');
     const isComputePath = path.startsWith('/admin/compute');
 
-    if (userRole === 'Student') {
+    if (isStudent) {
       if (path === '/') {
         throw redirect({ to: '/student/dashboard' })
       }
@@ -81,7 +94,7 @@ export const Route = createFileRoute('/_authenticated')({
       const matchedPrefix = Object.keys(pathPermissions).find(
         (prefix) => path === prefix || path.startsWith(prefix + '/')
       )
-      
+
       if (matchedPrefix) {
         const requiredModule = pathPermissions[matchedPrefix]
         if (!hasPermission(requiredModule, 'read')) {

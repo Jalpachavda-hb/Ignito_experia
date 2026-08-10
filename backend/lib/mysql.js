@@ -48,12 +48,19 @@ export const verifyDbConnection = async () => {
 
     // 3. Drop deprecated tables if they exist
     console.log("[MySQL] Cleaning up deprecated tables...");
-    await connection.query("DROP TABLE IF EXISTS `studentprofiles`;");
-    await connection.query("DROP TABLE IF EXISTS `StudentProfiles`;");
-    await connection.query("DROP TABLE IF EXISTS `systemsettings`;");
-    await connection.query("DROP TABLE IF EXISTS `SystemSettings`;");
-    await connection.query("DROP TABLE IF EXISTS `featureflags`;");
-    await connection.query("DROP TABLE IF EXISTS `FeatureFlags`;");
+    const deprecatedTables = [
+      'studentprofiles', 'StudentProfiles', 'systemsettings', 'SystemSettings', 'featureflags', 'FeatureFlags',
+      'aboutmain_section', 'admins', 'blogs', 'career_applications', 'career_emails', 'company_highlights',
+      'contact_faq_section', 'contact_faqs', 'contact_messages', 'contact_page_info', 'contact_us_emails',
+      'data_security_section', 'gallery', 'hero_associate', 'herosectionmaster', 'homeaboutmaster',
+      'homehelpsectionmaster', 'homesoftware', 'our_associate', 'permissiongroups', 'pricing_inquiries',
+      'pricing_inquiry_emails', 'pricing_models', 'pricing_section', 'services', 'software_section_images',
+      'software_section_master', 'sub_services', 'team_members', 'team_sections', 'testimonialmastertable',
+      'userpermissions', 'webdetailsmaster', 'whychosseusmaster'
+    ];
+    for (const depTbl of deprecatedTables) {
+      await connection.query(`DROP TABLE IF EXISTS \`${depTbl}\`;`);
+    }
 
     // Case-sensitive migration for EC2/Linux
     console.log("[MySQL] Running database table casing migration...");
@@ -677,7 +684,45 @@ export const verifyDbConnection = async () => {
 
     // ── 7. Dynamic Stored Procedure Compilation ──
     console.log("[MySQL] Compiling all stored procedures...");
-    
+    // Multi-tenant architecture tables (Tenant Provisioning)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`tenants\` (
+        \`DbId\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`TenantId\` VARCHAR(64) UNIQUE NOT NULL,
+        \`Name\` VARCHAR(255) UNIQUE NOT NULL,
+        \`Slug\` VARCHAR(100) UNIQUE NOT NULL,
+        \`OfficialDomain\` VARCHAR(255) NULL,
+        \`LogoUrl\` TEXT NULL,
+        \`IntegrationMode\` VARCHAR(50) DEFAULT 'LMS',
+        \`AdminFullName\` VARCHAR(200) NULL,
+        \`AdminEmail\` VARCHAR(255) NULL,
+        \`AdminPasswordHash\` VARCHAR(255) NULL,
+        \`AdminPhone\` VARCHAR(50) NULL,
+        \`Status\` VARCHAR(50) DEFAULT 'ACTIVE',
+        \`SettingsJson\` JSON NULL,
+        \`CreatedDate\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        \`UpdatedDate\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    try { await connection.query("ALTER TABLE `tenants` ADD COLUMN `AdminFullName` VARCHAR(200) NULL;"); } catch (e) {}
+    try { await connection.query("ALTER TABLE `tenants` ADD COLUMN `AdminEmail` VARCHAR(255) NULL;"); } catch (e) {}
+    try { await connection.query("ALTER TABLE `tenants` ADD COLUMN `AdminPasswordHash` VARCHAR(255) NULL;"); } catch (e) {}
+    try { await connection.query("ALTER TABLE `tenants` ADD COLUMN `AdminPhone` VARCHAR(50) NULL;"); } catch (e) {}
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`user_tenant_mapping\` (
+        \`MappingId\` INT AUTO_INCREMENT PRIMARY KEY,
+        \`UserId\` INT NOT NULL,
+        \`TenantId\` VARCHAR(64) NOT NULL,
+        \`Role\` ENUM('TENANT_ADMIN', 'STUDENT') NOT NULL DEFAULT 'TENANT_ADMIN',
+        \`Status\` VARCHAR(50) DEFAULT 'ACTIVE',
+        \`AssignedDate\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY \`idx_user_tenant_unique\` (\`UserId\`, \`TenantId\`),
+        INDEX \`idx_tenant_role\` (\`TenantId\`, \`Role\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // Install logError procedure first
     const logErrorPath = path.join(dbFolder, "procedures", "sp_LogError.sql");
     if (fs.existsSync(logErrorPath)) {

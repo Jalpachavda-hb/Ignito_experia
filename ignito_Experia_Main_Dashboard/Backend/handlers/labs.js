@@ -2,7 +2,8 @@ import { labService } from "../services/LabService.js";
 import { ok, notFound, serverError, badRequest } from "../lib/apigw.js";
 
 const validateLabPayload = (body) => {
-  if (!body.labCode) return "labCode is required";
+  const code = body.labCode || body.id;
+  if (!code) return "labCode (or id) is required";
   if (!body.title) return "title is required";
   if (!body.runtimeType) return "runtimeType is required";
   return null;
@@ -12,24 +13,20 @@ export async function labsAdminListHandler(req, res) {
   try {
     const status = req.query?.status;
     const labs = await labService.getAllAdmin(status);
-    const resp = ok({ success: true, labs });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(200).json({ success: true, labs });
   } catch (err) {
     console.error("[labsAdminListHandler]", err);
-    const resp = serverError({ success: false, message: err.message });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
 
 export async function labsListHandler(req, res) {
   try {
     const labs = await labService.getAllActive();
-    const resp = ok({ success: true, labs });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(200).json({ success: true, labs });
   } catch (err) {
     console.error("[labsListHandler]", err);
-    const resp = serverError({ success: false, message: err.message });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
 
@@ -38,15 +35,12 @@ export async function labsGetHandler(req, res) {
     const labId = req.params?.labId;
     const lab = await labService.getById(labId);
     if (!lab) {
-      const resp = notFound("Lab not found");
-      return res.status(resp.statusCode).json(resp.body);
+      return res.status(404).json({ success: false, message: "Lab not found" });
     }
-    const resp = ok({ success: true, lab });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(200).json({ success: true, lab });
   } catch (err) {
     console.error("[labsGetHandler]", err);
-    const resp = serverError({ success: false, message: err.message });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
 
@@ -55,16 +49,14 @@ export async function createLabHandler(req, res) {
     const body = req.body;
     const errorMsg = validateLabPayload(body);
     if (errorMsg) {
-      const resp = badRequest(errorMsg);
-      return res.status(resp.statusCode).json(resp.body);
+      return res.status(400).json({ success: false, message: errorMsg });
     }
 
     const payload = {
-      LabCode: body.labCode,
+      LabCode: body.labCode || body.id,
       Title: body.title,
       Subtitle: body.subtitle,
-      Semester: body.semester,
-      Logo: body.logoUrl,
+      Logo: body.logoUrl || body.logo,
       DurationMinutes: parseInt(body.durationMinutes, 10) || 0,
       Credits: parseInt(body.credits, 10) || 0,
       Complexity: body.complexity,
@@ -72,10 +64,10 @@ export async function createLabHandler(req, res) {
       Description: body.description,
       TaskDefinition: body.taskDefinition,
       RuntimeType: body.runtimeType,
-      RuntimePort: parseInt(body.runtimePort, 10) || null,
+      RuntimePort: body.runtimePort != null && body.runtimePort !== "" ? parseInt(body.runtimePort, 10) : null,
       RuntimePath: body.runtimePath,
-      ContainerApiEnabled: body.containerApiEnabled === "true" || body.containerApiEnabled === true,
-      ContainerApiPort: parseInt(body.containerApiPort, 10) || null,
+      ContainerApiEnabled: body.containerApiEnabled === "true" || body.containerApiEnabled === true || body.containerApiEnabled === 1,
+      ContainerApiPort: body.containerApiPort != null && body.containerApiPort !== "" ? parseInt(body.containerApiPort, 10) : null,
       DisplayOrder: parseInt(body.displayOrder, 10) || 0,
       CreatedBy: req.auth?.ownerId,
     };
@@ -84,8 +76,7 @@ export async function createLabHandler(req, res) {
     return res.status(201).json({ success: true, message: "Lab created successfully", data: result });
   } catch (err) {
     console.error("[createLabHandler]", err);
-    const resp = serverError({ success: false, message: err.message });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
 
@@ -93,23 +84,20 @@ export async function updateLabHandler(req, res) {
   try {
     const labId = req.params?.labId;
     if (!labId) {
-      const resp = badRequest("labId is required");
-      return res.status(resp.statusCode).json(resp.body);
+      return res.status(400).json({ success: false, message: "labId is required" });
     }
 
     const body = req.body;
     const errorMsg = validateLabPayload(body);
     if (errorMsg) {
-      const resp = badRequest(errorMsg);
-      return res.status(resp.statusCode).json(resp.body);
+      return res.status(400).json({ success: false, message: errorMsg });
     }
 
     const payload = {
-      LabCode: body.labCode,
+      LabCode: body.labCode || body.id,
       Title: body.title,
       Subtitle: body.subtitle,
-      Semester: body.semester,
-      Logo: body.logoUrl,
+      Logo: body.logoUrl || body.logo,
       DurationMinutes: parseInt(body.durationMinutes, 10) || 0,
       Credits: parseInt(body.credits, 10) || 0,
       Complexity: body.complexity,
@@ -117,21 +105,19 @@ export async function updateLabHandler(req, res) {
       Description: body.description,
       TaskDefinition: body.taskDefinition,
       RuntimeType: body.runtimeType,
-      RuntimePort: parseInt(body.runtimePort, 10) || null,
+      RuntimePort: body.runtimePort != null && body.runtimePort !== "" ? parseInt(body.runtimePort, 10) : null,
       RuntimePath: body.runtimePath,
-      ContainerApiEnabled: body.containerApiEnabled === "true" || body.containerApiEnabled === true,
-      ContainerApiPort: parseInt(body.containerApiPort, 10) || null,
+      ContainerApiEnabled: body.containerApiEnabled === "true" || body.containerApiEnabled === true || body.containerApiEnabled === 1,
+      ContainerApiPort: body.containerApiPort != null && body.containerApiPort !== "" ? parseInt(body.containerApiPort, 10) : null,
       DisplayOrder: parseInt(body.displayOrder, 10) || 0,
       UpdatedBy: req.auth?.ownerId,
     };
 
     const result = await labService.updateLab(labId, payload);
-    const resp = ok({ success: true, message: "Lab updated successfully", data: result });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(200).json({ success: true, message: "Lab updated successfully", data: result });
   } catch (err) {
     console.error("[updateLabHandler]", err);
-    const resp = serverError({ success: false, message: err.message });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
 
@@ -141,21 +127,17 @@ export async function updateLabStatusHandler(req, res) {
     const status = req.body?.status;
 
     if (!labId) {
-      const resp = badRequest("labId is required");
-      return res.status(resp.statusCode).json(resp.body);
+      return res.status(400).json({ success: false, message: "labId is required" });
     }
     if (!status || !["active", "inactive"].includes(status)) {
-      const resp = badRequest("status must be 'active' or 'inactive'");
-      return res.status(resp.statusCode).json(resp.body);
+      return res.status(400).json({ success: false, message: "status must be 'active' or 'inactive'" });
     }
 
     const result = await labService.updateLabStatus(labId, status, req.auth?.ownerId);
-    const resp = ok({ success: true, message: "Lab status updated successfully", data: result });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(200).json({ success: true, message: "Lab status updated successfully", data: result });
   } catch (err) {
     console.error("[updateLabStatusHandler]", err);
-    const resp = serverError({ success: false, message: err.message });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
 
@@ -163,16 +145,13 @@ export async function deleteLabHandler(req, res) {
   try {
     const labId = req.params?.labId;
     if (!labId) {
-      const resp = badRequest("labId is required");
-      return res.status(resp.statusCode).json(resp.body);
+      return res.status(400).json({ success: false, message: "labId is required" });
     }
 
     const result = await labService.deleteLab(labId, req.auth?.ownerId);
-    const resp = ok({ success: true, message: "Lab deleted successfully", data: result });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(200).json({ success: true, message: "Lab deleted successfully", data: result });
   } catch (err) {
     console.error("[deleteLabHandler]", err);
-    const resp = serverError({ success: false, message: err.message });
-    return res.status(resp.statusCode).json(resp.body);
+    return res.status(500).json({ success: false, message: err.message });
   }
 }
