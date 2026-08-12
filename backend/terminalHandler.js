@@ -220,7 +220,7 @@ export const setupTerminal = (io) => {
           cols: 120,
           rows: 30,
           cwd: process.cwd(),
-          useConpty: false,
+          useConpty: process.env.USE_CONPTY !== 'false',
           env: ptyEnv,
         });
 
@@ -249,7 +249,7 @@ export const setupTerminal = (io) => {
           cols: 120,
           rows: 30,
           cwd: localWorkspaceRoot,
-          useConpty: false,
+          useConpty: process.env.USE_CONPTY !== 'false',
           env: {
             ...process.env,
             TERM: 'xterm-256color',
