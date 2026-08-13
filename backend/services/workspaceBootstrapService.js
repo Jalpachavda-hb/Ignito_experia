@@ -49,7 +49,7 @@ const getLocalWorkspaceRoot = () => {
   if (process.env.LAB_WORKSPACE) {
     return path.join(process.env.LAB_WORKSPACE, "workspace");
   }
-  return path.resolve(process.cwd(), "..");
+  return path.join(path.resolve(process.cwd(), ".."), "workspace");
 };
 
 const downloadFile = (url, dest) => {

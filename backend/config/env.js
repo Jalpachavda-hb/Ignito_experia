@@ -60,6 +60,12 @@ export const ENV = {
   awsPtyPathAdditions: process.env.AWS_PTY_PATH_ADDITIONS || "",
   ecsContainerName: process.env.ECS_CONTAINER_NAME || "lab-runtime",
   ecsInteractiveShell: process.env.ECS_INTERACTIVE_SHELL || 'sh -c "[ -x /bin/bash ] && exec bash || exec sh"',
+  internalServiceToken: process.env.INTERNAL_SERVICE_TOKEN || "ignito-internal-service-secret-token",
+  studentProfileApiUrl: process.env.STUDENT_PROFILE_API_URL || "https://verse.ignitolearn.com/api/StudentAPI/GetStudentProfile",
+  redisHost: process.env.REDIS_HOST || "127.0.0.1",
+  redisPort: Number(process.env.REDIS_PORT || 6379),
+  redisPassword: process.env.REDIS_PASSWORD || "",
+  redisTtlSeconds: Number(process.env.REDIS_LMS_PROFILE_TTL || 600), // 10 minutes default
 };
 
 export const useDynamoDb = () => Boolean(ENV.sessionsTable);

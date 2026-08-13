@@ -36,15 +36,9 @@ export const Route = createFileRoute('/_authenticated')({
         const data = await apiRequest('/auth/me', { auth: true })
         if (data?.user) {
           useAuthStore.getState().auth.setUser({
-            userId: data.user.id,
+            ...data.user,
+            userId: data.user.id || data.user.userId,
             fullName: data.user.fullName || data.user.name,
-            email: data.user.email,
-            role: data.user.role,
-            roleId: data.user.roleId,
-            status: data.user.status,
-            programId: data.user.programId,
-            semesterId: data.user.semesterId,
-            permissions: data.user.permissions,
             exp: Date.now() + 24 * 60 * 60 * 1000,
           })
           user = useAuthStore.getState().auth.user

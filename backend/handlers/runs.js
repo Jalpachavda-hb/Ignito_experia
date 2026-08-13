@@ -50,7 +50,7 @@ export const runsCreateHandler = async ({ body, auth }) => {
     }
     if (!code) {
       const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-      const localPath = path.join(path.resolve(process.cwd(), ".."), cleanPath);
+      const localPath = path.join(path.resolve(process.cwd(), ".."), "workspace", cleanPath);
       if (fs.existsSync(localPath)) {
         try {
           code = fs.readFileSync(localPath, "utf-8");

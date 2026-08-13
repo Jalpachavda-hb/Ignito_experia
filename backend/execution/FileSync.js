@@ -18,7 +18,7 @@ export class FileSync {
 
     // 2. Fallback: Write locally if running on local environment
     const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-    const localPath = path.join(path.resolve(process.cwd(), ".."), cleanPath);
+    const localPath = path.join(path.resolve(process.cwd(), ".."), "workspace", cleanPath);
     try {
       const dir = path.dirname(localPath);
       if (!fs.existsSync(dir)) {

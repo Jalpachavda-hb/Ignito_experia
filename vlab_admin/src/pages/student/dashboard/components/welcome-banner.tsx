@@ -36,13 +36,13 @@ export function WelcomeBanner({
               Good Morning <span>👋</span>
             </p>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-2">
-              {auth.user?.fullName || student.name}
+              {auth.user?.fullName || auth.user?.name || student.name}
             </h1>
             <p className="text-sm font-medium text-muted-foreground mb-1">
-              {student.program.name} <span className="mx-1">•</span> Semester {student.program.currentSemester}
+              {auth.user?.programName || student.program.name} <span className="mx-1">•</span> Semester {auth.user?.currentSemester || student.program.currentSemester}
             </p>
             <p className="text-sm text-muted-foreground">
-              {student.collegeName}
+              {auth.user?.collegeName || student.collegeName}
             </p>
           </div>
 

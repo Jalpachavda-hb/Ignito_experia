@@ -173,9 +173,22 @@ class StudentProfileRepository {
     // Map field names from StudentProfile schema to Users schema if needed
     const fieldMapping = {
       LastLogin: 'LastLoginAt',
-      FirstName: null, // full name is updated instead
+      StudentCode: 'ExternalStudentId',
+      UserId: null,
+      TenantId: null,
+      ProfileSource: null,
+      LastLmsSyncAt: null,
+      FirstName: null,
       LastName: null
     };
+
+    const validUserColumns = new Set([
+      'FullName', 'Email', 'PhoneNumber', 'Mobile', 'AlternateMobile',
+      'Gender', 'DateOfBirth', 'Address', 'ProfileImage', 'StudentDegreeAdmissionId',
+      'ProgrammesJson', 'ExternalStudentId', 'UniversityId', 'DepartmentId',
+      'ProgramId', 'SemesterId', 'Batch', 'Section', 'AuthenticationSource',
+      'Status', 'AcademicYear', 'EnrollmentStatus', 'CreatedFrom', 'AuthType', 'TenantId', 'LastLoginAt'
+    ]);
 
     let fullNameUpdates = { firstName: '', lastName: '' };
     const [existing] = await connection.query("SELECT FullName FROM Users WHERE UserId = ?", [profileId]);
@@ -196,7 +209,7 @@ class StudentProfileRepository {
       }
 
       const dbKey = fieldMapping[key] !== undefined ? fieldMapping[key] : key;
-      if (dbKey === null) continue;
+      if (!dbKey || !validUserColumns.has(dbKey)) continue;
 
       fields.push(`${dbKey} = ?`);
       values.push(value);

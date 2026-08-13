@@ -243,7 +243,7 @@ export const setupTerminal = (io) => {
     if (!ptyProcess) {
       console.log('[LOCAL FALLBACK TERMINAL]');
       try {
-        const localWorkspaceRoot = path.resolve(process.cwd(), '..');
+        const localWorkspaceRoot = path.join(path.resolve(process.cwd(), '..'), 'workspace');
         ptyProcess = pty.spawn(LOCAL_SHELL, [], {
           name: 'xterm-color',
           cols: 120,
@@ -337,7 +337,7 @@ export const setupTerminal = (io) => {
             // local machine fallback
             const fs = require('fs');
             const nodePath = require('path');
-            const localPath = nodePath.join(process.cwd(), path.replace('/workspace/', ''));
+            const localPath = nodePath.join(nodePath.resolve(process.cwd(), '..'), 'workspace', path.replace('/workspace/', '').replace(/^\/+/, ''));
             try { fs.writeFileSync(localPath, content); } catch (e) { }
             syncCmd = `echo "Local file synced"`;
           }

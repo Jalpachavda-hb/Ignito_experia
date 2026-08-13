@@ -3,18 +3,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { StudentProfile } from '@/pages/student/dashboard/types';
 import { Settings } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth-store';
 
 interface AccountInfoCardProps {
   student: StudentProfile;
 }
 
 export function AccountInfoCard({ student }: AccountInfoCardProps) {
+  const { auth } = useAuthStore();
+  const u = auth.user || {};
+
   const fields = [
-    { label: 'Student ID', value: student.id },
-    { label: 'Username', value: student.username || 'Not Provided' },
-    { label: 'Email', value: student.email },
-    { label: 'Account Created Date', value: student.accountCreatedDate ? new Date(student.accountCreatedDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Not Provided' },
-    { label: 'Last Login', value: student.lastLogin ? new Date(student.lastLogin).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Not Provided' },
+    { label: 'Student Degree Admission ID', value: u.studentDegreeAdmissionId || '1' },
+    { label: 'Auth Origin', value: u.createdFrom === 'LMS' ? 'University LMS SSO' : 'Direct Account' },
+    { label: 'Email', value: u.email || student.email },
+    { label: 'University Tenant', value: u.tenantId || 'TEN000001 (GTU)' },
   ];
 
   return (
@@ -39,9 +42,9 @@ export function AccountInfoCard({ student }: AccountInfoCardProps) {
             </Badge>
           </div>
           <div>
-            <p className="text-xs font-medium text-slate-500 mb-1">Profile Verification Status</p>
+            <p className="text-xs font-medium text-slate-500 mb-1">Identity Sync Status</p>
             <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200 mt-1 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900">
-              Verified
+              LMS Verified
             </Badge>
           </div>
         </div>
