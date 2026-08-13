@@ -324,6 +324,8 @@ else
 fi
 BUILD_EXIT_CODE=$?
 
+rm -f .vlab_tmp/build.lock
+
 if [ $BUILD_EXIT_CODE -eq 0 ]; then
   echo "SUCCESS" > build.status
   python3 -c "import glob, os; apks=glob.glob('/tmp/workspace/workspace/**/*.apk', recursive=True); apks.sort(key=os.path.getmtime); open('/tmp/workspace/workspace/latest_apk.path', 'w').write(apks[-1]) if apks else None" 2>/dev/null || true

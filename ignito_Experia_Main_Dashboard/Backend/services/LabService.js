@@ -6,7 +6,6 @@ const mapDbLabToApi = (dbLab) => ({
   labCode: dbLab.LabCode,
   title: dbLab.Title,
   subtitle: dbLab.Subtitle,
-  semester: dbLab.Semester,
   logo: dbLab.Logo,
   logoUrl: dbLab.Logo,
   durationMinutes: dbLab.DurationMinutes,
@@ -48,35 +47,24 @@ class LabService {
   }
 
   async getById(labCodeOrId) {
-    const dbLabs = await labRepository.getAllAdmin();
-    const found = dbLabs.find(
-      (l) => l.LabCode === labCodeOrId || String(l.LabId) === String(labCodeOrId)
-    );
+    const found = await labRepository.getById(labCodeOrId);
     return found ? mapDbLabToApi(found) : null;
   }
 
   async insertLab(labData) {
-    const result = await labRepository.insert(labData);
-    if (result && result.Status === "Error") throw new Error(result.Message);
-    return result;
+    return await labRepository.insert(labData);
   }
 
   async updateLab(labId, labData) {
-    const result = await labRepository.update(labId, labData);
-    if (result && result.Status === "Error") throw new Error(result.Message);
-    return result;
+    return await labRepository.update(labId, labData);
   }
 
   async deleteLab(labId, userId) {
-    const result = await labRepository.softDelete(labId, userId);
-    if (result && result.Status === "Error") throw new Error(result.Message);
-    return result;
+    return await labRepository.softDelete(labId, userId);
   }
 
   async updateLabStatus(labId, status, userId) {
-    const result = await labRepository.updateStatus(labId, status, userId);
-    if (result && result.Status === "Error") throw new Error(result.Message);
-    return result;
+    return await labRepository.updateStatus(labId, status, userId);
   }
 }
 

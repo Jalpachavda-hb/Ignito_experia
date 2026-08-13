@@ -28,7 +28,6 @@ import { Route as AuthenticatedTransactionsRouteRouteImport } from './routes/_au
 import { Route as AuthenticatedSettingsRouteRouteImport } from './routes/_authenticated/settings/route'
 import { Route as AuthenticatedSessionsRouteRouteImport } from './routes/_authenticated/sessions/route'
 import { Route as AuthenticatedSemestersRouteRouteImport } from './routes/_authenticated/semesters/route'
-import { Route as AuthenticatedRolesRouteRouteImport } from './routes/_authenticated/roles/route'
 import { Route as AuthenticatedReportsRouteRouteImport } from './routes/_authenticated/reports/route'
 import { Route as AuthenticatedProgramsRouteRouteImport } from './routes/_authenticated/programs/route'
 import { Route as AuthenticatedLabsRouteRouteImport } from './routes/_authenticated/labs/route'
@@ -67,9 +66,6 @@ const AuthenticatedSessionsIndexLazyRouteImport = createFileRoute(
 )()
 const AuthenticatedSemestersIndexLazyRouteImport = createFileRoute(
   '/_authenticated/semesters/',
-)()
-const AuthenticatedRolesIndexLazyRouteImport = createFileRoute(
-  '/_authenticated/roles/',
 )()
 const AuthenticatedReportsIndexLazyRouteImport = createFileRoute(
   '/_authenticated/reports/',
@@ -200,11 +196,6 @@ const AuthenticatedSemestersRouteRoute =
     path: '/semesters',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedRolesRouteRoute = AuthenticatedRolesRouteRouteImport.update({
-  id: '/roles',
-  path: '/roles',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedReportsRouteRoute =
   AuthenticatedReportsRouteRouteImport.update({
     id: '/reports',
@@ -265,14 +256,6 @@ const AuthenticatedSemestersIndexLazyRoute =
     getParentRoute: () => AuthenticatedSemestersRouteRoute,
   } as any).lazy(() =>
     import('./routes/_authenticated/semesters/index.lazy').then((d) => d.Route),
-  )
-const AuthenticatedRolesIndexLazyRoute =
-  AuthenticatedRolesIndexLazyRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedRolesRouteRoute,
-  } as any).lazy(() =>
-    import('./routes/_authenticated/roles/index.lazy').then((d) => d.Route),
   )
 const AuthenticatedReportsIndexLazyRoute =
   AuthenticatedReportsIndexLazyRouteImport.update({
@@ -550,7 +533,6 @@ export interface FileRoutesByFullPath {
   '/labs': typeof AuthenticatedLabsRouteRouteWithChildren
   '/programs': typeof AuthenticatedProgramsRouteRouteWithChildren
   '/reports': typeof AuthenticatedReportsRouteRouteWithChildren
-  '/roles': typeof AuthenticatedRolesRouteRouteWithChildren
   '/semesters': typeof AuthenticatedSemestersRouteRouteWithChildren
   '/sessions': typeof AuthenticatedSessionsRouteRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
@@ -593,7 +575,6 @@ export interface FileRoutesByFullPath {
   '/labs/': typeof AuthenticatedLabsIndexLazyRoute
   '/programs/': typeof AuthenticatedProgramsIndexLazyRoute
   '/reports/': typeof AuthenticatedReportsIndexLazyRoute
-  '/roles/': typeof AuthenticatedRolesIndexLazyRoute
   '/semesters/': typeof AuthenticatedSemestersIndexLazyRoute
   '/sessions/': typeof AuthenticatedSessionsIndexLazyRoute
   '/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
@@ -640,7 +621,6 @@ export interface FileRoutesByTo {
   '/labs': typeof AuthenticatedLabsIndexLazyRoute
   '/programs': typeof AuthenticatedProgramsIndexLazyRoute
   '/reports': typeof AuthenticatedReportsIndexLazyRoute
-  '/roles': typeof AuthenticatedRolesIndexLazyRoute
   '/semesters': typeof AuthenticatedSemestersIndexLazyRoute
   '/sessions': typeof AuthenticatedSessionsIndexLazyRoute
   '/transactions': typeof AuthenticatedTransactionsIndexLazyRoute
@@ -664,7 +644,6 @@ export interface FileRoutesById {
   '/_authenticated/labs': typeof AuthenticatedLabsRouteRouteWithChildren
   '/_authenticated/programs': typeof AuthenticatedProgramsRouteRouteWithChildren
   '/_authenticated/reports': typeof AuthenticatedReportsRouteRouteWithChildren
-  '/_authenticated/roles': typeof AuthenticatedRolesRouteRouteWithChildren
   '/_authenticated/semesters': typeof AuthenticatedSemestersRouteRouteWithChildren
   '/_authenticated/sessions': typeof AuthenticatedSessionsRouteRouteWithChildren
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
@@ -708,7 +687,6 @@ export interface FileRoutesById {
   '/_authenticated/labs/': typeof AuthenticatedLabsIndexLazyRoute
   '/_authenticated/programs/': typeof AuthenticatedProgramsIndexLazyRoute
   '/_authenticated/reports/': typeof AuthenticatedReportsIndexLazyRoute
-  '/_authenticated/roles/': typeof AuthenticatedRolesIndexLazyRoute
   '/_authenticated/semesters/': typeof AuthenticatedSemestersIndexLazyRoute
   '/_authenticated/sessions/': typeof AuthenticatedSessionsIndexLazyRoute
   '/_authenticated/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
@@ -733,7 +711,6 @@ export interface FileRouteTypes {
     | '/labs'
     | '/programs'
     | '/reports'
-    | '/roles'
     | '/semesters'
     | '/sessions'
     | '/settings'
@@ -776,7 +753,6 @@ export interface FileRouteTypes {
     | '/labs/'
     | '/programs/'
     | '/reports/'
-    | '/roles/'
     | '/semesters/'
     | '/sessions/'
     | '/transactions/'
@@ -823,7 +799,6 @@ export interface FileRouteTypes {
     | '/labs'
     | '/programs'
     | '/reports'
-    | '/roles'
     | '/semesters'
     | '/sessions'
     | '/transactions'
@@ -846,7 +821,6 @@ export interface FileRouteTypes {
     | '/_authenticated/labs'
     | '/_authenticated/programs'
     | '/_authenticated/reports'
-    | '/_authenticated/roles'
     | '/_authenticated/semesters'
     | '/_authenticated/sessions'
     | '/_authenticated/settings'
@@ -890,7 +864,6 @@ export interface FileRouteTypes {
     | '/_authenticated/labs/'
     | '/_authenticated/programs/'
     | '/_authenticated/reports/'
-    | '/_authenticated/roles/'
     | '/_authenticated/semesters/'
     | '/_authenticated/sessions/'
     | '/_authenticated/transactions/'
@@ -1041,13 +1014,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSemestersRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/roles': {
-      id: '/_authenticated/roles'
-      path: '/roles'
-      fullPath: '/roles'
-      preLoaderRoute: typeof AuthenticatedRolesRouteRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/reports': {
       id: '/_authenticated/reports'
       path: '/reports'
@@ -1110,13 +1076,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/semesters/'
       preLoaderRoute: typeof AuthenticatedSemestersIndexLazyRouteImport
       parentRoute: typeof AuthenticatedSemestersRouteRoute
-    }
-    '/_authenticated/roles/': {
-      id: '/_authenticated/roles/'
-      path: '/'
-      fullPath: '/roles/'
-      preLoaderRoute: typeof AuthenticatedRolesIndexLazyRouteImport
-      parentRoute: typeof AuthenticatedRolesRouteRoute
     }
     '/_authenticated/reports/': {
       id: '/_authenticated/reports/'
@@ -1468,20 +1427,6 @@ const AuthenticatedReportsRouteRouteWithChildren =
     AuthenticatedReportsRouteRouteChildren,
   )
 
-interface AuthenticatedRolesRouteRouteChildren {
-  AuthenticatedRolesIndexLazyRoute: typeof AuthenticatedRolesIndexLazyRoute
-}
-
-const AuthenticatedRolesRouteRouteChildren: AuthenticatedRolesRouteRouteChildren =
-  {
-    AuthenticatedRolesIndexLazyRoute: AuthenticatedRolesIndexLazyRoute,
-  }
-
-const AuthenticatedRolesRouteRouteWithChildren =
-  AuthenticatedRolesRouteRoute._addFileChildren(
-    AuthenticatedRolesRouteRouteChildren,
-  )
-
 interface AuthenticatedSemestersRouteRouteChildren {
   AuthenticatedSemestersSemesterIdRoute: typeof AuthenticatedSemestersSemesterIdRoute
   AuthenticatedSemestersIndexLazyRoute: typeof AuthenticatedSemestersIndexLazyRoute
@@ -1678,7 +1623,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedLabsRouteRoute: typeof AuthenticatedLabsRouteRouteWithChildren
   AuthenticatedProgramsRouteRoute: typeof AuthenticatedProgramsRouteRouteWithChildren
   AuthenticatedReportsRouteRoute: typeof AuthenticatedReportsRouteRouteWithChildren
-  AuthenticatedRolesRouteRoute: typeof AuthenticatedRolesRouteRouteWithChildren
   AuthenticatedSemestersRouteRoute: typeof AuthenticatedSemestersRouteRouteWithChildren
   AuthenticatedSessionsRouteRoute: typeof AuthenticatedSessionsRouteRouteWithChildren
   AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
@@ -1709,7 +1653,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedLabsRouteRoute: AuthenticatedLabsRouteRouteWithChildren,
   AuthenticatedProgramsRouteRoute: AuthenticatedProgramsRouteRouteWithChildren,
   AuthenticatedReportsRouteRoute: AuthenticatedReportsRouteRouteWithChildren,
-  AuthenticatedRolesRouteRoute: AuthenticatedRolesRouteRouteWithChildren,
   AuthenticatedSemestersRouteRoute:
     AuthenticatedSemestersRouteRouteWithChildren,
   AuthenticatedSessionsRouteRoute: AuthenticatedSessionsRouteRouteWithChildren,

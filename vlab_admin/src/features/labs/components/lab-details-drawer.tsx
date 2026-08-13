@@ -13,15 +13,9 @@ import { Button } from '@/components/ui/button'
 import { type Lab } from '../data/schema'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-
   Database,
-  
   Clock,
   MonitorPlay,
-
-
-  Edit,
-  Trash,
   Code
 } from 'lucide-react'
 
@@ -106,14 +100,6 @@ export function LabDetailsDrawer({ lab, open, onOpenChange, onEdit, onDelete }: 
                       <p className="font-semibold mt-1">{lab.program || 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">Semester</p>
-                      <p className="font-semibold mt-1">{lab.semester || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Complexity</p>
-                      <p className="font-semibold mt-1">{lab.complexity || 'Intermediate'}</p>
-                    </div>
-                    <div>
                       <p className="text-sm font-medium text-muted-foreground">Duration</p>
                       <p className="font-semibold mt-1 flex items-center">
                         <Clock className="h-4 w-4 mr-1.5 text-blue-500" />
@@ -139,24 +125,6 @@ export function LabDetailsDrawer({ lab, open, onOpenChange, onEdit, onDelete }: 
                         {lab.updatedAt ? new Date(lab.updatedAt).toLocaleDateString() : 'N/A'}
                       </p>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="border-border/50 shadow-sm bg-muted/10">
-                <CardHeader>
-                  <CardTitle className="text-lg">Quick Actions</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button variant="outline" className="w-full flex-col h-auto py-3 gap-2" onClick={() => { onOpenChange(false); onEdit(); }}>
-                      <Edit className="h-4 w-4" />
-                      <span className="text-xs">Edit Lab</span>
-                    </Button>
-                    <Button variant="outline" className="w-full flex-col h-auto py-3 gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200" onClick={() => { onOpenChange(false); onDelete(); }}>
-                      <Trash className="h-4 w-4" />
-                      <span className="text-xs">Delete Lab</span>
-                    </Button>
                   </div>
                 </CardContent>
               </Card>

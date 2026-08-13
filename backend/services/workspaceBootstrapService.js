@@ -11,6 +11,7 @@ import { getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { executeCode } from "./ExecutionService.js";
 import { executeViaSsm } from "./executeCommandService.js";
+import { invalidateWorkspaceIndex } from "./fileRepository.js";
 
 const execAsync = promisify(exec);
 const BOOTSTRAP_VERSION = "1.0.0";
@@ -456,15 +457,17 @@ export const bootstrap = async (session, netInfo = null) => {
     }
   }
 
-  // Set READY status and invalidate cached files
+  // Invalidate in-memory workspace index cache and set READY status
+  invalidateWorkspaceIndex(sessionId);
   await updateSession(sessionId, {
     bootstrapState: "READY",
+    lifecycleStage: "EDITOR_READY",
     isBootstrapped: true,
     bootstrapCompletedAt: new Date().toISOString(),
     bootstrapVersion: BOOTSTRAP_VERSION,
     status: "running",
-    files: null, // Clear/invalidate any files cache
-    message: "Workspace ready",
+    files: null, // Clear/invalidate any files cache in DB
+    message: "Android Lab Ready",
   });
-  console.log(`[WorkspaceBootstrap] Bootstrap COMPLETED and verified successfully for session ${sessionId}.`);
+  console.log(`[WorkspaceBootstrap] Bootstrap COMPLETED and verified successfully for session ${sessionId}. Lifecycle: EDITOR_READY.`);
 };

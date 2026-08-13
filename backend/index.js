@@ -42,7 +42,8 @@ app.use(auditContextMiddleware);
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // limit each IP to 1000 requests per windowMs
+  max: 50000,
+  skip: (req) => process.env.NODE_ENV !== "production" || req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1",
   message: { success: false, message: 'Too many requests, please try again later.' }
 });
 app.use('/api/', limiter);

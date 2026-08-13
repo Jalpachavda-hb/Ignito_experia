@@ -50,6 +50,28 @@ const TerminalLog = () => {
 
 export function SignIn() {
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const [tenantInfo, setTenantInfo] = useState<{ name?: string; logoUrl?: string; slug?: string } | null>(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      let slug = ''
+      const parts = host.split('.')
+      if (parts.length > 1 && parts[0] !== 'www' && parts[0] !== 'localhost') {
+        slug = parts[0]
+      }
+      if (slug) {
+        fetch(`http://localhost:8080/api/tenant/resolve?slug=${slug}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.tenant) {
+              setTenantInfo(data.tenant)
+            }
+          })
+          .catch(err => console.error('Error resolving tenant domain:', err))
+      }
+    }
+  }, [])
 
   return (
     <div 
@@ -72,8 +94,17 @@ export function SignIn() {
         <div className="lg:w-[55%] flex flex-col justify-center p-8 md:p-12 border-b lg:border-b-0 lg:border-r border-slate-200/60 bg-white/40">
           <div className="space-y-10">
             
-            <div className="flex items-center">
-              <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 sm:h-12 w-auto object-contain" />
+            <div className="flex items-center gap-3">
+              {tenantInfo?.logoUrl ? (
+                <img src={tenantInfo.logoUrl} alt={tenantInfo.name || 'Tenant Logo'} className="h-10 sm:h-12 w-auto object-contain rounded-xl" />
+              ) : (
+                <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 sm:h-12 w-auto object-contain" />
+              )}
+              {tenantInfo?.name && (
+                <span className="font-bold text-lg text-slate-800 border-l border-slate-300 pl-3">
+                  {tenantInfo.name}
+                </span>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -114,13 +145,19 @@ export function SignIn() {
             
             {/* Mobile Logo */}
             <div className="flex lg:hidden items-center justify-center mb-8">
-              <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 w-auto object-contain" />
+              {tenantInfo?.logoUrl ? (
+                <img src={tenantInfo.logoUrl} alt={tenantInfo.name || 'Tenant Logo'} className="h-10 w-auto object-contain rounded-xl" />
+              ) : (
+                <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 w-auto object-contain" />
+              )}
             </div>
 
             <div className="flex flex-col space-y-2 text-center lg:text-left mb-8">
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900">Admin Authentication</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                {tenantInfo?.name ? `${tenantInfo.name} Admin` : 'Admin Authentication'}
+              </h2>
               <p className="text-sm text-slate-500 font-medium">
-                Secure login to manage virtual environments.
+                {tenantInfo?.name ? `Sign in as ${tenantInfo.name} Tenant Administrator.` : 'Secure login to manage virtual environments.'}
               </p>
             </div>
             

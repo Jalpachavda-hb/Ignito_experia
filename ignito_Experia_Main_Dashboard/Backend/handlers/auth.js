@@ -38,3 +38,40 @@ export async function meHandler(req, res) {
     return res.status(resp.statusCode).json(resp.body);
   }
 }
+
+export async function getProfileHandler(req, res) {
+  try {
+    const ownerId = req.auth?.ownerId || req.auth?.userId;
+    if (!ownerId) {
+      const resp = badRequest("Invalid user token context");
+      return res.status(resp.statusCode).json(resp.body);
+    }
+
+    const profile = await authService.getProfile(ownerId);
+    const resp = ok({ success: true, profile });
+    return res.status(resp.statusCode).json(resp.body);
+  } catch (err) {
+    console.error("[getProfileHandler]", err.message);
+    const resp = serverError({ success: false, message: err.message });
+    return res.status(resp.statusCode).json(resp.body);
+  }
+}
+
+export async function updateProfileHandler(req, res) {
+  try {
+    const ownerId = req.auth?.ownerId || req.auth?.userId;
+    if (!ownerId) {
+      const resp = badRequest("Invalid user token context");
+      return res.status(resp.statusCode).json(resp.body);
+    }
+
+    const result = await authService.updateProfile(ownerId, req.body || {});
+    const resp = ok({ success: true, ...result });
+    return res.status(resp.statusCode).json(resp.body);
+  } catch (err) {
+    console.error("[updateProfileHandler]", err.message);
+    const resp = serverError({ success: false, message: err.message });
+    return res.status(resp.statusCode).json(resp.body);
+  }
+}
+

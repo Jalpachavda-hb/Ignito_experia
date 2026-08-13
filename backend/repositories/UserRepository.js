@@ -6,17 +6,16 @@ class UserRepository {
     let rows;
     try {
       [rows] = await pool.query(
-        "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
+        "SELECT * FROM users WHERE LOWER(Email) = ?",
         params,
       );
     } catch (err) {
-      if (err?.code !== "ER_BAD_FIELD_ERROR") throw err;
       [rows] = await pool.query(
         "SELECT * FROM Users WHERE LOWER(Email) = ?",
         params,
       );
     }
-    if (!rows.length) return null;
+    if (!rows || !rows.length) return null;
     return rows[0];
   }
 

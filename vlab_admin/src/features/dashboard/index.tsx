@@ -388,3 +388,6 @@ function ActivityItem({ icon, title, description, time }: any) {
     </div>
   )
 }
+
+export default Dashboard
+

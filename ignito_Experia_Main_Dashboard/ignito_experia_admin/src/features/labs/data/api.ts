@@ -8,7 +8,6 @@ const mapApiToLab = (apiLab: Record<string, any>): Lab => ({
   dbId: apiLab.dbId as number,
   title: (apiLab.title || 'Untitled') as string,
   subtitle: (apiLab.subtitle || '') as string,
-  semester: (apiLab.semester || '') as string,
   logoUrl: (apiLab.logoUrl || apiLab.logo || '') as string,
   category: (apiLab.category || '') as string,
   credits: (apiLab.credits || 0) as number,
@@ -32,7 +31,6 @@ const mapLabToPayload = (lab: Partial<Lab>) => ({
   labCode: lab.id || `lab-${Date.now()}`,
   title: lab.title,
   subtitle: lab.subtitle || '',
-  semester: lab.semester || '',
   logoUrl: lab.logoUrl || '',
   durationMinutes: lab.durationMinutes,
   credits: lab.credits,
@@ -59,6 +57,8 @@ export function useLabsQuery(status?: string) {
       }
       return []
     },
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
   })
 }
 

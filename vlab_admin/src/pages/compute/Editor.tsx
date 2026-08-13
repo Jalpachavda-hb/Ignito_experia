@@ -6,7 +6,7 @@ import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath
 import {
   File, Code2, Plus, Upload, Play, Save,
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RotateCw, Globe, Pencil
+  Folder, FolderOpen, RotateCw, Globe, Pencil, Copy, Check
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
@@ -773,6 +773,19 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const [isAndroidBuilding, setIsAndroidBuilding] = useState(false);
   const [androidBuildLogs, setAndroidBuildLogs] = useState<string>('No build logs yet. Click BUILD to start compiling your Android application.');
   const [androidApkUrl, setAndroidApkUrl] = useState<string | null>(null);
+  const [copiedLogs, setCopiedLogs] = useState(false);
+
+  const handleCopyLogs = () => {
+    if (!androidBuildLogs) return;
+    navigator.clipboard.writeText(androidBuildLogs).then(() => {
+      setCopiedLogs(true);
+      toast.success('Build logs copied to clipboard!');
+      setTimeout(() => setCopiedLogs(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy logs:', err);
+      toast.error('Failed to copy build logs');
+    });
+  };
 
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
 
@@ -1193,6 +1206,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       if (showFeedback) toast.error('File is still loading — wait before saving.');
       return;
     }
+    const lastSaved = lastSavedContentRef.current.get(file.path);
+    if (!showFeedback && lastSaved === file.content) return;
     setIsSaving(true);
     try {
       const payload = {
@@ -2109,24 +2124,18 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   className="absolute top-0 -left-1 h-full w-3 cursor-col-resize z-30 hover:bg-amber-500/40 active:bg-amber-500/60"
                   title="Drag left to widen build logs"
                 />
-                <div className="h-10 bg-[#1e1e1e] flex justify-center items-center border-b border-amber-500/20 relative px-3">
+                <div className="h-10 bg-[#1e1e1e] flex justify-between items-center px-4 border-b border-amber-500/20 relative">
                   <span className="text-[#f59e0b] text-[10px] font-black uppercase tracking-widest">Build Logs</span>
                   <button
                     type="button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(androidBuildLogs || '');
-                        toast.success('Build logs copied');
-                      } catch {
-                        toast.error('Failed to copy build logs');
-                      }
-                    }}
-                    className="absolute right-3 text-[10px] font-bold uppercase tracking-wider text-white/50 hover:text-white transition-colors"
-                    title="Copy all build logs"
+                    onClick={handleCopyLogs}
+                    title="Copy Build Logs"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#2a2d2e] hover:bg-[#37373d] text-slate-300 hover:text-white text-[11px] font-medium transition-all cursor-pointer"
                   >
-                    Copy
+                    {copiedLogs ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    <span>{copiedLogs ? 'Copied!' : 'Copy'}</span>
                   </button>
-                  <div className="absolute bottom-0 w-full h-[2px] bg-[#f59e0b]" />
+                  <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#f59e0b]" />
                 </div>
                 <div className="flex-1 w-full min-w-0 p-4 bg-[#111] font-mono text-[12px] text-slate-300 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words select-text selection:bg-amber-500/30">
                   {androidBuildLogs}

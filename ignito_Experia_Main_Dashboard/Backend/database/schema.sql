@@ -27,8 +27,12 @@ CREATE TABLE IF NOT EXISTS `error_logs` (
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `owner_users` (
     `OwnerId`      BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `FullName`     VARCHAR(255) NOT NULL DEFAULT 'Platform Owner',
     `Email`        VARCHAR(255) NOT NULL UNIQUE,
-    `PhoneNumber`  VARCHAR(50)  NOT NULL,
+    `PhoneNumber`  VARCHAR(50)  NOT NULL DEFAULT '1234567890',
+    `Designation`  VARCHAR(255) NULL DEFAULT 'Platform Owner',
+    `Organization` VARCHAR(255) NULL DEFAULT 'Ignito Experia Owner',
+    `AvatarUrl`    VARCHAR(500) NULL,
     `PasswordHash` VARCHAR(255) NOT NULL,
     `Role`         VARCHAR(50)  NOT NULL DEFAULT 'owner',
     `Status`       VARCHAR(20)  NOT NULL DEFAULT 'active',
@@ -85,24 +89,60 @@ CREATE TABLE IF NOT EXISTS `runtime_types` (
 INSERT IGNORE INTO `runtime_types` (`Value`, `Label`) VALUES
     ('ide',        'IDE'),
     ('terminal',   'Terminal'),
-    ('jupyter',    'Jupyter Notebook'),
-    ('codeserver', 'Code Server');
+    ('jupyter',    'Jupyter Notebook');
 
 -- ============================================================
--- 5. Universities (SaaS Customers — placeholder for future phases)
+-- 5. Tenants Table (Root Institutional Metadata & Config)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS `universities` (
-    `UniversityId`     BIGINT AUTO_INCREMENT PRIMARY KEY,
-    `Name`             VARCHAR(300) NOT NULL,
-    `Logo`             VARCHAR(255),
-    `Address`          TEXT,
-    `ContactEmail`     VARCHAR(255),
-    `ContactPhone`     VARCHAR(50),
-    `SubscriptionPlan` VARCHAR(100) DEFAULT 'basic',
-    `Status`           VARCHAR(20)  DEFAULT 'active',
+CREATE TABLE IF NOT EXISTS `tenants` (
+    `DbId`             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `TenantId`         VARCHAR(50)  NOT NULL UNIQUE, -- e.g., TEN000001
+    `Name`             VARCHAR(300) NOT NULL UNIQUE,
+    `Slug`             VARCHAR(100) NOT NULL UNIQUE, -- e.g., gtu
+    `OfficialDomain`   VARCHAR(255) NULL,
+    `LogoUrl`          VARCHAR(500) NULL,
+    `IntegrationMode`  VARCHAR(50)  NOT NULL DEFAULT 'LMS', -- 'LMS' or 'DIRECT'
+    `Status`           VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING'
+    `SettingsJson`     JSON         NULL,
+    `CreatedBy`        BIGINT NULL,
     `CreatedDate`      DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `UpdatedDate`      DATETIME NULL,
-    INDEX `IDX_universities_Status` (`Status`)
+    INDEX `IDX_tenants_TenantId` (`TenantId`),
+    INDEX `IDX_tenants_Slug`     (`Slug`),
+    INDEX `IDX_tenants_Status`   (`Status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- 6. Tenant Users Table
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `users` (
+    `UserId`       BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `Email`        VARCHAR(255) NOT NULL UNIQUE,
+    `PasswordHash` VARCHAR(255) NOT NULL,
+    `FullName`     VARCHAR(200) NOT NULL,
+    `Phone`        VARCHAR(50)  NULL,
+    `Status`       VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
+    `CreatedDate`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    `UpdatedDate`  DATETIME NULL,
+    INDEX `IDX_users_Email`  (`Email`),
+    INDEX `IDX_users_Status` (`Status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- 7. User-Tenant Mapping & Role Junction Table
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `user_tenant_mapping` (
+    `MappingId`   BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `UserId`      BIGINT      NOT NULL,
+    `TenantId`    VARCHAR(50) NOT NULL,
+    `Role`        ENUM('TENANT_ADMIN', 'STUDENT') NOT NULL,
+    `Status`      VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    `CreatedDate` DATETIME    DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`UserId`) REFERENCES `users` (`UserId`) ON DELETE CASCADE,
+    FOREIGN KEY (`TenantId`) REFERENCES `tenants` (`TenantId`) ON DELETE CASCADE,
+    UNIQUE KEY `UK_user_tenant_role` (`UserId`, `TenantId`, `Role`),
+    INDEX `IDX_utm_TenantId` (`TenantId`),
+    INDEX `IDX_utm_Role`     (`Role`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================

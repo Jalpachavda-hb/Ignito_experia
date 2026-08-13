@@ -1,11 +1,11 @@
 import { apiRequest } from '../lib/apiClient';
 
-export const loginWithCredentials = async ({ email, password }: any) => {
+export const loginWithCredentials = async ({ email, password, slug }: any) => {
   try {
     const data = await apiRequest('/auth/login', {
       method: 'POST',
       auth: false,
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, slug }),
     });
 
     if (!data.success && data.message) {

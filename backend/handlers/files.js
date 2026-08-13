@@ -17,6 +17,8 @@ const languageFromPath = (filePath) => {
   if (filePath.endsWith(".py")) return "python";
   if (filePath.endsWith(".js") || filePath.endsWith(".jsx")) return "javascript";
   if (filePath.endsWith(".java")) return "java";
+  if (filePath.endsWith(".cshtml") || filePath.endsWith(".razor")) return "razor";
+  if (filePath.endsWith(".cs")) return "csharp";
   if (filePath.endsWith(".html")) return "html";
   if (filePath.endsWith(".css")) return "css";
   if (filePath.endsWith(".json")) return "json";
@@ -66,6 +68,7 @@ export const filesListHandler = async (event) => {
 export const filesContentHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
   const filePath = event.queryStringParameters?.path;
+  if (!filePath) throw badRequest("path is required");
   const forceFresh = event.queryStringParameters?.fresh === "1" || event.queryStringParameters?.fresh === "true";
 
   // Serve cached body immediately — container HTTP often fails in local/dev and SSM is slow
@@ -103,11 +106,13 @@ export const filesContentHandler = async (event) => {
     }
   }
 
+  // Use fileRepository getFile which utilizes fast in-memory fileContentCache (< 1ms)!
   const file = await getFile(sessionId, filePath);
   if (!file) throw notFound("File not found");
+
   return ok({
     path: file.path,
-    content: file.content,
+    content: file.content ?? "",
     language: file.language,
   });
 };

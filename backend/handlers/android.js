@@ -99,6 +99,8 @@ export const androidBuildStatusHandler = async (event) => {
     status: currentStatus,
     offset: logOffset,
     logs: logs,
+    apkReady: currentStatus === "SUCCESS",
+    downloadUrl: currentStatus === "SUCCESS" ? `/api/android/download?sessionId=${session.sessionId}` : null,
   });
 };
 

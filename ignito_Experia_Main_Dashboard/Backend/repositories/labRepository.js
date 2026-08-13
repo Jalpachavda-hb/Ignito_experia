@@ -2,76 +2,104 @@ import pool from "../config/db.js";
 
 class LabRepository {
   async getAllAdmin(status) {
-    const [rows] = await pool.query("CALL sp_Lab_GetAll(?)", [status || null]);
-    return rows[0];
+    let sql = "SELECT * FROM labs WHERE COALESCE(IsDeleted, 0) = 0";
+    const params = [];
+    if (status) {
+      sql += " AND Status = ?";
+      params.push(status);
+    }
+    sql += " ORDER BY DisplayOrder ASC, LabId DESC";
+    const [rows] = await pool.query(sql, params);
+    return rows;
   }
 
   async getAllActive() {
-    const [rows] = await pool.query("CALL sp_Lab_GetActiveLabs()");
-    return rows[0];
+    const [rows] = await pool.query(
+      "SELECT * FROM labs WHERE Status = 'active' AND COALESCE(IsDeleted, 0) = 0 ORDER BY DisplayOrder ASC, LabId DESC"
+    );
+    return rows;
   }
 
   async getById(labId) {
-    const [rows] = await pool.query("CALL sp_Lab_GetById(?)", [labId]);
-    return rows[0][0] || null;
+    const [rows] = await pool.query(
+      "SELECT * FROM labs WHERE (LabCode = ? OR LabId = ?) AND COALESCE(IsDeleted, 0) = 0",
+      [labId, labId]
+    );
+    return rows[0] || null;
   }
 
   async insert(labData) {
     const {
-      LabCode, Title, Subtitle, Semester, Logo,
+      LabCode, Title, Subtitle, Logo,
       DurationMinutes, Credits, Complexity, Category,
       Description, TaskDefinition, RuntimeType, RuntimePort,
       RuntimePath, ContainerApiEnabled, ContainerApiPort,
       DisplayOrder, CreatedBy,
     } = labData;
 
-    const [rows] = await pool.query(
-      `CALL sp_Lab_Insert(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    const [res] = await pool.query(
+      `INSERT INTO labs (
+        LabCode, Title, Subtitle, Logo, DurationMinutes, Credits,
+        Complexity, Category, Description, TaskDefinition, RuntimeType,
+        RuntimePort, RuntimePath, ContainerApiEnabled, ContainerApiPort,
+        DisplayOrder, Status, CreatedBy
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       [
-        LabCode, Title, Subtitle || null, Semester || null, Logo || null,
+        LabCode, Title, Subtitle || null, Logo || null,
         DurationMinutes || 0, Credits || 0, Complexity || null,
         Category || null, Description || null, TaskDefinition || null,
         RuntimeType || "ide", RuntimePort || null, RuntimePath || null,
         ContainerApiEnabled ? 1 : 0, ContainerApiPort || null,
-        DisplayOrder || 0, CreatedBy || null,
+        DisplayOrder || 0, CreatedBy || null
       ]
     );
-    return rows[0][0];
+    return { LabId: res.insertId, LabCode };
   }
 
   async update(labId, labData) {
     const {
-      LabCode, Title, Subtitle, Semester, Logo,
+      LabCode, Title, Subtitle, Logo,
       DurationMinutes, Credits, Complexity, Category,
       Description, TaskDefinition, RuntimeType, RuntimePort,
       RuntimePath, ContainerApiEnabled, ContainerApiPort,
       DisplayOrder, UpdatedBy,
     } = labData;
 
-    const [rows] = await pool.query(
-      `CALL sp_Lab_Update(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    await pool.query(
+      `UPDATE labs SET 
+        LabCode = ?, Title = ?, Subtitle = ?, Logo = ?,
+        DurationMinutes = ?, Credits = ?, Complexity = ?, Category = ?,
+        Description = ?, TaskDefinition = ?, RuntimeType = ?,
+        RuntimePort = ?, RuntimePath = ?, ContainerApiEnabled = ?,
+        ContainerApiPort = ?, DisplayOrder = ?, UpdatedDate = NOW()
+       WHERE LabCode = ? OR LabId = ?`,
       [
-        labId, LabCode, Title, Subtitle || null, Semester || null, Logo || null,
+        LabCode, Title, Subtitle || null, Logo || null,
         DurationMinutes || 0, Credits || 0, Complexity || null,
         Category || null, Description || null, TaskDefinition || null,
         RuntimeType || "ide", RuntimePort || null, RuntimePath || null,
         ContainerApiEnabled ? 1 : 0, ContainerApiPort || null,
-        DisplayOrder || null, UpdatedBy || null,
+        DisplayOrder || 0,
+        labId, labId
       ]
     );
-    return rows[0][0];
+    return { success: true, labId };
   }
 
   async softDelete(labId, updatedBy) {
-    const [rows] = await pool.query("CALL sp_Lab_Delete(?, ?)", [labId, updatedBy || null]);
-    return rows[0][0];
+    await pool.query(
+      `DELETE FROM labs WHERE LabCode = ? OR LabId = ?`,
+      [labId, labId]
+    );
+    return { success: true, labId };
   }
 
   async updateStatus(labId, status, updatedBy) {
-    const [rows] = await pool.query("CALL sp_Lab_UpdateStatus(?, ?, ?)", [
-      labId, status, updatedBy || null,
-    ]);
-    return rows[0][0];
+    await pool.query(
+      `UPDATE labs SET Status = ?, UpdatedDate = NOW() WHERE LabCode = ? OR LabId = ?`,
+      [status, labId, labId]
+    );
+    return { success: true, labId, status };
   }
 }
 

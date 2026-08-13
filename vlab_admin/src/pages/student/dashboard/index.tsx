@@ -116,7 +116,7 @@ export default function StudentDashboard() {
 
           {/* Row 2: Top Statistics Cards (exactly 4) */}
           <StatsCards data={data} />
-          <div className="pt-8 mt-8 border-t border-border/40">
+          <div className="pt-4  border-t border-border/40">
             <h3 className="text-lg font-semibold text-muted-foreground mb-6">Additional Insights</h3>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <PerformanceCharts weeklyActivity={data.weeklyActivity} />
@@ -139,10 +139,6 @@ export default function StudentDashboard() {
           {/* Row 4: Recent Activity Timeline */}
 
 
-
-          {/* ========================================================================= */}
-          {/* Preserved Components */}
-          {/* ========================================================================= */}
 
 
 

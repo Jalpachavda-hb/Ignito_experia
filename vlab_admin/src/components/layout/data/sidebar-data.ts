@@ -68,12 +68,6 @@ export const sidebarData: SidebarData = {
           icon: Users,
           moduleCode: 'USER_MANAGEMENT',
         },
-        {
-          title: 'Role Management',
-          url: '/roles',
-          icon: Shield,
-          moduleCode: 'ROLE_MANAGEMENT',
-        },
       ],
     },
 

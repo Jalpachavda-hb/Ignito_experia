@@ -5,8 +5,7 @@ import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Plus, LayoutGrid, List } from 'lucide-react'
+import { LayoutGrid, List } from 'lucide-react'
 import { LabsTable } from './components/labs-table'
 import { LabsKanban } from './components/labs-kanban'
 import { LabsProvider, useLabs } from './context/labs-context'
@@ -15,13 +14,7 @@ import { useLabsQuery } from './data/api'
 
 function LabsViewContent() {
   const { dialogOpen, setDialogOpen, currentRow, setCurrentRow } = useLabs()
-  const [activeTab, setActiveTab] = useState<string>('active')
-  const { data: labsData = [], isLoading, isError } = useLabsQuery(activeTab)
-
-  const handleCreate = () => {
-    setCurrentRow(undefined)
-    setDialogOpen('create')
-  }
+  const { data: labsData = [], isLoading, isError } = useLabsQuery('all')
 
   const handleDialogChange = (open: boolean) => {
     if (!open) {
@@ -33,7 +26,6 @@ function LabsViewContent() {
   const [viewMode, setViewMode] = useState<'board' | 'table'>('board')
 
   useMemo(() => {
-    // Only access localStorage on client side (if applicable, but safe in React useEffect/useMemo usually)
     const saved = typeof window !== 'undefined' ? localStorage.getItem('labsViewMode') as 'board' | 'table' : null
     if (saved) setViewMode(saved)
   }, [])
@@ -72,17 +64,8 @@ function LabsViewContent() {
             <p className="text-red-500 bg-red-50 px-4 py-2 rounded-md">Failed to load labs. Please try again later.</p>
           </div>
         ) : (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-            <div className="flex items-center justify-between mb-4">
-              <TabsList>
-                <TabsTrigger value="active" className="gap-2">
-                  Active Labs {activeTab === 'active' && `(${labsData.length})`}
-                </TabsTrigger>
-                <TabsTrigger value="inactive" className="gap-2">
-                  Inactive Labs {activeTab === 'inactive' && `(${labsData.length})`}
-                </TabsTrigger>
-              </TabsList>
-
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex items-center justify-end mb-4">
               <div className="flex items-center space-x-2 bg-muted p-1 rounded-md">
                 <Button 
                   variant={viewMode === 'board' ? 'secondary' : 'ghost'} 
@@ -105,22 +88,12 @@ function LabsViewContent() {
               </div>
             </div>
 
-            <TabsContent value="active" className="flex-1 m-0 border-none outline-none data-[state=active]:flex flex-col min-h-0 overflow-hidden">
-              {viewMode === 'board' ? (
-                <LabsKanban data={labsData} />
-              ) : (
-                <LabsTable data={labsData} />
-              )}
-            </TabsContent>
-
-            <TabsContent value="inactive" className="flex-1 m-0 border-none outline-none data-[state=active]:flex flex-col min-h-0 overflow-hidden">
-              {viewMode === 'board' ? (
-                <LabsKanban data={labsData} />
-              ) : (
-                <LabsTable data={labsData} />
-              )}
-            </TabsContent>
-          </Tabs>
+            {viewMode === 'board' ? (
+              <LabsKanban data={labsData} />
+            ) : (
+              <LabsTable data={labsData} />
+            )}
+          </div>
         )}
       </Main>
 

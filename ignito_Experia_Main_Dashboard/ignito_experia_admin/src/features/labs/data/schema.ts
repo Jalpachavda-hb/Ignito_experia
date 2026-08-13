@@ -12,7 +12,6 @@ export const labSchema = z.object({
   id: z.string().min(1, 'Lab Code is required.'),
   title: z.string().min(1, 'Title is required.'),
   subtitle: z.string().optional().default(''),
-  semester: z.string().optional().default(''),
   logoUrl: z.string().optional().default(''),
   category: z.string().optional().default(''),
   credits: z.number().min(0).default(0),

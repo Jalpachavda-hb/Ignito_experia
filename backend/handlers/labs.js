@@ -1,7 +1,12 @@
 import { ok, notFound, serverError } from "../lib/apigw.js";
-import { badRequest } from "../lib/errors.js";
 import { labService } from "../services/labService.js";
 import requirePermission from "../middleware/PermissionMiddleware.js";
+
+/**
+ * Read-only Lab Consumption Handlers for VLab Platform.
+ * All Lab Management write operations (Create, Edit, Delete, Status Toggle)
+ * exist exclusively in the Owner Platform.
+ */
 
 export const labsListHandler = async () => {
   try {
@@ -9,7 +14,7 @@ export const labsListHandler = async () => {
     return ok({ labs });
   } catch (error) {
     console.error("[labsListHandler Error]", error);
-    return serverError({ success: false, message: `Database operation failed: ${error.message}` });
+    return serverError({ success: false, message: `Lab catalog retrieval failed: ${error.message}` });
   }
 };
 
@@ -34,7 +39,7 @@ export const labsGetHandler = async ({ pathParameters }) => {
     return ok({ lab });
   } catch (error) {
     console.error("[labsGetHandler Error]", error);
-    return serverError({ success: false, message: `Database operation failed: ${error.message}` });
+    return serverError({ success: false, message: `Lab details retrieval failed: ${error.message}` });
   }
 };
 
@@ -54,87 +59,6 @@ export const subLabsHandler = async () => {
     return ok({ subLabs: grouped });
   } catch (error) {
     console.error("[subLabsHandler Error]", error);
-    return serverError({ success: false, message: `Database operation failed: ${error.message}` });
-  }
-};
-
-export const labsCreateHandler = async (parsed) => {
-  try {
-    await requirePermission(parsed, "LAB_MANAGEMENT", "create");
-    const creatorId = parsed.auth?.userId;
-    const newLab = await labService.insertLab({
-      ...parsed.body,
-      CreatedBy: creatorId
-    });
-    return ok({
-      success: true,
-      message: "Lab created successfully",
-      data: newLab
-    });
-  } catch (error) {
-    console.error("[labsCreateHandler Error]", error);
-    return serverError({ success: false, message: `Database operation failed: ${error.message}` });
-  }
-};
-
-export const labsUpdateHandler = async (parsed) => {
-  try {
-    await requirePermission(parsed, "LAB_MANAGEMENT", "update");
-    const { labId } = parsed.pathParameters || {};
-    const updatedBy = parsed.auth?.userId;
-
-    const updatedLab = await labService.updateLab(labId, {
-      ...parsed.body,
-      UpdatedBy: updatedBy
-    });
-
-    return ok({
-      success: true,
-      message: "Lab updated successfully",
-      data: updatedLab
-    });
-  } catch (error) {
-    console.error("[labsUpdateHandler Error]", error);
-    return serverError({ success: false, message: `Database operation failed: ${error.message}` });
-  }
-};
-
-export const labsDeleteHandler = async (parsed) => {
-  try {
-    await requirePermission(parsed, "LAB_MANAGEMENT", "delete");
-    const { labId } = parsed.pathParameters || {};
-    const updatedBy = parsed.auth?.userId;
-
-    const result = await labService.deleteLab(labId, updatedBy);
-
-    return ok({
-      success: true,
-      message: "Lab deleted successfully",
-      data: result
-    });
-  } catch (error) {
-    console.error("[labsDeleteHandler Error]", error);
-    return serverError({ success: false, message: `Database operation failed: ${error.message}` });
-  }
-};
-
-export const labsUpdateStatusHandler = async (parsed) => {
-  try {
-    await requirePermission(parsed, "LAB_MANAGEMENT", "update");
-    const { labId } = parsed.pathParameters || {};
-    const { status } = parsed.body || {};
-    if (!status) throw badRequest("status is required");
-
-    const updatedBy = parsed.auth?.userId;
-    const result = await labService.updateLabStatus(labId, status, updatedBy);
-
-    return ok({
-      success: true,
-      message: "Lab status updated successfully",
-      data: result
-    });
-  } catch (error) {
-    console.error("[labsUpdateStatusHandler Error]", error);
-    throw error;
+    return serverError({ success: false, message: `Sub labs retrieval failed: ${error.message}` });
   }
 };

@@ -83,7 +83,18 @@ export default function SignInPage() {
       const response = await api.post('/auth/login', values)
       const { token, user } = response.data
       setAuth(user, token)
-      toast.success(`Welcome back, ${user.fullName}!`)
+
+      if (user.role === 'TENANT_ADMIN') {
+        const tenantSlug = user.tenantSlug || 'gtu'
+        toast.success(`Welcome, ${user.fullName || 'Tenant Admin'}! Redirecting to ${user.tenantName || 'University'} Admin Portal...`)
+        setTimeout(() => {
+          // Redirect Tenant Administrator to VLab Platform University Admin Portal (http://localhost:5173)
+          window.location.href = `http://${tenantSlug}.localhost:5173/`
+        }, 1200)
+        return
+      }
+
+      toast.success(`Welcome back, ${user.fullName || 'Super Owner'}!`)
       navigate({ to: '/' })
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Login failed. Please check your credentials.'
@@ -158,9 +169,29 @@ export default function SignInPage() {
             </div>
 
             <div className="flex flex-col space-y-2 text-center lg:text-left mb-8">
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900">Owner Authentication</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                {(() => {
+                  if (typeof window !== 'undefined') {
+                    const host = window.location.hostname
+                    if (host.includes('.localhost') || (host.split('.').length > 2 && !host.startsWith('www.'))) {
+                      const sub = host.split('.')[0].toUpperCase()
+                      return `${sub} Admin Portal`
+                    }
+                  }
+                  return 'Platform Authentication'
+                })()}
+              </h2>
               <p className="text-sm text-slate-500 font-medium">
-                Secure login to manage virtual environments.
+                {(() => {
+                  if (typeof window !== 'undefined') {
+                    const host = window.location.hostname
+                    if (host.includes('.localhost') || (host.split('.').length > 2 && !host.startsWith('www.'))) {
+                      const sub = host.split('.')[0].toUpperCase()
+                      return `Sign in to manage ${sub} university tenant virtual environments.`
+                    }
+                  }
+                  return 'Secure login to manage virtual environments.'
+                })()}
               </p>
             </div>
             
@@ -174,7 +205,7 @@ export default function SignInPage() {
                     <input
                       {...register('email')}
                       type="email"
-                      placeholder="owner@ignito.com"
+                      placeholder="admin@university.edu"
                       className={cn(
                         "w-full pl-9 pr-4 py-2 rounded-xl bg-white border text-sm transition-all focus:outline-none focus:ring-2 focus:ring-[#BE2126]/30",
                         errors.email ? "border-destructive" : "border-slate-200"

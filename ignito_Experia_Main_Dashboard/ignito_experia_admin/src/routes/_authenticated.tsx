@@ -22,6 +22,15 @@ export const Route = createFileRoute('/_authenticated')({
     if (!accessToken) {
       throw redirect({ to: '/sign-in' })
     }
+
+    const currentUser = useAuthStore.getState().user
+    if (currentUser && currentUser.role === 'TENANT_ADMIN') {
+      const tenantSlug = currentUser.tenantSlug || 'gtu'
+      if (typeof window !== 'undefined') {
+        window.location.href = `http://${tenantSlug}.localhost:5173/`
+      }
+      throw redirect({ to: '/sign-in' })
+    }
   },
   component: () => (
     <OwnerLayout>
