@@ -9,6 +9,7 @@ import { useLabSessionStore } from '@/stores/labSessionStore';
 import { useAuthStore } from '@/stores/auth-store';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useNavigate } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import { DotnetSelectionModal } from '../my-labs/components/dotnet-selection-modal';
 
 export default function LabCatalogue() {
@@ -74,16 +75,28 @@ export default function LabCatalogue() {
     }
   };
 
+  const getLabId = (lab: any) => lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?._id || '';
+
   const handleStartLab = async (id: string) => {
     clearStartError();
-    if (!user) return;
+
+    if (!id) {
+      toast.error('Cannot start lab: labId is missing or invalid');
+      return;
+    }
+
+    if (!user) {
+      toast.error('Please sign in to start a lab session');
+      navigate({ to: '/sign-in' });
+      return;
+    }
 
     if (activeSession && activeSession.labId !== id) {
       setShowWarningModal(true);
       return;
     }
 
-    const lab = labs.find(l => l.id === id);
+    const lab = labs.find(l => getLabId(l) === id);
     const isDotnet = id.toLowerCase().includes('dotnet') ||
                      lab?.category?.toLowerCase().includes('dotnet') ||
                      lab?.title?.toLowerCase().includes('.net');
@@ -94,9 +107,9 @@ export default function LabCatalogue() {
       return;
     }
 
-    const readySession = await startLab(id);
-    if (readySession) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: readySession.sessionId } });
+    const session = await startLab(id);
+    if (session?.sessionId) {
+      navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: session.sessionId } });
     }
   };
 
@@ -106,9 +119,9 @@ export default function LabCatalogue() {
     if (!id) return;
     setSelectedDotnetLabId(null);
 
-    const readySession = await startLab(id, subtype);
-    if (readySession) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: readySession.sessionId } });
+    const session = await startLab(id, subtype);
+    if (session?.sessionId) {
+      navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: session.sessionId } });
     }
   };
 
@@ -230,22 +243,22 @@ export default function LabCatalogue() {
                   {/* Cards Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
                     {categoryLabs.map((lab, index) => {
-                      // Determine if popular (for mock purposes, say top 2 of programming or specific labs)
+                      const labId = getLabId(lab);
                       const isPopular = category === 'Programming Labs' && index < 2;
 
                       return (
                         <CatalogueLabCard
-                          key={lab.id}
+                          key={labId || index}
                           lab={lab}
                           isPopular={isPopular}
                           onStart={handleStartLab}
                           onDetails={handleViewDetails}
                           onStop={handleStopLabClick}
                           onResume={handleResumeLab}
-                          activeSession={activeSession?.labId === lab.id ? activeSession : undefined}
-                          elapsedTime={activeSession?.labId === lab.id ? elapsedTime || undefined : undefined}
-                          isStarting={startingLabId === lab.id}
-                          isStopping={stoppingLabId === lab.id}
+                          activeSession={activeSession?.labId === labId ? activeSession : undefined}
+                          elapsedTime={activeSession?.labId === labId ? elapsedTime || undefined : undefined}
+                          isStarting={startingLabId === labId}
+                          isStopping={stoppingLabId === labId}
                         />
                       );
                     })}

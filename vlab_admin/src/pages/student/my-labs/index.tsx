@@ -85,15 +85,24 @@ export default function MyLabs() {
     });
   }, [labs, semesterFilterQuery]);
 
+  const getLabId = (lab: any) => lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?._id || '';
+
   const handleStartLab = async (labId: string) => {
-    const lab = labs.find(l => l.id === labId);
+    if (!labId) {
+      toast.error('Cannot start lab: labId is missing or invalid');
+      return;
+    }
+
+    if (!user) {
+      toast.error('Please sign in to start a lab session');
+      navigate({ to: '/sign-in' });
+      return;
+    }
+
+    const lab = labs.find(l => getLabId(l) === labId);
     if (!lab) return;
 
     clearStartError();
-    if (!user) {
-      // Handle login requirement
-      return;
-    }
 
     const isAdmin = user.role?.includes('Super Admin') || user.role?.includes('Tenant Admin');
     const userCredits = Number(user.credits ?? 0);
@@ -120,9 +129,9 @@ export default function MyLabs() {
       return;
     }
 
-    const readySession = await startLab(labId);
-    if (readySession) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: readySession.sessionId } });
+    const session = await startLab(labId);
+    if (session?.sessionId) {
+      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: session.sessionId } });
     }
   };
 
@@ -132,9 +141,9 @@ export default function MyLabs() {
     if (!labId) return;
     setSelectedDotnetLabId(null);
 
-    const readySession = await startLab(labId, subtype);
-    if (readySession) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: readySession.sessionId } });
+    const session = await startLab(labId, subtype);
+    if (session?.sessionId) {
+      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: session.sessionId } });
     }
   };
 

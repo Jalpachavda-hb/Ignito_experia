@@ -1044,6 +1044,15 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         }
         setIsPreviewTabActive(true);
 
+        // Immediately set state to STARTING so the preview panel shows the loader
+        setSeleniumRunState({
+          status: 'STARTING',
+          browserUrl: null,
+          logStreamUrl: null,
+          runId: null,
+          errorMsg: null
+        });
+
         const runPayload = {
           path: activeFile.path,
           language: activeFile.language,
@@ -1066,9 +1075,24 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             runId: response.runId || prev.runId,
             status: browserUrl ? 'RUNNING' : prev.status
           }));
+        } else {
+          const errorMsg = response?.error || 'Failed to start Selenium environment';
+          setSeleniumRunState(prev => ({
+            ...prev,
+            status: 'ERROR',
+            errorMsg
+          }));
+          toast.error(errorMsg);
         }
         await refreshFiles(false);
         return response;
+      } catch (err: any) {
+        setSeleniumRunState(prev => ({
+          ...prev,
+          status: 'ERROR',
+          errorMsg: err.message || 'Error executing test script'
+        }));
+        toast.error(err.message || 'Error executing test script');
       } finally {
         setRunningAction(null);
       }

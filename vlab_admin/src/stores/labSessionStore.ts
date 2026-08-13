@@ -124,14 +124,28 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
       const startResponse = await startLabSession({ labId, dotnetSubtype });
       if (!startResponse.sessionId) throw new Error('No session id returned from server');
 
-      const readySession = await waitForLabSessionReady(startResponse.sessionId);
-      set({ activeSession: readySession, startingLabId: null });
-      
-      if (readySession && readySession.status === 'running') {
-        startCountdownTimer(get, set);
-      }
-      
-      return readySession;
+      const initialSession: LabSession = {
+        sessionId: startResponse.sessionId,
+        labId,
+        userId: '',
+        status: 'starting',
+      };
+
+      set({ activeSession: initialSession, startingLabId: null });
+
+      // Poll in background to update activeSession status once container is running
+      waitForLabSessionReady(startResponse.sessionId)
+        .then((readySession) => {
+          set({ activeSession: readySession });
+          if (readySession && readySession.status === 'running') {
+            startCountdownTimer(get, set);
+          }
+        })
+        .catch((err) => {
+          console.warn('Background lab session readiness check warning:', err?.message);
+        });
+
+      return initialSession;
     } catch (err: any) {
       set({ startingLabId: null, startError: err?.message || 'Failed to start lab' });
       return null;

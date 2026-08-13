@@ -30,12 +30,12 @@ async function fetchFromOwner(endpoint) {
 
 const normalizeLabObject = (lab) => {
   if (!lab) return null;
-  const labCode = lab.labCode || lab.id || String(lab.dbId || "");
+  const labCode = lab.labCode || lab.lab_code || lab.LabCode || lab.id || lab.labId || lab.LabId || (lab.dbId ? String(lab.dbId) : "") || (lab._id ? String(lab._id) : "");
   return {
     id: labCode,
-    dbId: lab.dbId || lab.LabId,
+    dbId: lab.dbId || lab.LabId || lab._id || lab.id,
     labCode: labCode,
-    title: lab.title || lab.Title || "Untitled Lab",
+    title: lab.title || lab.Title || lab.name || lab.Name || "Untitled Lab",
     subtitle: lab.subtitle || lab.Subtitle || "",
     semester: lab.semester || lab.Semester || "",
     logo: lab.logo || lab.logoUrl || lab.Logo || "",
@@ -92,13 +92,14 @@ class LabService {
   }
 
   async getById(labCodeOrId) {
+    if (!labCodeOrId) return null;
     const data = await fetchFromOwner(`/api/labs/${encodeURIComponent(labCodeOrId)}`);
     if (data && data.lab) {
       return normalizeLabObject(data.lab);
     }
     // Safe fallback
     const all = await this.getAllActive();
-    return all.find((l) => l.id === labCodeOrId || String(l.dbId) === String(labCodeOrId)) || null;
+    return all.find((l) => l.id === labCodeOrId || l.labCode === labCodeOrId || String(l.dbId) === String(labCodeOrId)) || null;
   }
 }
 

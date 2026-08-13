@@ -155,47 +155,11 @@ export const TestingWorkspace = React.forwardRef<any, TestingWorkspaceProps>(({
   const handleExecute = async () => {
     setLogs([]);
     setElapsedSeconds(0);
-    setRunState({
-      status: 'STARTING',
-      browserUrl: null,
-      logStreamUrl: null,
-      runId: null,
-      errorMsg: null
-    });
-
-    // Automatically open the logs panel when running tests
     setExpandedLogs(true);
 
     try {
-      const response = await onRun();
-      if (response && response.success) {
-        const browserUrl = response.browser?.url || null;
-        setRunState(prev => ({
-          ...prev,
-          status: browserUrl ? 'RUNNING' : prev.status,
-          browserUrl,
-          logStreamUrl: response.logs?.streamUrl || null,
-          runId: response.runId || null
-        }));
-
-        if (response.logs?.streamUrl) {
-          connectSSE(response.logs.streamUrl);
-        }
-      } else {
-        const errorMsg = response?.error || 'Failed to start Selenium environment';
-        setRunState(prev => ({
-          ...prev,
-          status: 'ERROR',
-          errorMsg
-        }));
-        toast.error(errorMsg);
-      }
+      await onRun();
     } catch (err: any) {
-      setRunState(prev => ({
-        ...prev,
-        status: 'ERROR',
-        errorMsg: err.message || 'Error executing test script'
-      }));
       toast.error(err.message || 'Error executing test script');
     }
   };

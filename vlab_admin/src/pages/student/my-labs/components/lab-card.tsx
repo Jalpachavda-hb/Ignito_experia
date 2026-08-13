@@ -37,6 +37,7 @@ const getTheme = (idOrName: string) => {
 };
 
 export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onDetails, activeSession, elapsedTime, isStarting, isStopping, userCredits }: LabCardProps) {
+  const labId = lab.id || lab.labId || lab.LabId || lab.labCode || lab.LabCode || lab._id || '';
   const hasActiveSession = !!activeSession;
   const isRunning = activeSession?.status === 'running';
   const isSessionStarting = activeSession?.status === 'starting';
@@ -47,7 +48,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   
   const name = lab.title || lab.name || 'Unnamed Lab';
   const imageUrl = lab.logo || lab.image || lab.icon || null;
-  const theme = getTheme(lab.id || name);
+  const theme = getTheme(labId || name);
   
   // List View Layout
   if (viewMode === 'list') {
@@ -207,7 +208,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             <Progress value={progress} className={`h-1.5 bg-slate-100 dark:bg-slate-800 ${theme.progress}`} />
           </div>
         )}
-        
+
         <div className="mt-auto pt-4 border-t border-dashed border-slate-200 dark:border-slate-800/60 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
            <div className="flex items-center gap-1.5 flex-1 justify-center"><Clock className="h-3.5 w-3.5" /> {lab.durationMinutes || lab.duration || 60} Minutes</div>
            <div className="w-[1px] h-3 bg-slate-200 dark:bg-slate-800"></div>
@@ -218,21 +219,21 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
       <CardFooter className="p-5 pt-4 bg-white dark:bg-slate-950 flex flex-col gap-3">
         {hasActiveSession ? (
           <>
-            <Button onClick={() => onResume?.(lab.id)} className={`w-full h-11 rounded-[10px] font-semibold shadow-[0_4px_14px_0_rgb(0,0,0,0.1)] text-white ${theme.bg} hover:opacity-90 transition-all duration-200`}>
+            <Button onClick={() => onResume?.(labId)} className={`w-full h-11 rounded-[10px] font-semibold shadow-[0_4px_14px_0_rgb(0,0,0,0.1)] text-white ${theme.bg} hover:opacity-90 transition-all duration-200`}>
               Go To Lab
             </Button>
-            <Button onClick={() => onStop?.(lab.id)} variant="outline" className={`w-full h-11 rounded-[10px] font-semibold border-red-200 text-red-500 hover:bg-red-50 transition-all duration-200`} disabled={isStopping}>
+            <Button onClick={() => onStop?.(labId)} variant="outline" className={`w-full h-11 rounded-[10px] font-semibold border-red-200 text-red-500 hover:bg-red-50 transition-all duration-200`} disabled={isStopping}>
               {isStopping ? 'Stopping...' : 'Stop Lab'}
             </Button>
           </>
         ) : labStatus === 'Completed' ? (
           <div className="w-full flex gap-3">
-            <Button onClick={() => onStart?.(lab.id)} variant="outline" className="flex-1 h-11 rounded-[10px] bg-transparent border-slate-200 dark:border-slate-700" disabled={isStarting}>Restart</Button>
-            <Button onClick={() => onDetails?.(lab.id)} className="flex-1 h-11 rounded-[10px] bg-slate-900 dark:bg-white dark:text-slate-900 hover:bg-slate-800">History</Button>
+            <Button onClick={() => onStart?.(labId)} variant="outline" className="flex-1 h-11 rounded-[10px] bg-transparent border-slate-200 dark:border-slate-700" disabled={isStarting}>Restart</Button>
+            <Button onClick={() => onDetails?.(labId)} className="flex-1 h-11 rounded-[10px] bg-slate-900 dark:bg-white dark:text-slate-900 hover:bg-slate-800">History</Button>
           </div>
         ) : (
           <Button 
-            onClick={() => onStart?.(lab.id)} 
+            onClick={() => onStart?.(labId)} 
             variant="outline"
             disabled={isStarting}
             className={`w-full h-11 rounded-[10px] border-[1.5px] flex items-center justify-center gap-2 transition-all duration-200 font-semibold bg-transparent ${theme.outline}`}
@@ -245,7 +246,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             ) : (
               <>
                 Start Lab
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-4 h-4 text-current" />
               </>
             )}
           </Button>

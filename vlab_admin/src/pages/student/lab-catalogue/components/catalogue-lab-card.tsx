@@ -31,6 +31,7 @@ export function CatalogueLabCard({
   isStarting,
   isStopping 
 }: CatalogueLabCardProps) {
+  const labId = lab.id || lab.labId || lab.LabId || lab.labCode || lab.LabCode || lab._id || '';
   const name = lab.title || lab.name || 'Unnamed Lab';
   const imageUrl = lab.logo || lab.image || lab.icon || null;
   const time = lab.durationMinutes || lab.duration || 60;
@@ -43,7 +44,7 @@ export function CatalogueLabCard({
   
   return (
     <Card 
-      onClick={() => onDetails?.(lab.id)}
+      onClick={() => onDetails?.(labId)}
       className={`group flex items-stretch p-4 bg-white hover:bg-slate-50/50 transition-all duration-300 border-slate-200/60 rounded-[20px] cursor-pointer h-full ${
         hasActiveSession ? 'ring-2 ring-emerald-500/20 shadow-emerald-500/5 hover:shadow-emerald-500/10' : 'hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)]'
       }`}
@@ -98,7 +99,7 @@ export function CatalogueLabCard({
             {hasActiveSession ? (
               <>
                 <Button 
-                  onClick={(e) => { e.stopPropagation(); onStop?.(lab.id); }}
+                  onClick={(e) => { e.stopPropagation(); onStop?.(labId); }}
                   disabled={isStopping}
                   size="icon"
                   className="shrink-0 h-8 w-8 sm:h-9 sm:w-9 rounded-[10px] bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-colors duration-300 shadow-none border-none"
@@ -106,7 +107,7 @@ export function CatalogueLabCard({
                   {isStopping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
                 </Button>
                 <Button 
-                  onClick={(e) => { e.stopPropagation(); onResume?.(lab.id); }}
+                  onClick={(e) => { e.stopPropagation(); onResume?.(labId); }}
                   size="sm"
                   className="h-8 sm:h-9 rounded-[10px] bg-emerald-500 text-white hover:bg-emerald-600 transition-colors duration-300 shadow-none border-none px-3 font-semibold text-xs"
                 >
@@ -115,7 +116,7 @@ export function CatalogueLabCard({
               </>
             ) : (
               <Button 
-                onClick={(e) => { e.stopPropagation(); onStart?.(lab.id); }}
+                onClick={(e) => { e.stopPropagation(); onStart?.(labId); }}
                 disabled={isStarting}
                 size="icon"
                 className="shrink-0 h-8 w-8 sm:h-9 sm:w-9 rounded-[10px] bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-colors duration-300 shadow-none border-none"

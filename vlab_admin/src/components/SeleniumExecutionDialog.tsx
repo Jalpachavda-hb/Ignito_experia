@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -24,10 +24,32 @@ export function SeleniumExecutionDialog({
   onConfirm,
   isLoading = false,
 }: SeleniumExecutionDialogProps) {
-  const [selectedMode, setSelectedMode] = useState<'gui' | 'headless'>('gui')
+  // Load initial mode from localStorage (default to 'gui' if not set)
+  const [selectedMode, setSelectedMode] = useState<'gui' | 'headless'>(() => {
+    const saved = localStorage.getItem('selenium_execution_mode')
+    return saved === 'headless' ? 'headless' : 'gui'
+  })
+
+  // Synchronize state with localStorage when open changes
+  useEffect(() => {
+    if (open) {
+      const saved = localStorage.getItem('selenium_execution_mode')
+      if (saved === 'headless' || saved === 'gui') {
+        setSelectedMode(saved)
+      }
+    }
+  }, [open])
 
   const handleRun = () => {
+    localStorage.setItem('selenium_execution_mode', selectedMode)
     onConfirm(selectedMode)
+  }
+
+  const handleDoubleClick = (mode: 'gui' | 'headless') => {
+    if (isLoading) return
+    setSelectedMode(mode)
+    localStorage.setItem('selenium_execution_mode', mode)
+    onConfirm(mode)
   }
 
   return (
@@ -38,26 +60,27 @@ export function SeleniumExecutionDialog({
             Run Selenium Program
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-slate-400">
-            Choose the execution mode for Chrome browser.
+            Choose the execution mode for Chrome browser. Double-click any card to run instantly.
           </AlertDialogDescription>
         </AlertDialogHeader>
 
         <div className="flex flex-col gap-4 py-4">
           {/* GUI Option */}
-          <label
+          <div
             className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 select-none ${
               selectedMode === 'gui'
                 ? 'border-sky-500 bg-sky-500/10'
                 : 'border-[#3e3e3e] bg-[#2d2d2d]/30 hover:bg-[#2d2d2d]/50'
             }`}
             onClick={() => setSelectedMode('gui')}
+            onDoubleClick={() => handleDoubleClick('gui')}
           >
             <input
               type="radio"
               name="executionMode"
               checked={selectedMode === 'gui'}
-              onChange={() => setSelectedMode('gui')}
-              className="mt-1 accent-sky-500"
+              readOnly
+              className="mt-1 accent-sky-500 cursor-pointer"
             />
             <div className="flex-1">
               <div className="flex items-center gap-2 font-medium text-slate-200 text-sm">
@@ -68,23 +91,24 @@ export function SeleniumExecutionDialog({
                 Opens the Chrome browser visually inside the container. Best for debugging and watching your automation steps live through the browser preview.
               </p>
             </div>
-          </label>
+          </div>
 
           {/* Headless Option */}
-          <label
+          <div
             className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 select-none ${
               selectedMode === 'headless'
                 ? 'border-sky-500 bg-sky-500/10'
                 : 'border-[#3e3e3e] bg-[#2d2d2d]/30 hover:bg-[#2d2d2d]/50'
             }`}
             onClick={() => setSelectedMode('headless')}
+            onDoubleClick={() => handleDoubleClick('headless')}
           >
             <input
               type="radio"
               name="executionMode"
               checked={selectedMode === 'headless'}
-              onChange={() => setSelectedMode('headless')}
-              className="mt-1 accent-sky-500"
+              readOnly
+              className="mt-1 accent-sky-500 cursor-pointer"
             />
             <div className="flex-1">
               <div className="flex items-center gap-2 font-medium text-slate-200 text-sm">
@@ -95,7 +119,7 @@ export function SeleniumExecutionDialog({
                 Runs Chrome silently in the background without launching a visual browser. Recommended for faster test runs and lower container resource usage.
               </p>
             </div>
-          </label>
+          </div>
         </div>
 
         <AlertDialogFooter className="gap-2 sm:gap-0">
