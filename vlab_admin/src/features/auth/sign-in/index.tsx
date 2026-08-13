@@ -48,6 +48,8 @@ const TerminalLog = () => {
   )
 }
 
+import { getApiOrigin } from '@/config/env'
+
 export function SignIn() {
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
   const [tenantInfo, setTenantInfo] = useState<{ name?: string; logoUrl?: string; slug?: string } | null>(null)
@@ -55,21 +57,23 @@ export function SignIn() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname
-      let slug = ''
-      const parts = host.split('.')
-      if (parts.length > 1 && parts[0] !== 'www' && parts[0] !== 'localhost') {
-        slug = parts[0]
-      }
-      if (slug) {
-        fetch(`http://localhost:8080/api/tenant/resolve?slug=${slug}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.success && data.tenant) {
-              setTenantInfo(data.tenant)
-            }
-          })
-          .catch(err => console.error('Error resolving tenant domain:', err))
-      }
+      const apiOrigin = getApiOrigin()
+      fetch(`${apiOrigin}/api/tenant/resolve`, {
+        headers: { 'X-Tenant-Domain': host }
+      })
+        .then(res => res.json())
+        .then(resData => {
+          let data = resData
+          if (resData?.payload) {
+            try {
+              data = JSON.parse(atob(resData.payload))
+            } catch (e) {}
+          }
+          if (data?.success && data?.isTenant && data?.tenant) {
+            setTenantInfo(data.tenant)
+          }
+        })
+        .catch(err => console.error('Error resolving tenant domain:', err))
     }
   }, [])
 
@@ -154,10 +158,10 @@ export function SignIn() {
 
             <div className="flex flex-col space-y-2 text-center lg:text-left mb-8">
               <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-                {tenantInfo?.name ? `${tenantInfo.name} Admin` : 'Admin Authentication'}
+                {tenantInfo?.name ? `${tenantInfo.name} Portal` : 'Ignito Experia Portal'}
               </h2>
               <p className="text-sm text-slate-500 font-medium">
-                {tenantInfo?.name ? `Sign in as ${tenantInfo.name} Tenant Administrator.` : 'Secure login to manage virtual environments.'}
+                {tenantInfo?.name ? `Log in with your ${tenantInfo.name} Experia credentials or access labs via LMS.` : 'Secure login to access virtual lab environments.'}
               </p>
             </div>
             
@@ -165,12 +169,18 @@ export function SignIn() {
               <UserAuthForm redirectTo={redirect} />
             </div>
             
-            <div className="mt-8 text-center text-sm text-slate-500 font-medium">
-              Don't have an account?{' '}
-              <Link to="/sign-up" className="font-bold text-primary hover:text-primary/80 transition-colors">
-                Request Access
-              </Link>
-            </div>
+            {!tenantInfo?.name ? (
+              <div className="mt-8 text-center text-sm text-slate-500 font-medium">
+                Don't have an account?{' '}
+                <Link to="/sign-up" className="font-bold text-primary hover:text-primary/80 transition-colors">
+                  Register Direct Account
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-8 text-center text-xs text-slate-500 bg-amber-50/80 border border-amber-200/60 rounded-xl p-3">
+                This university portal is available only to students and staff associated with {tenantInfo.name}. Registration is unavailable on university portals.
+              </div>
+            )}
             
             <p className="text-center text-xs text-slate-400 font-medium mt-8">
               Secured by IgnitoExperia &middot;{' '}

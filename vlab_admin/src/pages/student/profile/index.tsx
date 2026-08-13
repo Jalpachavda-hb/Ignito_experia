@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
-import { Edit3 } from 'lucide-react';
+import { RefreshCw, CheckCircle2 } from 'lucide-react';
 import { dashboardData } from '@/pages/student/dashboard/data';
+import { apiRequest } from '@/lib/apiClient';
+import { useAuthStore } from '@/stores/auth-store';
 
 import { ProfileSummaryCard } from './components/profile-summary-card';
 import { PersonalInfoCard } from './components/personal-info-card';
@@ -13,6 +15,36 @@ import { SecurityInfoCard } from './components/security-info-card';
 
 export default function Profile() {
   const { student } = dashboardData;
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshSuccess, setRefreshSuccess] = useState(false);
+
+  const handleRefreshProfile = async () => {
+    try {
+      setIsRefreshing(true);
+      setRefreshSuccess(false);
+      
+      // 1. Invalidate Redis cache and fetch latest from LMS API
+      await apiRequest('/student/refresh-profile', { method: 'POST', auth: true });
+
+      // 2. Fetch fresh user state and update AuthStore
+      const data = await apiRequest('/auth/me', { auth: true });
+      if (data?.user) {
+        useAuthStore.getState().auth.setUser({
+          ...data.user,
+          userId: data.user.id || data.user.userId,
+          fullName: data.user.fullName || data.user.name,
+          exp: Date.now() + 24 * 60 * 60 * 1000,
+        });
+      }
+
+      setRefreshSuccess(true);
+      setTimeout(() => setRefreshSuccess(false), 4000);
+    } catch (err: any) {
+      console.error("Profile refresh failed:", err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
     <>
@@ -26,8 +58,20 @@ export default function Profile() {
         </div>
         
         <div className="flex items-center gap-2">
-          <Button size="sm" className="gap-2 bg-red-600 hover:bg-red-700 text-white">
-            <Edit3 className="h-4 w-4" /> Edit Profile
+          {refreshSuccess && (
+            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-lg border border-emerald-200">
+              <CheckCircle2 className="h-3.5 w-3.5" /> LMS Profile Updated!
+            </span>
+          )}
+          <Button 
+            size="sm" 
+            variant="outline"
+            disabled={isRefreshing}
+            onClick={handleRefreshProfile}
+            className="gap-2 border-border/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground"
+          >
+            <RefreshCw className={`h-4 w-4 text-blue-600 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Syncing LMS Data...' : 'Refresh Profile from LMS'}
           </Button>
         </div>
       </Header>
@@ -35,11 +79,13 @@ export default function Profile() {
       <Main className="bg-slate-50 dark:bg-slate-950 min-h-[calc(100vh-4rem)] pb-12">
         <div className="w-full p-4 sm:p-6 md:p-8 max-w-[1600px] mx-auto">
           
-          <div className="mb-8">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">My Profile</h1>
-            <p className="text-slate-500 mt-1.5 max-w-2xl">
-              View your personal, academic, and account information.
-            </p>
+          <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">My Profile</h1>
+              <p className="text-slate-500 mt-1.5 max-w-2xl">
+                View your personal, academic, and account information synced live with University LMS.
+              </p>
+            </div>
           </div>
           
           <div className="space-y-6">

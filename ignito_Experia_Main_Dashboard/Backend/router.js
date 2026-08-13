@@ -1,5 +1,5 @@
 import express from "express";
-import { authMiddleware } from "./middleware/auth.js";
+import { authMiddleware, internalServiceAuthMiddleware } from "./middleware/auth.js";
 import { loginHandler, meHandler, getProfileHandler, updateProfileHandler } from "./handlers/auth.js";
 
 import {
@@ -34,8 +34,8 @@ export function setupRoutes(app, apiPrefix) {
   );
 
   // ── Internal Backend-to-Backend APIs ──────────────────────────
-  router.get("/internal/tenants/by-slug/:slug", internalTenantBySlugHandler);
-  router.post("/internal/auth/tenant-login", internalTenantLoginHandler);
+  router.get("/internal/tenants/by-slug/:slug", internalServiceAuthMiddleware, internalTenantBySlugHandler);
+  router.post("/internal/auth/tenant-login", internalServiceAuthMiddleware, internalTenantLoginHandler);
 
   // ── Image / File Upload ─────────────────────────────────────
   router.post("/upload", uploadMiddleware, uploadFileHandler);

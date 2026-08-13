@@ -1,6 +1,8 @@
 import { ok } from "../lib/apigw.js";
 import authService from "../services/AuthService.js";
 import userRepository from "../repositories/UserRepository.js";
+import { lmsProfileCacheService } from "../services/LmsProfileCacheService.js";
+import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import { unauthorized } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
 
@@ -59,62 +61,111 @@ export const authRegisterHandler = async ({ body }) => {
   });
 };
 
+import { ENV } from "../config/env.js";
+
+const obfuscate = (data) => {
+  const jsonStr = JSON.stringify(data);
+  const base64 = Buffer.from(jsonStr).toString('base64');
+  return ok({ payload: base64 });
+};
+
 export const tenantResolveHandler = async ({ queryStringParameters = {}, headers = {} }) => {
-  const host = headers.host || headers.Host || "";
+  const domainHost = (headers['x-tenant-domain'] || headers.host || headers.Host || "").split(":")[0].toLowerCase();
   let slug = queryStringParameters?.slug || "";
 
-  if (!slug && host) {
-    const parts = host.split(":")[0].split(".");
-    if (parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost") {
-      slug = parts[0];
+  if (!slug && domainHost) {
+    const parts = domainHost.split(".");
+    if (
+      domainHost !== "localhost" &&
+      domainHost !== "127.0.0.1" &&
+      domainHost !== "experia.ignitolearn.com" &&
+      domainHost !== "www.experia.ignitolearn.com"
+    ) {
+      if (parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost" && parts[0] !== "experia") {
+        slug = parts[0];
+      }
     }
   }
 
   if (!slug) {
-    return ok({ success: false, message: "No tenant domain specified" });
+    return obfuscate({
+      success: true,
+      isMainDomain: true,
+      isTenant: false,
+      message: "Main Experia domain context"
+    });
   }
 
+  let tenant = null;
+
   try {
-    const ownerRes = await fetch(`http://localhost:4000/api/internal/tenants/by-slug/${slug.toLowerCase()}`);
+    const ownerRes = await fetch(`http://localhost:4000/api/internal/tenants/by-slug/${slug.toLowerCase()}`, {
+      headers: {
+        "X-Internal-Service-Token": ENV.internalServiceToken,
+      },
+    });
     if (ownerRes.ok) {
       const ownerData = await ownerRes.json();
       if (ownerData.success) {
-        return ok({
-          success: true,
-          tenant: {
-            tenantId: ownerData.tenantId,
-            name: ownerData.name,
-            slug: ownerData.slug,
-            officialDomain: ownerData.officialDomain,
-            logoUrl: ownerData.logoUrl,
-            status: ownerData.status,
-          },
-        });
+        tenant = {
+          tenantId: ownerData.tenantId,
+          name: ownerData.name,
+          slug: ownerData.slug,
+          officialDomain: ownerData.officialDomain,
+          logoUrl: ownerData.logoUrl,
+          status: ownerData.status,
+        };
       }
     }
   } catch (err) {
     console.warn("Owner Tenant API unreachable, using local fallback:", err.message);
   }
 
-  const [rows] = await pool.query(
-    "SELECT TenantId, Name, Slug, OfficialDomain, LogoUrl, Status FROM tenants WHERE LOWER(Slug) = ?",
-    [slug.toLowerCase()]
-  );
-
-  if (!rows.length) {
-    return ok({ success: false, message: `No tenant found for domain '${slug}'` });
+  if (!tenant) {
+    const [rows] = await pool.query(
+      "SELECT TenantId, Name, Slug, OfficialDomain, LogoUrl, Status FROM tenants WHERE LOWER(Slug) = ?",
+      [slug.toLowerCase()]
+    );
+    if (rows.length > 0) {
+      const row = rows[0];
+      tenant = {
+        tenantId: row.TenantId,
+        name: row.Name,
+        slug: row.Slug,
+        officialDomain: row.OfficialDomain,
+        logoUrl: row.LogoUrl,
+        status: row.Status,
+      };
+    }
   }
 
-  const tenant = rows[0];
-  return ok({
+  if (!tenant) {
+    return obfuscate({
+      success: false,
+      code: "TENANT_NOT_FOUND",
+      message: "University portal not found."
+    });
+  }
+
+  if ((tenant.status || "").toUpperCase() !== "ACTIVE") {
+    return obfuscate({
+      success: false,
+      code: "TENANT_INACTIVE",
+      message: `This university portal (${tenant.name}) is currently unavailable.`,
+      tenant: {
+        name: tenant.name,
+        logoUrl: tenant.logoUrl
+      }
+    });
+  }
+
+  return obfuscate({
     success: true,
+    isMainDomain: false,
+    isTenant: true,
     tenant: {
-      tenantId: tenant.TenantId,
-      name: tenant.Name,
-      slug: tenant.Slug,
-      officialDomain: tenant.OfficialDomain,
-      logoUrl: tenant.LogoUrl,
-      status: tenant.Status,
+      name: tenant.name,
+      logoUrl: tenant.logoUrl
     },
   });
 };
@@ -154,21 +205,23 @@ export const authLoginHandler = async ({ body, headers = {}, requestContext }) =
   };
 };
 
-export const ssoLoginHandler = async ({ headers, requestContext }) => {
+export const ssoLoginHandler = async ({ body = {}, headers, requestContext }) => {
   const authHeader = headers.authorization || headers.Authorization || headers.AUTHORIZATION || "";
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!match) {
-    throw unauthorized("Missing Authorization Bearer token");
+  const token = match ? match[1].trim() : (body?.token || body?.jwt || "");
+  if (!token) {
+    throw unauthorized("Missing Authorization Bearer token or token in request body");
   }
-  const token = match[1].trim();
 
   const ipAddress = requestContext?.identity?.sourceIp || "unknown";
   
   // Use APIGW request ID or generate one
-  const correlationId = requestContext?.requestId || require('crypto').randomUUID();
+  const correlationId = requestContext?.requestId || crypto.randomUUID();
 
   const result = await ssoService.verifyLmsToken({
     token,
+    studentDegreeAdmissionId: body?.studentDegreeAdmissionId,
+    studentId: body?.studentId,
     ipAddress,
     browser: headers['user-agent'] || 'unknown',
     os: 'unknown',
@@ -310,18 +363,170 @@ export const authMeHandler = async ({ auth }) => {
     }
   }
 
+  const admissionId = profile.StudentDegreeAdmissionId || profile.ExternalStudentId;
+  const tenantId = profile.TenantId || profile.UniversityId || auth.tenantId || 'TEN000001';
+  
+  let cachedLmsProfile = null;
+  let cacheSource = 'NONE';
+  if (admissionId) {
+    const cachedResult = await lmsProfileCacheService.getOrFetchProfile({
+      tenantId,
+      provider: 'GTU_LMS',
+      externalStudentId: admissionId,
+      forceRefresh: false
+    });
+    if (cachedResult && cachedResult.data) {
+      cachedLmsProfile = cachedResult.data;
+      cacheSource = cachedResult.source;
+    }
+  }
+
+  const fullName = cachedLmsProfile?.applicantFullName || profile.FullName || `${profile.FirstName || ''} ${profile.LastName || ''}`.trim() || 'Student';
+
+  const extMobile = cachedLmsProfile?.mobile || profile.Mobile || null;
+  const extAltMobile = cachedLmsProfile?.alternateMobile || profile.AlternateMobile || null;
+  const extGender = cachedLmsProfile?.gender || profile.Gender || null;
+  const extDob = cachedLmsProfile?.dateOfBirth || profile.DateOfBirth || null;
+  const extAddress = cachedLmsProfile?.address || profile.Address || null;
+  const extImage = cachedLmsProfile?.studentProfileImage ? (cachedLmsProfile.studentProfileImage.startsWith('http') ? cachedLmsProfile.studentProfileImage : "https://verse.ignitolearn.com" + cachedLmsProfile.studentProfileImage) : (profile.ProfileImage || null);
+  const extProgrammes = cachedLmsProfile?.enrollmentnumberprogrammenamelist || programmesList;
+  const extEnrollment = extProgrammes[0]?.enrollmentNumber || profile.StudentCode || profile.ExternalStudentId || null;
+  const extProgramName = extProgrammes[0]?.programmeName || profile.ProgramName || 'Master of Business Administration - International Business';
+  const extCurrentSemester = extProgrammes[0]?.currentSemester || profile.CurrentSemester || '1';
+
+  let walletBalance = 0.00;
+  let walletStatus = 'ACTIVE';
+  try {
+    const wallet = await creditWalletRepository.findByUserAndTenant(auth.userId, tenantId);
+    if (wallet) {
+      walletBalance = Number(wallet.Balance || 0);
+      walletStatus = wallet.Status || 'ACTIVE';
+    }
+  } catch (e) {}
+
   return ok({
     success: true,
+    cacheStatus: cacheSource,
+    identity: {
+      userId: profile.UserId || profile.StudentProfileId,
+      email: profile.Email,
+      fullName: fullName,
+      hasPassword: Boolean(profile.PasswordHash),
+      authType: profile.AuthType || 'LMS',
+      createdFrom: profile.CreatedFrom || 'LMS',
+      status: profile.Status
+    },
+    tenant: {
+      tenantId: tenantId,
+      slug: 'gtu'
+    },
+    academic: {
+      program: extProgramName,
+      programName: extProgramName,
+      semester: extCurrentSemester,
+      currentSemester: extCurrentSemester,
+      enrollmentNumber: extEnrollment,
+      mobile: extMobile,
+      alternateMobile: extAltMobile,
+      gender: extGender,
+      dateOfBirth: extDob,
+      address: extAddress,
+      profileImage: extImage,
+      programmesList: extProgrammes,
+      collegeName: 'Gujarat Technological University'
+    },
+    wallet: {
+      balance: walletBalance,
+      status: walletStatus
+    },
     user: {
-      id: profile.UserId || profile.StudentProfileId, // accommodate both schemas
-      fullName: profile.FullName || `${profile.FirstName} ${profile.LastName}`,
+      id: profile.UserId || profile.StudentProfileId,
+      userId: profile.UserId || profile.StudentProfileId,
+      fullName: fullName,
+      name: fullName,
       email: profile.Email,
       role: profile.Role || 'Student',
       roleCode: roleCode,
       status: profile.Status,
-      universityId: profile.UniversityId,
+      mobile: extMobile,
+      alternateMobile: extAltMobile,
+      gender: extGender,
+      dateOfBirth: extDob,
+      address: extAddress,
+      profileImage: extImage,
+      studentDegreeAdmissionId: admissionId,
+      programmesList: extProgrammes,
+      tenantId: tenantId,
+      universityId: tenantId,
       departmentId: profile.DepartmentId,
+      studentCode: extEnrollment,
+      enrollmentNumber: extEnrollment,
+      programName: extProgramName,
+      currentSemester: extCurrentSemester,
+      collegeName: 'Gujarat Technological University',
+      createdFrom: profile.CreatedFrom || 'LMS',
+      authType: profile.AuthType || 'LMS',
+      hasPassword: Boolean(profile.PasswordHash),
       permissions,
     }
   });
 };
+
+import { hashPassword } from "../lib/password.js";
+
+export const authSetPasswordHandler = async ({ auth, body = {} }) => {
+  if (!auth || !auth.userId) {
+    throw unauthorized("Authentication required");
+  }
+  const { newPassword, confirmPassword } = body;
+  if (!newPassword || newPassword.length < 7) {
+    throw badRequest("Password must be at least 7 characters long");
+  }
+  if (newPassword !== confirmPassword) {
+    throw badRequest("Passwords do not match");
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+
+  await pool.query(
+    `UPDATE Users SET PasswordHash = ?, AuthType = 'LMS_AND_DIRECT', Status = 'Active' WHERE UserId = ?`,
+    [hashedPassword, auth.userId]
+  );
+
+  return ok({
+    success: true,
+    message: "Experia password set successfully. You can now access your account directly."
+  });
+};
+
+export const studentRefreshProfileHandler = async ({ auth }) => {
+  if (!auth || !auth.userId) {
+    throw unauthorized("Authentication required");
+  }
+
+  const profile = await userRepository.findById(auth.userId);
+  if (!profile) {
+    throw unauthorized("User not found");
+  }
+
+  const admissionId = profile.StudentDegreeAdmissionId || profile.ExternalStudentId;
+  const tenantId = profile.TenantId || profile.UniversityId || auth.tenantId || 'TEN000001';
+
+  if (!admissionId) {
+    throw badRequest("No LMS admission ID associated with this student account");
+  }
+
+  const result = await lmsProfileCacheService.getOrFetchProfile({
+    tenantId,
+    provider: 'GTU_LMS',
+    externalStudentId: admissionId,
+    forceRefresh: true
+  });
+
+  return ok({
+    success: true,
+    message: "LMS profile refreshed and cache updated successfully.",
+    profile: result?.data || null
+  });
+};
+

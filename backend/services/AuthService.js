@@ -6,6 +6,7 @@ import { signAccessToken } from "../lib/jwt.js";
 import { hashPassword, verifyPassword } from "../utils/crypto.js";
 import { badRequest, unauthorized } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
+import { ENV } from "../config/env.js";
 
 const loadUserPermissions = async (roleId, connection = pool) => {
   if (!roleId) return {};
@@ -30,14 +31,38 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
   await connection.beginTransaction();
 
   try {
+    // Ensure local user record exists in VLab DB for foreign key compliance
+    let vlabUserId = userPayload.dbUserId;
+    const [vlabUsers] = await connection.query("SELECT UserId FROM Users WHERE LOWER(Email) = ?", [(userPayload.email || '').toLowerCase()]);
+    if (!vlabUsers.length) {
+      const [insertRes] = await connection.query(
+        "INSERT INTO Users (FullName, Email, PasswordHash, Role, Status) VALUES (?, ?, 'OWNER_AUTHENTICATED', ?, 'Active')",
+        [userPayload.name || 'Tenant Admin', userPayload.email, userPayload.role || 'TENANT_ADMIN']
+      );
+      vlabUserId = insertRes.insertId;
+    } else {
+      vlabUserId = vlabUsers[0].UserId;
+    }
+
+    if (userPayload.tenantId) {
+      const targetRole = (userPayload.role === 'SuperAdmin' || userPayload.role === 'TENANT_ADMIN') ? 'TENANT_ADMIN' : 'STUDENT';
+      await connection.query(
+        `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
+         VALUES (?, ?, ?, 'ACTIVE')
+         ON DUPLICATE KEY UPDATE Role = VALUES(Role), Status = 'ACTIVE'`,
+        [vlabUserId, userPayload.tenantId, targetRole]
+      );
+    }
+
     const permissions = await loadUserPermissions(userPayload.roleId || 1, connection);
     const sessionId = crypto.randomUUID();
 
     const accessToken = signAccessToken({
-      id: userPayload.id,
+      id: vlabUserId,
+      userId: vlabUserId,
       name: userPayload.name,
       email: userPayload.email,
-      role: userPayload.role,
+      role: userPayload.role || 'TENANT_ADMIN',
       roleId: userPayload.roleId || 1,
       tenantId: userPayload.tenantId,
       tenantSlug: userPayload.tenantSlug,
@@ -53,8 +78,9 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
 
     await sessionRepository.insert({
       SessionId: sessionId,
-      UserId: userPayload.dbUserId || 1,
+      UserId: vlabUserId,
       AuthenticationSource: 'DIRECT',
+      UniversityId: userPayload.tenantId,
       IPAddress: sessionMeta.ipAddress,
       Browser: sessionMeta.browser,
       OS: sessionMeta.os,
@@ -62,7 +88,7 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
     }, connection);
 
     await refreshTokenRepository.insert({
-      UserId: userPayload.dbUserId || 1,
+      UserId: vlabUserId,
       SessionId: sessionId,
       TokenHash: tokenHash,
       ExpiresAt: expiresAt
@@ -75,10 +101,11 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
       accessToken,
       refreshToken: refreshTokenRaw,
       user: {
-        id: userPayload.id,
+        id: vlabUserId,
+        userId: vlabUserId,
         name: userPayload.name,
         email: userPayload.email,
-        role: userPayload.role,
+        role: userPayload.role || 'TENANT_ADMIN',
         roleId: userPayload.roleId || 1,
         status: userPayload.status || "ACTIVE",
         tenantId: userPayload.tenantId,
@@ -96,7 +123,10 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
 
 class AuthService {
   async register(userData) {
-    const { fullName, email, password, role } = userData;
+    const { fullName, email, password, role, slug } = userData;
+    if (slug) {
+      throw badRequest("Direct registration is not available on university portals. Please register on the main Experia domain.");
+    }
     if (!email || !password) {
       throw badRequest("Email and password are required");
     }
@@ -113,7 +143,9 @@ class AuthService {
       email,
       passwordHash,
       role: role || "Student",
-      status: "Active"
+      status: "Active",
+      createdFrom: "DIRECT",
+      authType: "DIRECT"
     });
   }
 
@@ -129,16 +161,19 @@ class AuthService {
     let slug = inputSlug || "";
     if (!slug && host) {
       const parts = host.split(":")[0].split(".");
-      if (parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost") {
+      if (parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost" && parts[0] !== "experia") {
         slug = parts[0];
       }
     }
 
-    // 2. Resolve Tenant from Owner Tenant API
+    // 2. Resolve Tenant from Owner Tenant API over Service-to-Service Auth
     let resolvedTenantId = null;
+    let resolvedTenantName = null;
     if (slug) {
       try {
-        const tenantRes = await fetch(`http://localhost:4000/api/internal/tenants/by-slug/${slug.toLowerCase()}`);
+        const tenantRes = await fetch(`http://localhost:4000/api/internal/tenants/by-slug/${slug.toLowerCase()}`, {
+          headers: { "X-Internal-Service-Token": ENV.internalServiceToken }
+        });
         if (tenantRes.ok) {
           const tenantData = await tenantRes.json();
           if (tenantData.success) {
@@ -146,6 +181,7 @@ class AuthService {
               throw unauthorized("This university account is currently unavailable. Please contact the platform administrator.");
             }
             resolvedTenantId = tenantData.tenantId;
+            resolvedTenantName = tenantData.name;
           }
         }
       } catch (err) {
@@ -153,11 +189,14 @@ class AuthService {
       }
     }
 
-    // 3. Backend-to-Backend Authentication via Owner Internal Auth API
+    // 3. Backend-to-Backend Authentication via Owner Internal Auth API with Service Token
     try {
       const ownerAuthRes = await fetch("http://localhost:4000/api/internal/auth/tenant-login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Service-Token": ENV.internalServiceToken
+        },
         body: JSON.stringify({ tenantId: resolvedTenantId, email: cleanEmail, password })
       });
 
@@ -167,14 +206,14 @@ class AuthService {
           return await createVLabSession({
             userPayload: {
               id: authData.userId || authData.tenantId,
-              dbUserId: authData.userId || 1,
+              dbUserId: authData.userId,
               name: authData.name || "Tenant Administrator",
               email: authData.email,
-              role: "SuperAdmin",
+              role: authData.role || "TENANT_ADMIN",
               roleId: 1,
               tenantId: authData.tenantId,
               tenantSlug: authData.tenantSlug || slug,
-              tenantName: authData.tenantName,
+              tenantName: authData.tenantName || resolvedTenantName,
               status: "ACTIVE"
             },
             sessionMeta
@@ -219,7 +258,7 @@ class AuthService {
           dbUserId: tenant.DbId,
           name: tenant.AdminFullName || "Tenant Administrator",
           email: tenant.AdminEmail,
-          role: "SuperAdmin",
+          role: "TENANT_ADMIN",
           roleId: 1,
           tenantId: tenant.TenantId,
           tenantSlug: tenant.Slug,
@@ -236,12 +275,28 @@ class AuthService {
       throw unauthorized("Invalid email or password");
     }
 
-    if ((user.Status || '').toUpperCase() !== "ACTIVE") {
-      throw unauthorized(`Your account is ${user.Status}. Please contact support.`);
+    if ((user.Status || 'Active').toUpperCase() !== "ACTIVE") {
+      throw unauthorized(`Your account is ${user.Status || 'Inactive'}. Please contact support.`);
     }
 
     if (!verifyPassword(password, user.PasswordHash)) {
       throw unauthorized("Invalid email or password");
+    }
+
+    // Tenant Membership Verification for Subdomain Direct Student Login
+    const activeTenant = resolvedTenantId || user.TenantId || 'TEN000001';
+    if (activeTenant && (user.Role || '').toUpperCase() === 'STUDENT') {
+      const [mapping] = await pool.query(
+        "SELECT MappingId FROM user_tenant_mapping WHERE UserId = ? AND TenantId = ?",
+        [user.UserId, activeTenant]
+      );
+      if (!mapping.length && user.TenantId !== activeTenant) {
+        // Auto-provision mapping if tenant matches user record
+        await pool.query(
+          "INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status) VALUES (?, ?, 'STUDENT', 'ACTIVE') ON DUPLICATE KEY UPDATE Status = 'ACTIVE'",
+          [user.UserId, activeTenant]
+        );
+      }
     }
 
     await userRepository.updateLastLogin(user.UserId);
@@ -254,6 +309,7 @@ class AuthService {
         email: user.Email,
         role: user.Role || 'Student',
         roleId: user.RoleId || 1,
+        tenantId: resolvedTenantId,
         status: user.Status
       },
       sessionMeta

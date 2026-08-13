@@ -8,6 +8,8 @@ import {
   authMeHandler,
   ssoLoginHandler,
   tenantResolveHandler,
+  authSetPasswordHandler,
+  studentRefreshProfileHandler,
 } from "./handlers/auth.js";
 import {
   labsListHandler,
@@ -43,6 +45,12 @@ import {
   usersAddCreditsHandler,
 } from "./handlers/users.js";
 import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
+import {
+  getWalletHandler,
+  purchaseCreditsHandler,
+  getTransactionHistoryHandler,
+} from "./handlers/credits.js";
+import { internalOwnerStudentsHandler } from "./handlers/ownerReporting.js";
 
 /**
  * Route table — paths match AWS API Gateway (no /api prefix).
@@ -59,7 +67,18 @@ export const ROUTES = [
   { method: "POST", path: "/auth/refresh", handler: authRefreshHandler, auth: false },
   { method: "POST", path: "/auth/logout", handler: authLogoutHandler, auth: false },
   { method: "POST", path: "/auth/sso-login", handler: ssoLoginHandler, auth: false },
+  { method: "POST", path: "/auth/set-password", handler: authSetPasswordHandler, auth: true },
   { method: "GET", path: "/auth/me", handler: authMeHandler, auth: true },
+  { method: "GET", path: "/student/me", handler: authMeHandler, auth: true },
+  { method: "POST", path: "/student/refresh-profile", handler: studentRefreshProfileHandler, auth: true },
+
+  // Credit Wallet & Transactions
+  { method: "GET", path: "/credits/wallet", handler: getWalletHandler, auth: true },
+  { method: "POST", path: "/credits/purchase", handler: purchaseCreditsHandler, auth: true },
+  { method: "GET", path: "/credits/transactions", handler: getTransactionHistoryHandler, auth: true },
+
+  // Secure Internal Owner Reporting
+  { method: "GET", path: "/internal/owner/students", handler: internalOwnerStudentsHandler, auth: false },
 
   // Phase 7: App Bootstrap
   { method: "GET", path: "/app/bootstrap", handler: (event) => import("./handlers/bootstrap.js").then(m => m.appBootstrapHandler(event)), auth: true },

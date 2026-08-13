@@ -2,19 +2,24 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StudentProfile } from '@/pages/student/dashboard/types';
 import { User } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth-store';
 
 interface PersonalInfoCardProps {
   student: StudentProfile;
 }
 
 export function PersonalInfoCard({ student }: PersonalInfoCardProps) {
+  const { auth } = useAuthStore();
+  const u = auth.user || {};
+
   const fields = [
-    { label: 'Full Name', value: student.name },
-    { label: 'Gender', value: student.gender || 'Not Provided' },
-    { label: 'Date of Birth', value: student.dateOfBirth ? new Date(student.dateOfBirth).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Not Provided' },
-    { label: 'Email Address', value: student.email },
-    { label: 'Mobile Number', value: student.mobile },
-    { label: 'Alternate Contact', value: student.alternateMobile || 'Not Provided' },
+    { label: 'Full Name', value: u.fullName || u.name || student.name },
+    { label: 'Admission ID', value: u.studentDegreeAdmissionId || '1' },
+    { label: 'Gender', value: u.gender || 'Not Provided' },
+    { label: 'Date of Birth', value: u.dateOfBirth || 'Not Provided' },
+    { label: 'Email Address', value: u.email || student.email },
+    { label: 'Mobile Number', value: u.mobile || 'Not Provided' },
+    { label: 'Alternate Contact', value: u.alternateMobile || 'Not Provided' },
   ];
 
   return (
@@ -35,7 +40,7 @@ export function PersonalInfoCard({ student }: PersonalInfoCardProps) {
           <div className="md:col-span-2">
             <p className="text-xs font-medium text-slate-500 mb-1">Address</p>
             <p className="text-sm font-semibold text-slate-900 dark:text-white">
-              {student.address ? `${student.address}, ${student.city}, ${student.state}, ${student.country}` : 'Not Provided'}
+              {u.address || 'Not Provided'}
             </p>
           </div>
         </div>

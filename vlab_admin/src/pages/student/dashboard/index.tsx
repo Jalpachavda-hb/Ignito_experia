@@ -1,10 +1,13 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { dashboardData } from './data'
+import { useAuthStore } from '@/stores/auth-store'
+import { PasswordSetupModal } from '@/components/auth/PasswordSetupModal'
+import { useNavigate } from '@tanstack/react-router'
 
 // UI Components for Header Navbar
-import { Bell, User, Settings, HelpCircle, LogOut } from 'lucide-react'
+import { Bell, User, Settings, HelpCircle, LogOut, KeyRound } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -27,19 +30,45 @@ import { RecentActivityTimeline } from './components/recent-activity-timeline'
 // Preserved Components requested by user
 import { PerformanceCharts } from './components/performance-charts'
 import { LabActivity } from './components/lab-activity'
-
 import { CreditWalletSummary } from './components/credit-wallet-summary'
 
 export default function StudentDashboard() {
   const data = dashboardData
+  const { auth } = useAuthStore()
+  const navigate = useNavigate()
+  const [showPasswordSetup, setShowPasswordSetup] = useState(false)
 
-  const initials = data.student.name
+  const studentName = auth.user?.fullName || auth.user?.name || data.student.name
+  const studentEmail = auth.user?.email || data.student.email
+  const initials = studentName
     .split(' ')
     .map((n) => n[0])
+    .filter(Boolean)
     .join('')
     .substring(0, 2)
+    .toUpperCase() || 'ST'
 
   const unreadNotifications = data.notifications.filter(n => !n.isRead).length
+
+  useEffect(() => {
+    // Prompt first-time LMS students to set an optional Experia Password (if not skipped in session)
+    const isSkipped = typeof window !== 'undefined' && sessionStorage.getItem('skipPasswordSetup') === 'true'
+    if (auth.user && auth.user.hasPassword === false && !isSkipped) {
+      setShowPasswordSetup(true)
+    }
+  }, [auth.user])
+
+  const handleClosePasswordModal = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('skipPasswordSetup', 'true')
+    }
+    setShowPasswordSetup(false)
+  }
+
+  const handleLogout = () => {
+    auth.reset()
+    navigate({ to: '/sign-in' })
+  }
 
   return (
     <>
@@ -70,20 +99,26 @@ export default function StudentDashboard() {
                 <Avatar className="h-8 w-8 bg-red-100 text-red-600">
                   <AvatarFallback className="font-bold text-[11px]">{initials}</AvatarFallback>
                 </Avatar>
-                <span className="font-semibold text-sm mr-1">RS</span>
+                <span className="font-semibold text-sm mr-1">{initials}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{data.student.name}</p>
+                  <p className="text-sm font-medium leading-none">{studentName}</p>
                   <p className="text-[11px] leading-none text-muted-foreground">
-                    {data.student.email}
+                    {studentEmail}
                   </p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
+                {auth.user?.hasPassword === false && (
+                  <DropdownMenuItem onClick={() => setShowPasswordSetup(true)} className="text-amber-600 font-medium">
+                    <KeyRound className="mr-2 h-4 w-4" />
+                    <span>Set Direct Password</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem>
                   <User className="mr-2 h-4 w-4" />
                   <span>My Profile</span>
@@ -98,7 +133,7 @@ export default function StudentDashboard() {
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50">
+              <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600 focus:bg-red-50">
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Log out</span>
               </DropdownMenuItem>
@@ -114,9 +149,9 @@ export default function StudentDashboard() {
           {/* Row 1: Welcome Banner */}
           <WelcomeBanner student={data.student} wallet={data.wallet} />
 
-          {/* Row 2: Top Statistics Cards (exactly 4) */}
+          {/* Row 2: Top Statistics Cards */}
           <StatsCards data={data} />
-          <div className="pt-4  border-t border-border/40">
+          <div className="pt-4 border-t border-border/40">
             <h3 className="text-lg font-semibold text-muted-foreground mb-6">Additional Insights</h3>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <PerformanceCharts weeklyActivity={data.weeklyActivity} />
@@ -136,14 +171,14 @@ export default function StudentDashboard() {
 
           <CurrentCourses courses={data.currentCourses} />
 
-          {/* Row 4: Recent Activity Timeline */}
-
-
-
-
-
         </div>
       </Main>
+
+      {/* Password Setup Modal for LMS Students without a Password */}
+      <PasswordSetupModal
+        isOpen={showPasswordSetup}
+        onClose={handleClosePasswordModal}
+      />
     </>
   )
 }

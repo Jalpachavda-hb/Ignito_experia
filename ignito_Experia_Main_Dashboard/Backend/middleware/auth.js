@@ -23,3 +23,16 @@ export function authMiddleware(req, res, next) {
     return res.status(resp.statusCode).json(resp.body);
   }
 }
+
+/**
+ * Service-to-Service internal token authentication middleware.
+ */
+export function internalServiceAuthMiddleware(req, res, next) {
+  const token = req.headers['x-internal-service-token'] || (req.headers['authorization']?.replace(/^Bearer\s+/i, ''));
+  const expectedToken = process.env.INTERNAL_SERVICE_TOKEN || "ignito-internal-service-secret-token";
+  if (!token || token !== expectedToken) {
+    return res.status(401).json({ success: false, message: "Unauthorized internal service request" });
+  }
+  next();
+}
+

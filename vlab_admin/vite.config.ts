@@ -25,6 +25,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: false,
+    allowedHosts: true,
   },
   test: {
     silent: 'passed-only',
@@ -35,7 +36,7 @@ export default defineConfig({
       instances: [{ browser: 'chromium' }],
     },
     coverage: {
-      // include: ['src/**/*.{js,jsx,ts,tsx}'], // Uncomment to expand the report to all src/**/* so untested modules appear as 0% coverage.
+    
       exclude: [
         'src/components/ui/**',
         'src/assets/**',
