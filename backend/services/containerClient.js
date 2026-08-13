@@ -89,6 +89,48 @@ const getPrivateBaseUrl = async (session) => {
   return `http://${host}:${port}`;
 };
 
+/** Fail fast when the container HTTP endpoint is unreachable (common in local/dev). */
+const CONTAINER_HTTP_TIMEOUT_MS = Number(process.env.CONTAINER_HTTP_TIMEOUT_MS || 2000);
+const HTTP_FAIL_THRESHOLD = 2;
+const HTTP_CIRCUIT_COOLDOWN_MS = Number(process.env.CONTAINER_HTTP_CIRCUIT_MS || 5 * 60 * 1000);
+let httpFailCount = 0;
+let httpCircuitOpenUntil = 0;
+
+const shouldAttemptHttp = () => {
+  if (process.env.CONTAINER_HTTP_ENABLED === "false") return false;
+  return Date.now() >= httpCircuitOpenUntil;
+};
+
+const recordHttpSuccess = () => {
+  httpFailCount = 0;
+  httpCircuitOpenUntil = 0;
+};
+
+const recordHttpFailure = () => {
+  httpFailCount += 1;
+  if (httpFailCount >= HTTP_FAIL_THRESHOLD && Date.now() >= httpCircuitOpenUntil) {
+    httpCircuitOpenUntil = Date.now() + HTTP_CIRCUIT_COOLDOWN_MS;
+    console.warn(
+      `[containerClient] Container HTTP unreachable — skipping HTTP for ${Math.round(HTTP_CIRCUIT_COOLDOWN_MS / 1000)}s (using SSM).`,
+    );
+  }
+};
+
+const fetchWithTimeout = async (url, options = {}) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONTAINER_HTTP_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error(`Container HTTP timed out after ${CONTAINER_HTTP_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /**
  * Build request headers.
  */
@@ -249,10 +291,10 @@ fi
  */
 export const saveToContainer = async (session, { path: filePath, content }) => {
   const baseUrl = await getPrivateBaseUrl(session);
-  if (baseUrl) {
+  if (baseUrl && shouldAttemptHttp()) {
     try {
       console.log(`[containerClient] Sending POST request to: ${baseUrl}/save`);
-      const response = await fetch(`${baseUrl}/save`, {
+      const response = await fetchWithTimeout(`${baseUrl}/save`, {
         method: "POST",
         headers: buildHeaders(session),
         body: JSON.stringify({
@@ -263,12 +305,15 @@ export const saveToContainer = async (session, { path: filePath, content }) => {
 
       if (response.status === 404) {
         console.warn(`[containerClient] /save endpoint returned HTTP 404 (not implemented yet). Falling back to SSM...`);
+        recordHttpFailure();
       } else if (!response.ok) {
         throw new Error(`Failed to save file to container: HTTP ${response.status}`);
       } else {
+        recordHttpSuccess();
         return { proxied: true };
       }
     } catch (err) {
+      recordHttpFailure();
       console.warn(`[containerClient] HTTP save failed: ${err.message}. Checking SSM fallback...`);
     }
   }
@@ -280,23 +325,26 @@ export const saveToContainer = async (session, { path: filePath, content }) => {
  */
 export const deleteFromContainer = async (session, filePath) => {
   const baseUrl = await getPrivateBaseUrl(session);
-  if (baseUrl) {
+  if (baseUrl && shouldAttemptHttp()) {
     try {
       console.log(`[containerClient] Sending DELETE request to: ${baseUrl}/file`);
       const url = `${baseUrl}/file?path=${encodeURIComponent(filePath)}`;
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: "DELETE",
         headers: buildHeaders(session),
       });
 
       if (response.status === 404) {
         console.warn(`[containerClient] /file DELETE endpoint returned HTTP 404 (not implemented yet). Falling back to SSM...`);
+        recordHttpFailure();
       } else if (!response.ok) {
         throw new Error(`Failed to delete file from container: HTTP ${response.status}`);
       } else {
+        recordHttpSuccess();
         return;
       }
     } catch (err) {
+      recordHttpFailure();
       console.warn(`[containerClient] HTTP delete failed: ${err.message}. Checking SSM fallback...`);
     }
   }
@@ -304,27 +352,111 @@ export const deleteFromContainer = async (session, filePath) => {
 };
 
 /**
+ * Rename/move a file or folder inside the container workspace.
+ * Paths are /workspace/... style from the IDE.
+ */
+export const renameInContainer = async (session, oldPath, newPath) => {
+  const toContainerPath = (p) => {
+    if (p.startsWith("/tmp/workspace/workspace/")) return p;
+    const clean = String(p || "").replace(/^\/workspace\//, "").replace(/^\/+/, "");
+    return `/tmp/workspace/workspace/${clean}`;
+  };
+
+  const src = toContainerPath(oldPath);
+  const dest = toContainerPath(newPath);
+  const destDir = path.dirname(dest).replace(/\\/g, "/");
+
+  const shellScript = `#!/bin/sh
+set -e
+SRC="${src}"
+DEST="${dest}"
+if [ ! -e "$SRC" ]; then
+  echo "SOURCE_MISSING"
+  exit 1
+fi
+if [ -e "$DEST" ]; then
+  echo "DEST_EXISTS"
+  exit 1
+fi
+mkdir -p "${destDir}"
+mv "$SRC" "$DEST"
+echo "SUCCESS"
+`;
+
+  const baseUrl = await getPrivateBaseUrl(session);
+  if (baseUrl && shouldAttemptHttp()) {
+    try {
+      const response = await fetchWithTimeout(`${baseUrl}/execute`, {
+        method: "POST",
+        headers: buildHeaders(session),
+        body: JSON.stringify({
+          path: "/workspace/.vlab_tmp/rename_path.sh",
+          content: shellScript,
+          language: "shell",
+          labType: "linux",
+          sessionId: session.sessionId,
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const output = data.output || "";
+        if (output.includes("SUCCESS")) {
+          recordHttpSuccess();
+          return { success: true };
+        }
+        if (output.includes("SOURCE_MISSING")) throw new Error("Source path not found");
+        if (output.includes("DEST_EXISTS")) throw new Error("A file or folder with that name already exists");
+        if (data.success === false) throw new Error(data.error || output || "Rename failed");
+        recordHttpSuccess();
+        return { success: true };
+      }
+      recordHttpFailure();
+    } catch (err) {
+      if (!/Source path not found|already exists/i.test(err.message)) recordHttpFailure();
+      console.warn(`[containerClient] HTTP rename failed: ${err.message}. Falling back to SSM...`);
+      if (/Source path not found|already exists/i.test(err.message)) throw err;
+    }
+  }
+
+  const execRes = await executeViaSsm(session, {
+    action: "run",
+    path: "/workspace/.vlab_tmp/rename_path.sh",
+    language: "shell",
+    labType: "linux",
+    content: shellScript,
+  });
+  const output = execRes?.output || "";
+  if (output.includes("SUCCESS")) return { success: true };
+  if (output.includes("SOURCE_MISSING")) throw new Error("Source path not found");
+  if (output.includes("DEST_EXISTS")) throw new Error("A file or folder with that name already exists");
+  throw new Error(execRes?.error || output || "Rename failed via SSM");
+};
+
+/**
  * Read text file content directly from the ECS container via private HTTP endpoint, or falls back to SSM.
  */
 export const readFromContainer = async (session, filePath) => {
   const baseUrl = await getPrivateBaseUrl(session);
-  if (baseUrl) {
+  if (baseUrl && shouldAttemptHttp()) {
     try {
       console.log(`[containerClient] Sending GET request to: ${baseUrl}/file`);
       const url = `${baseUrl}/file?path=${encodeURIComponent(filePath)}`;
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: "GET",
         headers: buildHeaders(session),
       });
 
       if (response.status === 404) {
         console.warn(`[containerClient] /file GET endpoint returned HTTP 404 (not implemented yet). Falling back to SSM...`);
+        recordHttpFailure();
       } else if (response.ok) {
+        recordHttpSuccess();
         return await response.text();
       } else {
         throw new Error(`Failed to read file from container: HTTP ${response.status}`);
       }
     } catch (err) {
+      recordHttpFailure();
       console.warn(`[containerClient] HTTP read failed: ${err.message}. Checking SSM fallback...`);
     }
   }
@@ -339,24 +471,27 @@ export const getFileContentFromContainer = readFromContainer;
  */
 export const readBinaryFromContainer = async (session, filePath) => {
   const baseUrl = await getPrivateBaseUrl(session);
-  if (baseUrl) {
+  if (baseUrl && shouldAttemptHttp()) {
     try {
       console.log(`[containerClient] Sending GET request to: ${baseUrl}/download`);
       const url = `${baseUrl}/download?path=${encodeURIComponent(filePath)}`;
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: "GET",
         headers: buildHeaders(session),
       });
 
       if (response.status === 404) {
         console.warn(`[containerClient] /download endpoint returned HTTP 404 (not implemented yet). Falling back to SSM...`);
+        recordHttpFailure();
       } else if (response.ok) {
+        recordHttpSuccess();
         const arrayBuffer = await response.arrayBuffer();
         return Buffer.from(arrayBuffer);
       } else {
         throw new Error(`Failed to download binary file from container: HTTP ${response.status}`);
       }
     } catch (err) {
+      recordHttpFailure();
       console.warn(`[containerClient] HTTP download failed: ${err.message}. Checking SSM fallback...`);
     }
   }
@@ -372,17 +507,19 @@ export const getFilesFromContainer = async (session) => {
   const isDotnet = (session?.labId || "").toLowerCase().includes("dotnet") || (session?.labType || "").toLowerCase() === "dotnet";
   const isDataScience = (session?.labType || "").toLowerCase() === 'datascience' || (session?.labId || "").toLowerCase().includes('datascience') || (session?.labId || "").toLowerCase().includes('jupyter');
 
-  if (baseUrl) {
+  if (baseUrl && shouldAttemptHttp()) {
     try {
       console.log(`[containerClient] Sending GET request to: ${baseUrl}/files`);
-      const response = await fetch(`${baseUrl}/files`, {
+      const response = await fetchWithTimeout(`${baseUrl}/files`, {
         method: "GET",
         headers: buildHeaders(session),
       });
 
       if (response.status === 404) {
         console.warn(`[containerClient] /files endpoint returned HTTP 404 (not implemented yet). Falling back to SSM...`);
+        recordHttpFailure();
       } else if (response.ok) {
+        recordHttpSuccess();
         const filesList = await response.json();
         if ((isAndroid || isDotnet) && (!filesList || filesList.length === 0)) {
           if (!activeS3Bootstraps.has(session.sessionId)) {
@@ -403,6 +540,7 @@ export const getFilesFromContainer = async (session) => {
         throw new Error(`Failed to fetch files list from container: HTTP ${response.status}`);
       }
     } catch (err) {
+      recordHttpFailure();
       console.warn(`[containerClient] HTTP files request failed: ${err.message}. Checking SSM fallback...`);
     }
   }

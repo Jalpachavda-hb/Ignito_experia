@@ -201,7 +201,15 @@ export const listFiles = async (sessionId) => {
         const containerFiles = files || [];
         console.log(`[listFiles] Live container returned ${containerFiles.length} files. Updating session cache...`);
         if (containerFiles.length > 0) {
-          const dbFiles = containerFiles.map(({ content, ...rest }) => rest);
+          // Keep previously cached file bodies so reopen stays fast when HTTP→SSM is slow
+          const prevByPath = new Map((session.files || []).map((f) => [f.path, f]));
+          const dbFiles = containerFiles.map(({ content, ...rest }) => {
+            const prev = prevByPath.get(rest.path);
+            if (prev && typeof prev.content === "string") {
+              return { ...rest, content: prev.content };
+            }
+            return rest;
+          });
           await updateSession(sessionId, { files: dbFiles }).catch((e) => {
             console.warn(`[listFiles] Failed to update session files cache in DB: ${e.message}`);
           });
@@ -255,41 +263,82 @@ export const listFiles = async (sessionId) => {
   return filterDotnetFiles(result, session);
 };
 
+const detectLanguageFromPath = (filePath) => {
+  const ext = (filePath.split("/").pop() || "").split(".").pop() || "";
+  if (["js", "jsx"].includes(ext)) return "javascript";
+  if (ext === "java") return "java";
+  if (ext === "cs") return "csharp";
+  if (ext === "cshtml") return "razor";
+  if (ext === "sh") return "shell";
+  if (ext === "gradle") return "groovy";
+  if (ext === "properties") return "properties";
+  if (ext === "xml") return "xml";
+  if (ext === "json") return "json";
+  if (ext === "html") return "html";
+  if (ext === "css") return "css";
+  if (ext === "md") return "markdown";
+  if (["txt", "csv", "log"].includes(ext)) return "text";
+  if (ext === "py") return "python";
+  return "plaintext";
+};
+
 export const getFile = async (sessionId, filePath) => {
   const session = await getSession(sessionId);
+
+  // Prefer session content cache for instant opens (avoids hanging on unreachable container HTTP)
+  const cached = session?.files?.find((f) => f.path === filePath);
+  const suspiciousEmptyXml =
+    typeof cached?.content === "string" &&
+    cached.content.trim() === "" &&
+    /\/res\/.+\.xml$/i.test(filePath || "");
+  if (cached && typeof cached.content === "string" && !suspiciousEmptyXml) {
+    return {
+      name: cached.name || filePath.split("/").pop(),
+      path: filePath,
+      type: "file",
+      content: cached.content,
+      language: cached.language || detectLanguageFromPath(filePath),
+    };
+  }
+
   if (session?.status === "running") {
     try {
       const content = await getFileContentFromContainer(session, filePath);
       const name = filePath.split("/").pop();
-      // Detect language from file extension
-      const ext = name.split(".").pop() || "";
-      let language = "python";
-      if (["js", "jsx"].includes(ext)) language = "javascript";
-      else if (ext === "java") language = "java";
-      else if (ext === "cs") language = "csharp";
-      else if (ext === "cshtml") language = "razor";
-      else if (ext === "sh") language = "shell";
-      else if (ext === "gradle") language = "groovy";
-      else if (ext === "properties") language = "properties";
-      else if (ext === "xml") language = "xml";
-      else if (ext === "json") language = "json";
-      else if (ext === "html") language = "html";
-      else if (ext === "css") language = "css";
-      else if (["md", "txt", "csv", "log"].includes(ext)) language = ext === "md" ? "markdown" : "text";
-
-      return {
+      const language = detectLanguageFromPath(filePath);
+      const record = {
         name,
         path: filePath,
         type: "file",
         content,
-        language
+        language,
       };
+      // Persist content so the next open is instant
+      await cacheFileContent(sessionId, record).catch(() => {});
+      return record;
     } catch (err) {
       console.warn("[getFile] Failed to read container file content, using DB cache fallback:", err.message);
     }
   }
   const files = await listFiles(sessionId);
   return files.find((f) => f.path === filePath) || null;
+};
+
+export const cacheFileContent = async (sessionId, fileData) => {
+  const session = await getSession(sessionId);
+  if (!session) return;
+  const record = {
+    name: fileData.name || fileData.path.split("/").pop(),
+    path: fileData.path,
+    type: "file",
+    content: fileData.content ?? "",
+    language: fileData.language || detectLanguageFromPath(fileData.path),
+  };
+  const files = session.files ? [...session.files] : [];
+  const index = files.findIndex((f) => f.path === fileData.path);
+  if (index >= 0) files[index] = { ...files[index], ...record };
+  else files.push(record);
+  await updateSession(sessionId, { files });
 };
 
 export const upsertFile = async (sessionId, fileData) => {

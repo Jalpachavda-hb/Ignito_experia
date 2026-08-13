@@ -70,6 +70,14 @@ export async function deleteFile(path: string, sessionId: string) {
   });
 }
 
+export async function renamePath(oldPath: string, newPath: string, sessionId: string) {
+  return apiRequest('/files/rename', {
+    method: 'POST',
+    headers: { 'x-session-id': sessionId },
+    body: JSON.stringify({ oldPath, newPath }),
+  });
+}
+
 export function connectTerminalStream({ sessionId, runId, onMessage }: TerminalConnection): WebSocket {
   const wsOrigin = getWsOrigin();
   const socket = new WebSocket(`${wsOrigin}/ws/terminal?sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId || '')}`);
