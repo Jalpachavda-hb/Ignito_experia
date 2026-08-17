@@ -30,8 +30,11 @@ export const androidBuildHandler = async (event) => {
 
   if (session.build?.status === "RUNNING") {
     const containerStatus = await AndroidBuildService.readBuildStatusFile(session);
-    if (containerStatus === "RUNNING") {
-      throw new HttpError("Build already running", 409);
+    const startedAt = session.build?.startedAt ? Date.parse(session.build.startedAt) : 0;
+    const ageMs = Number.isFinite(startedAt) ? Date.now() - startedAt : Infinity;
+    // Reject while an active build is in progress (allow restart only if stuck > 25 min)
+    if (ageMs < 25 * 60 * 1000 && (containerStatus === "RUNNING" || ageMs < 2 * 60 * 1000)) {
+      throw new HttpError("Build already running. Wait for it to finish before starting another.", 409);
     }
   }
 
