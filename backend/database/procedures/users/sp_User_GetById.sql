@@ -11,6 +11,8 @@ BEGIN
         u.FullName, 
         u.Email, 
         u.PhoneNumber,
+        u.Mobile,
+        u.ProfileImage,
         u.RoleId,
         r.Name AS Role, 
         u.Status, 

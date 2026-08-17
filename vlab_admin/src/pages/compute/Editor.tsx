@@ -370,7 +370,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
   // Automatically close chrome-preview tab and return to the code file after successful run / disconnect
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     if (
       seleniumRunState.status === 'PASSED' ||
       seleniumRunState.status === 'FAILED' ||
@@ -656,7 +656,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       const prevFile = files[activeFileIndex];
       const lastSaved = lastSavedContentRef.current.get(prevFile.path);
       if (prevFile.content !== undefined && lastSaved !== undefined && lastSaved !== prevFile.content) {
-        saveFile(prevFile, sessionId).catch(err => {
+        saveFile(prevFile, sessionId).catch((err: any) => {
           console.error('Failed to save modified file before switching:', err);
         });
       }

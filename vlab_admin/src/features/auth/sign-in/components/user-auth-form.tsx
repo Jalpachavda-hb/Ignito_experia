@@ -68,29 +68,36 @@ export function UserAuthForm({
       loginWithCredentials({ email: data.email, password: data.password, slug }),
       {
         loading: 'Signing in...',
-        success: (response: any) => {
+        success: async (response: any) => {
           setIsLoading(false)
 
-          const sessionUser = response?.user || {}
+          const token = response?.accessToken || response?.token
+          auth.setAccessToken(token)
+
+          let finalUser = response?.user || {}
+
+          try {
+            const { fetchAuthMe } = await import('@/Utils/GetApiHandler')
+            const meData: any = await fetchAuthMe()
+            if (meData?.user) {
+              finalUser = meData.user
+            }
+          } catch (err) {
+            console.warn("Direct login profile fetch warning:", err)
+          }
 
           const user = {
-            userId: sessionUser.id,
-            fullName: sessionUser.name || 'User',
-            email: sessionUser.email || data.email,
-            role: sessionUser.role || 'SuperAdmin',
-            roleId: sessionUser.roleId,
-            tenantId: sessionUser.tenantId,
-            tenantSlug: sessionUser.tenantSlug,
-            tenantName: sessionUser.tenantName,
-            status: sessionUser.status || 'Active',
-            programId: sessionUser.programId,
-            semesterId: sessionUser.semesterId,
+            ...finalUser,
+            userId: finalUser.id || finalUser.userId,
+            fullName: finalUser.fullName || finalUser.name || 'User',
+            name: finalUser.fullName || finalUser.name || 'User',
+            email: finalUser.email || data.email,
+            role: finalUser.role || 'Student',
+            status: finalUser.status || 'Active',
             exp: Date.now() + 24 * 60 * 60 * 1000,
-            permissions: sessionUser.permissions,
           }
 
           auth.setUser(user)
-          auth.setAccessToken(response?.accessToken || response?.token)
 
           let targetPath = redirectTo || '/'
           const isStudentRole = (user.role || '').toLowerCase() === 'student'

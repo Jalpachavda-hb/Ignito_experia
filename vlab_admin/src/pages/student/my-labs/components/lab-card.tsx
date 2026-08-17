@@ -45,34 +45,34 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   const displayStatus = lab.status === 'active' ? 'Available' : (lab.status || 'Not Started');
   const labStatus = isStarting || isSessionStarting ? 'Starting...' : isStopping ? 'Stopping...' : isRunning ? 'Running' : displayStatus;
   const progress = labStatus === 'Completed' ? 100 : (isRunning || isSessionStarting || labStatus === 'In Progress') ? 35 : 0;
-  
+
   const name = lab.title || lab.name || 'Unnamed Lab';
   const imageUrl = lab.logo || lab.image || lab.icon || null;
   const theme = getTheme(labId || name);
-  
+
   // List View Layout
   if (viewMode === 'list') {
     return (
       <Card className="flex flex-col sm:flex-row overflow-hidden transition-all duration-300 hover:shadow-lg border-border/60 hover:border-slate-300 group rounded-2xl">
         <div className="w-full sm:w-64 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-center border-b sm:border-b-0 sm:border-r border-border/40 shrink-0 relative overflow-hidden p-6">
-           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.02)_100%)] dark:bg-[radial-gradient(circle_at_center,transparent_0%,rgba(255,255,255,0.02)_100%)]" />
-           <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:20px_20px] opacity-40" />
-           
-           {imageUrl ? (
-             <img src={imageUrl} alt={name} className="relative z-10 w-full h-full object-contain drop-shadow-sm transition-transform duration-500 group-hover:scale-105" />
-           ) : (
-             <div className="relative z-10 h-16 w-16 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
-               <MonitorPlay className={`h-8 w-8 ${theme.text}`} />
-             </div>
-           )}
-           <div className="absolute top-3 right-3 sm:hidden z-10">
-             <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-               <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
-               {labStatus}
-             </div>
-           </div>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.02)_100%)] dark:bg-[radial-gradient(circle_at_center,transparent_0%,rgba(255,255,255,0.02)_100%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:20px_20px] opacity-40" />
+
+          {imageUrl ? (
+            <img src={imageUrl} alt={name} className="relative z-10 w-full h-full object-contain drop-shadow-sm transition-transform duration-500 group-hover:scale-105" />
+          ) : (
+            <div className="relative z-10 h-16 w-16 rounded-2xl bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center transition-transform duration-300 group-hover:scale-105">
+              <MonitorPlay className={`h-8 w-8 ${theme.text}`} />
+            </div>
+          )}
+          <div className="absolute top-3 right-3 sm:hidden z-10">
+            <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+              <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
+              {labStatus}
+            </div>
+          </div>
         </div>
-        
+
         <div className="flex-1 flex flex-col justify-between p-6">
           <div className="flex justify-between items-start mb-4">
             <div>
@@ -89,58 +89,58 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
               </div>
             </div>
           </div>
-          
+
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-auto text-sm text-slate-500 font-medium">
-             <div className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> {lab.durationMinutes || lab.duration || 60} Mins</div>
-             <div className="flex items-center gap-1.5"><Database className="h-4 w-4" /> {lab.credits || 0} Credits</div>
+            <div className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> {lab.durationMinutes || lab.duration || 60} Mins</div>
+            <div className="flex items-center gap-1.5"><Database className="h-4 w-4" /> {lab.credits || 0} Credits</div>
           </div>
         </div>
-        
+
         <div className="w-full sm:w-64 p-6 border-t sm:border-t-0 sm:border-l border-border/40 flex flex-col justify-center bg-slate-50/50 dark:bg-slate-900/20 shrink-0">
-           {labStatus === 'In Progress' && (
-             <div className="mb-5 w-full">
-               <div className="flex justify-between text-xs mb-2 text-slate-500">
-                 <span className="font-semibold uppercase tracking-wider">Progress</span>
-                 <span className="font-bold text-slate-700 dark:text-slate-300">{progress}%</span>
-               </div>
-               <Progress value={progress} className={`h-2 bg-slate-200 dark:bg-slate-800 ${theme.progress}`} />
-             </div>
-           )}
-           
-           <div className="flex flex-col gap-3 mt-auto w-full">
-              {hasActiveSession ? (
-                <>
-                  <Button onClick={() => onResume?.(lab.id)} className={`w-full ${theme.bg} text-white shadow-sm hover:opacity-90`}>Go To Lab</Button>
-                  <Button onClick={() => onStop?.(lab.id)} variant="outline" className={`w-full text-red-500 border-red-200 hover:bg-red-50`} disabled={isStopping}>
-                    {isStopping ? 'Stopping...' : 'Stop Lab'}
-                  </Button>
-                </>
-              ) : labStatus === 'Completed' ? (
-               <Button onClick={() => onDetails?.(lab.id)} variant="outline" className="w-full border-slate-300">View History</Button>
-             ) : (
-               <Button 
-                 onClick={() => onStart?.(lab.id)} 
-                 variant="outline"
-                 disabled={isStarting}
-                 className={`w-full flex items-center justify-center gap-2 bg-transparent ${theme.outline}`}
-               >
-                 {isStarting ? (
-                   <>
-                     <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                     Starting...
-                   </>
-                 ) : (
-                   <>
-                     Start Lab
-                     <ArrowRight className="w-4 h-4" />
-                   </>
-                 )}
-               </Button>
-             )}
-             <Button onClick={() => onDetails?.(lab.id)} variant="ghost" className="w-full text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white">
-               View Details
-             </Button>
-           </div>
+          {labStatus === 'In Progress' && (
+            <div className="mb-5 w-full">
+              <div className="flex justify-between text-xs mb-2 text-slate-500">
+                <span className="font-semibold uppercase tracking-wider">Progress</span>
+                <span className="font-bold text-slate-700 dark:text-slate-300">{progress}%</span>
+              </div>
+              <Progress value={progress} className={`h-2 bg-slate-200 dark:bg-slate-800 ${theme.progress}`} />
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3 mt-auto w-full">
+            {hasActiveSession ? (
+              <>
+                <Button onClick={() => onResume?.(lab.id)} className={`w-full ${theme.bg} text-white shadow-sm hover:opacity-90`}>Go To Lab</Button>
+                <Button onClick={() => onStop?.(lab.id)} variant="outline" className={`w-full text-red-500 border-red-200 hover:bg-red-50`} disabled={isStopping}>
+                  {isStopping ? 'Stopping...' : 'Stop Lab'}
+                </Button>
+              </>
+            ) : labStatus === 'Completed' ? (
+              <Button onClick={() => onDetails?.(lab.id)} variant="outline" className="w-full border-slate-300">View History</Button>
+            ) : (
+              <Button
+                onClick={() => onStart?.(lab.id)}
+                variant="outline"
+                disabled={isStarting}
+                className={`w-full flex items-center justify-center gap-2 bg-transparent ${theme.outline}`}
+              >
+                {isStarting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    Start Lab
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </Button>
+            )}
+            <Button onClick={() => onDetails?.(lab.id)} variant="ghost" className="w-full text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white">
+              View Details
+            </Button>
+          </div>
         </div>
       </Card>
     );
@@ -154,21 +154,21 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         <div className="absolute inset-0 bg-[#f8fafc] dark:bg-slate-900/50" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.01)_100%)] dark:bg-[radial-gradient(circle_at_center,transparent_0%,rgba(255,255,255,0.02)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:16px_16px] opacity-70" />
-        
+
         {/* Abstract decorative shapes - similar to the screenshot */}
         <div className="absolute -top-12 -left-12 w-32 h-32 bg-red-100/40 dark:bg-red-900/20 rounded-full blur-3xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
         <div className="absolute top-10 -right-10 w-24 h-24 bg-blue-100/40 dark:bg-blue-900/20 rounded-full blur-2xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
-        
+
         {imageUrl ? (
-           <div className="relative z-10 w-full h-full p-8 flex items-center justify-center">
-             <img src={imageUrl} alt={name} className="max-w-[120px] max-h-[120px] object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-110" />
-           </div>
+          <div className="relative z-10 w-full h-full p-8 flex items-center justify-center">
+            <img src={imageUrl} alt={name} className="max-w-[120px] max-h-[120px] object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-110" />
+          </div>
         ) : (
-           <div className="relative z-10 h-20 w-20 rounded-2xl bg-white dark:bg-slate-800 shadow-[0_4px_20px_rgb(0,0,0,0.05)] dark:shadow-[0_4px_20px_rgb(0,0,0,0.3)] border border-slate-100/50 dark:border-slate-700/50 flex items-center justify-center transition-transform duration-500 group-hover:scale-110 group-hover:-translate-y-1">
-             <MonitorPlay className={`h-10 w-10 ${theme.text}`} />
-           </div>
+          <div className="relative z-10 h-20 w-20 rounded-2xl bg-white dark:bg-slate-800 shadow-[0_4px_20px_rgb(0,0,0,0.05)] dark:shadow-[0_4px_20px_rgb(0,0,0,0.3)] border border-slate-100/50 dark:border-slate-700/50 flex items-center justify-center transition-transform duration-500 group-hover:scale-110 group-hover:-translate-y-1">
+            <MonitorPlay className={`h-10 w-10 ${theme.text}`} />
+          </div>
         )}
-        
+
         <div className="absolute top-4 right-4 z-10">
           <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
             <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
@@ -176,7 +176,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent className="px-5 pt-5 pb-0 flex-1 flex flex-col relative z-20 bg-white dark:bg-slate-950">
         <p className={`text-[10px] font-bold uppercase tracking-[0.15em] mb-2 ${theme.text}`}>
           {lab.category || 'General Lab'}
@@ -184,7 +184,7 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         <h3 className="text-[17px] font-bold text-slate-900 dark:text-white leading-snug mb-2 line-clamp-2" title={name}>
           {name}
         </h3>
-        
+
         <p className="text-[13px] text-slate-500 dark:text-slate-400 line-clamp-2 mb-4 leading-relaxed">
           {lab.description || 'Learn and explore various concepts through this interactive lab environment.'}
         </p>
@@ -210,12 +210,12 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         )}
 
         <div className="mt-auto pt-4 border-t border-dashed border-slate-200 dark:border-slate-800/60 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
-           <div className="flex items-center gap-1.5 flex-1 justify-center"><Clock className="h-3.5 w-3.5" /> {lab.durationMinutes || lab.duration || 60} Minutes</div>
-           <div className="w-[1px] h-3 bg-slate-200 dark:bg-slate-800"></div>
-           <div className="flex items-center gap-1.5 flex-1 justify-center"><Database className="h-3.5 w-3.5" /> {lab.credits || 0} Credits</div>
+          <div className="flex items-center gap-1.5 flex-1 justify-center"><Clock className="h-3.5 w-3.5" /> {lab.durationMinutes || lab.duration || 60} Minutes</div>
+          <div className="w-[1px] h-3 bg-slate-200 dark:bg-slate-800"></div>
+          <div className="flex items-center gap-1.5 flex-1 justify-center"><Database className="h-3.5 w-3.5" /> {lab.credits || 0} Credits</div>
         </div>
       </CardContent>
-      
+
       <CardFooter className="p-5 pt-4 bg-white dark:bg-slate-950 flex flex-col gap-3">
         {hasActiveSession ? (
           <>
@@ -232,8 +232,8 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             <Button onClick={() => onDetails?.(labId)} className="flex-1 h-11 rounded-[10px] bg-slate-900 dark:bg-white dark:text-slate-900 hover:bg-slate-800">History</Button>
           </div>
         ) : (
-          <Button 
-            onClick={() => onStart?.(labId)} 
+          <Button
+            onClick={() => onStart?.(labId)}
             variant="outline"
             disabled={isStarting}
             className={`w-full h-11 rounded-[10px] border-[1.5px] flex items-center justify-center gap-2 transition-all duration-200 font-semibold bg-transparent ${theme.outline}`}

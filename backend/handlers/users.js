@@ -2,15 +2,52 @@ import { ok } from "../lib/apigw.js";
 import { badRequest, notFound, forbidden } from "../lib/errors.js";
 import userService from "../services/UserService.js";
 import requirePermission from "../middleware/PermissionMiddleware.js";
+import pool from "../lib/mysql.js";
 
 /**
  * GET /users — list all users
  */
 export const usersListHandler = async (parsed) => {
   await requirePermission(parsed, "USER_MANAGEMENT", "read");
-  const params = parsed.queryStringParameters || {};
-  const result = await userService.getAllUsers(params);
-  
+  const queryParams = parsed.queryStringParameters || {};
+
+  const { role, userId } = parsed.auth || {};
+  let authTenantId = parsed.auth?.tenantId || null;
+  const normalizedRole = (role || "").toUpperCase().replace(/\s+/g, "_");
+  const isSuperAdmin = normalizedRole === "SUPER_ADMIN" || normalizedRole === "SUPERADMIN" || normalizedRole === "SUPER_ADMINISTRATOR";
+
+  if (!isSuperAdmin && !authTenantId && userId) {
+    const [userRows] = await pool.query("SELECT TenantId FROM Users WHERE UserId = ?", [userId]);
+    if (userRows.length > 0 && userRows[0].TenantId) {
+      authTenantId = userRows[0].TenantId;
+    } else {
+      const [tenantRows] = await pool.query(
+        "SELECT TenantId FROM tenants WHERE LOWER(AdminEmail) = (SELECT LOWER(Email) FROM Users WHERE UserId = ?)",
+        [userId]
+      );
+      if (tenantRows.length > 0) {
+        authTenantId = tenantRows[0].TenantId;
+      }
+    }
+  }
+
+  if (!isSuperAdmin && !authTenantId) {
+    throw forbidden("Access Denied: Tenant context is missing from authenticated session.");
+  }
+
+  const result = await userService.getAllUsers({
+    actorRole: normalizedRole,
+    actorTenantId: authTenantId || null,
+    filterTenantId: queryParams.tenantId || null,
+    page: queryParams.page,
+    pageSize: queryParams.pageSize,
+    search: queryParams.search,
+    role: queryParams.role,
+    status: queryParams.status,
+    sortBy: queryParams.sortBy,
+    sortOrder: queryParams.sortOrder
+  });
+
   return ok({
     success: true,
     message: "Users retrieved successfully",

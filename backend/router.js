@@ -10,6 +10,13 @@ import {
   tenantResolveHandler,
   authSetPasswordHandler,
   studentRefreshProfileHandler,
+  studentPurchasedProgrammesHandler,
+  studentProgrammeSemestersHandler,
+  getPracticalAvailableProgramsHandler,
+  mapCourseLabHandler,
+  userProfileUpdateHandler,
+  userProfilePhotoUploadHandler,
+  internalTenantDeleteHandler,
 } from "./handlers/auth.js";
 import {
   labsListHandler,
@@ -71,6 +78,13 @@ export const ROUTES = [
   { method: "GET", path: "/auth/me", handler: authMeHandler, auth: true },
   { method: "GET", path: "/student/me", handler: authMeHandler, auth: true },
   { method: "POST", path: "/student/refresh-profile", handler: studentRefreshProfileHandler, auth: true },
+  { method: "POST", path: "/student/purchased-programmes", handler: studentPurchasedProgrammesHandler, auth: true },
+  { method: "POST", path: "/student/programme-semesters", handler: studentProgrammeSemestersHandler, auth: true },
+  { method: "POST", path: "/student/practical-available-programs", handler: getPracticalAvailableProgramsHandler, auth: true },
+  { method: "POST", path: "/admin/courses/:courseId/map-lab", handler: mapCourseLabHandler, auth: true },
+  { method: "PUT", path: "/user/profile", handler: userProfileUpdateHandler, auth: true },
+  { method: "POST", path: "/user/profile-photo", handler: userProfilePhotoUploadHandler, auth: true },
+  { method: "POST", path: "/upload", handler: userProfilePhotoUploadHandler, auth: true },
 
   // Credit Wallet & Transactions
   { method: "GET", path: "/credits/wallet", handler: getWalletHandler, auth: true },
@@ -79,6 +93,7 @@ export const ROUTES = [
 
   // Secure Internal Owner Reporting
   { method: "GET", path: "/internal/owner/students", handler: internalOwnerStudentsHandler, auth: false },
+  { method: "DELETE", path: "/internal/tenants/:tenantId", handler: internalTenantDeleteHandler, auth: false },
 
   // Phase 7: App Bootstrap
   { method: "GET", path: "/app/bootstrap", handler: (event) => import("./handlers/bootstrap.js").then(m => m.appBootstrapHandler(event)), auth: true },

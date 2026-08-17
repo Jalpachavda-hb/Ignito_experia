@@ -3,7 +3,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Loader2, AlertCircle, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
-import { getApiOrigin } from '@/config/env'
+import { ssoLogin } from '@/Utils/PostApiHandler'
 
 export function SsoCallback() {
   const navigate = useNavigate()
@@ -26,20 +26,9 @@ export function SsoCallback() {
       try {
         const studentDegreeAdmissionId = searchParams?.studentDegreeAdmissionId
         const studentId = searchParams?.studentId
-        const apiOrigin = getApiOrigin()
+        const data: any = await ssoLogin({ token, studentDegreeAdmissionId, studentId }, token)
 
-        const res = await fetch(`${apiOrigin}/api/auth/sso-login`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({ token, studentDegreeAdmissionId, studentId })
-        })
-
-        const data = await res.json()
-
-        if (res.ok && data.success && data.accessToken) {
+        if (data && data.success && data.accessToken) {
           auth.setAccessToken(data.accessToken)
           if (data.student) {
             auth.setUser(data.student)
@@ -50,7 +39,7 @@ export function SsoCallback() {
           window.location.replace('/student/dashboard')
         } else {
           setStatus('error')
-          setErrorMessage(data.message || 'LMS SSO authentication failed. Please try again.')
+          setErrorMessage(data?.message || 'LMS SSO authentication failed. Please try again.')
         }
       } catch (err: any) {
         setStatus('error')

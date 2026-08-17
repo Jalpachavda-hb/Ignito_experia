@@ -1,4 +1,6 @@
 import { ENV } from "../config/env.js";
+import { lmsApiClient } from "./lms/LmsApiClient.js";
+import { LMS_PROVIDER_CONFIG } from "../config/lms/lmsProviderConfig.js";
 
 // In-Memory Fallback Cache for LMS profiles (with fresh TTL + stale retention)
 const inMemoryCache = new Map();
@@ -127,44 +129,68 @@ class LmsProfileCacheService {
     // 3. Initiate single-flight fetch
     const fetchPromise = (async () => {
       try {
-        const apiUrl = ENV.studentProfileApiUrl || "https://verse.ignitolearn.com/api/StudentAPI/GetStudentProfile";
-        console.log(`[LmsProfileCache] Calling LMS API (${apiUrl}) for admissionId=${externalStudentId}...`);
-
-        const headers = {
-          "Accept": "text/plain",
-          "Content-Type": "application/json"
-        };
         if (activeToken) {
-          headers["Authorization"] = `Bearer ${activeToken}`;
-        }
+          // SSO Path: Use student's LMS token
+          const apiUrl = ENV.studentProfileApiUrl || "https://verse.ignitolearn.com/api/StudentAPI/GetStudentProfile";
+          console.log(`[LMS_PROFILE] Redis MISS for tenantId=${tenantId}, admissionId=${externalStudentId}`);
+          console.log(`[LMS_API] Calling LMS SSO API (${apiUrl}) for admissionId=${externalStudentId}...`);
 
-        const res = await fetch(apiUrl, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ studentDegreeAdmissionId: Number(externalStudentId) })
-        });
+          const headers = {
+            "Accept": "text/plain",
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${activeToken}`
+          };
 
-        if (res.ok) {
-          const rawData = await res.json();
-          if (rawData && (rawData.isSuccess !== false && (rawData.applicantFullName || rawData.studentDegreeAdmissionId || rawData.email))) {
-            await this.setProfile(tenantId, provider, externalStudentId, rawData, null, activeToken);
-            return { data: rawData, source: 'LMS_API' };
+          const res = await fetch(apiUrl, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ studentDegreeAdmissionId: Number(externalStudentId) })
+          });
+
+          if (res.ok) {
+            const rawData = await res.json();
+            if (rawData && (rawData.isSuccess !== false && (rawData.applicantFullName || rawData.studentDegreeAdmissionId || rawData.email))) {
+              console.log(`[LMS_API] Status=200 OK`);
+              await this.setProfile(tenantId, provider, externalStudentId, rawData, null, activeToken);
+              console.log(`[LMS_PROFILE] Profile cached in Redis for admissionId=${externalStudentId}`);
+              return { data: rawData, source: 'LMS_SSO_API' };
+            }
+          } else {
+            const errText = await res.text().catch(() => '');
+            console.error(`[LMS_API] Status=${res.status} HTTP Error: ${errText}`);
           }
         } else {
-          const errText = await res.text().catch(() => '');
-          console.error(`[LmsProfileCache] LMS API HTTP Error: ${res.status} ${res.statusText} - ${errText}`);
+          // Direct Experia Login Path: Use Auth0 M2M Token Service via LmsApiClient
+          const m2mTargetUrl = `${LMS_PROVIDER_CONFIG.baseUrl}${LMS_PROVIDER_CONFIG.studentProfileEndpoint}`;
+          console.log(`[LMS_PROFILE] Redis MISS for tenantId=${tenantId}, admissionId=${externalStudentId}`);
+          console.log(`[LMS_API] Requesting M2M token & calling GetStudentProfile (${m2mTargetUrl}) for admissionId=${externalStudentId}...`);
+
+          const rawData = await lmsApiClient.post({
+            tenantId,
+            url: m2mTargetUrl,
+            data: { studentDegreeAdmissionId: Number(externalStudentId) },
+          });
+
+          if (rawData && (rawData.isSuccess !== false && (rawData.applicantFullName || rawData.studentDegreeAdmissionId || rawData.email))) {
+            console.log(`[LMS_API] Status=200 OK`);
+            await this.setProfile(tenantId, provider, externalStudentId, rawData, null, null);
+            console.log(`[LMS_PROFILE] Profile cached in Redis for admissionId=${externalStudentId}`);
+            return { data: rawData, source: 'LMS_M2M_API' };
+          }
         }
       } catch (err) {
-        console.error("[LmsProfileCache] Error fetching external LMS profile:", err.message);
+        console.error("[LMS_API] Error fetching external LMS profile:", err.message);
       }
 
       // 4. Stale Fallback if LMS API failed or token missing
       const staleData = await this.getStaleProfile(tenantId, provider, externalStudentId);
       if (staleData) {
-        return { data: staleData, source: 'STALE_CACHE' };
+        console.log(`[LMS_PROFILE] Serving STALE cached profile for admissionId=${externalStudentId}`);
+        return { data: staleData, source: 'STALE_CACHE', isStale: true };
       }
 
-      return null;
+      console.warn(`[LMS_PROFILE] Profile UNAVAILABLE for admissionId=${externalStudentId}`);
+      return { data: null, source: 'LMS_PROFILE_UNAVAILABLE', profileStatus: 'LMS_PROFILE_UNAVAILABLE' };
     })();
 
     inFlightRequests.set(cacheKey, fetchPromise);

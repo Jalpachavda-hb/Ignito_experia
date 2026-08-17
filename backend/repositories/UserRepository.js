@@ -28,25 +28,113 @@ class UserRepository {
 
   async getAll(params = {}) {
     const {
+      actorRole = null,
+      actorTenantId = null,
+      filterTenantId = null,
       page = 1,
       pageSize = 10,
       search = null,
       role = null,
       status = null,
-      programId = null,
-      semesterId = null,
       sortBy = 'CreatedAt',
       sortOrder = 'desc'
     } = params;
 
-    const [rows] = await pool.query(
-      "CALL sp_User_GetAll(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [page, pageSize, search, role, status, programId, semesterId, sortBy, sortOrder]
-    );
+    const normalizedActorRole = (actorRole || "").toUpperCase().replace(/\s+/g, "_");
+    const isSuperAdmin = normalizedActorRole === "SUPER_ADMIN" || normalizedActorRole === "SUPERADMIN" || normalizedActorRole === "SUPER_ADMINISTRATOR";
 
-    const data = rows[0] || [];
-    const total = data.length > 0 ? data[0].TotalRecords : 0;
-    
+    let effectiveTenantId = null;
+
+    if (!isSuperAdmin) {
+      // TENANT_ADMIN / Non-SuperAdmin must fail closed if tenantId is missing
+      if (!actorTenantId) {
+        const err = new Error("TENANT_CONTEXT_MISSING");
+        err.code = "TENANT_CONTEXT_MISSING";
+        throw err;
+      }
+      effectiveTenantId = actorTenantId;
+    } else {
+      // SUPER_ADMIN can optionally filter by filterTenantId if not 'ALL'
+      if (filterTenantId && filterTenantId !== 'ALL') {
+        effectiveTenantId = filterTenantId;
+      }
+    }
+
+    const limit = Math.max(1, parseInt(pageSize, 10) || 10);
+    const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * limit;
+
+    let whereClause = "WHERE COALESCE(u.IsDeleted, 0) = 0";
+    const queryParams = [];
+
+    if (effectiveTenantId) {
+      whereClause += " AND u.TenantId = ?";
+      queryParams.push(effectiveTenantId);
+    }
+
+    if (search && search.trim()) {
+      whereClause += " AND (u.FullName LIKE ? OR u.Email LIKE ? OR u.PhoneNumber LIKE ? OR u.ExternalStudentId LIKE ?)";
+      const term = `%${search.trim()}%`;
+      queryParams.push(term, term, term, term);
+    }
+
+    if (role && role.trim()) {
+      whereClause += " AND (LOWER(r.Name) = LOWER(?) OR REPLACE(UPPER(r.Name), ' ', '_') = ?)";
+      const roleStr = role.trim();
+      const roleNorm = roleStr.toUpperCase().replace(/\s+/g, '_');
+      queryParams.push(roleStr, roleNorm);
+    }
+
+    if (status && status.trim()) {
+      whereClause += " AND LOWER(u.Status) = LOWER(?)";
+      queryParams.push(status.trim());
+    }
+
+    let orderCol = "u.UserId";
+    if (sortBy === "Name" || sortBy === "FullName") orderCol = "u.FullName";
+    else if (sortBy === "Email") orderCol = "u.Email";
+    else if (sortBy === "Role") orderCol = "r.Name";
+    else if (sortBy === "Status") orderCol = "u.Status";
+    else if (sortBy === "CreatedAt") orderCol = "u.CreatedAt";
+
+    const dir = (sortOrder || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
+
+    const sql = `
+      SELECT 
+        u.UserId, 
+        u.FullName, 
+        u.Email, 
+        u.PhoneNumber,
+        u.AuthType,
+        u.CreatedFrom,
+        u.ExternalStudentId,
+        u.StudentDegreeAdmissionId,
+        u.StudentId,
+        u.TenantId,
+        t.Name AS UniversityName,
+        t.Slug AS TenantSlug,
+        COALESCE(r.Name, 'Student') AS Role, 
+        u.Status, 
+        u.ExternalStudentId AS EnrollmentNumber,
+        COALESCE(w.Balance, 0) AS CreditBalance,
+        u.LastLoginAt, 
+        u.CreatedAt,
+        COUNT(*) OVER() AS TotalRecords
+      FROM Users u
+      LEFT JOIN Roles r ON u.RoleId = r.RoleId
+      LEFT JOIN tenants t ON u.TenantId = t.TenantId
+      LEFT JOIN StudentCreditWallets w ON u.UserId = w.UserId
+      ${whereClause}
+      ORDER BY ${orderCol} ${dir}
+      LIMIT ? OFFSET ?
+    `;
+
+    queryParams.push(limit, offset);
+
+    const [rows] = await pool.query(sql, queryParams);
+
+    const data = rows || [];
+    const total = data.length > 0 ? Number(data[0].TotalRecords || 0) : 0;
+
     return { data, total };
   }
 

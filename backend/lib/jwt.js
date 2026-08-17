@@ -11,6 +11,7 @@ export const signAccessToken = (user) =>
       role: user.role,
       name: user.name,
       roleId: user.roleId,
+      tenantId: user.tenantId,
       source: user.source,
     },
     ENV.jwtSecret,
@@ -88,6 +89,7 @@ export const requireAuth = (event) => {
     role: claims.role,
     name: claims.name,
     roleId: claims.roleId,
+    tenantId: claims.tenantId,
     source: claims.source,
     claims,
   };

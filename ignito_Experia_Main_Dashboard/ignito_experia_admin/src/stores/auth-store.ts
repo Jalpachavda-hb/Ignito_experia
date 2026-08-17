@@ -10,6 +10,7 @@ export interface OwnerUser {
   organization?: string
   avatarUrl?: string
   role: string
+  tenantSlug?: string
 }
 
 interface AuthState {

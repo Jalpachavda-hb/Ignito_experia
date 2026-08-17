@@ -1,5 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/apiClient';
+import {
+  createUser as createUserApi,
+  updateUser as updateUserApi,
+  deleteUser as deleteUserApi,
+  updateUserCredits as updateUserCreditsApi,
+} from '@/Utils/PostApiHandler';
 
 export const useUserMutations = () => {
   const queryClient = useQueryClient();
@@ -22,10 +27,7 @@ export const useUserMutations = () => {
         enrollmentNumber: data.EnrollmentNumber || null,
         status: 'active'
       };
-      return await apiRequest('/users', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      return await createUserApi(payload);
     },
     onSuccess: invalidateUsers,
   });
@@ -42,29 +44,21 @@ export const useUserMutations = () => {
         semesterId: data.SemesterId || null,
         enrollmentNumber: data.EnrollmentNumber || null,
       };
-      return await apiRequest(`/users/${userId}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      return await updateUserApi(userId, payload);
     },
     onSuccess: invalidateUsers,
   });
 
   const deleteUser = useMutation({
     mutationFn: async (userId: number) => {
-      return await apiRequest(`/users/${userId}`, {
-        method: 'DELETE',
-      });
+      return await deleteUserApi(userId);
     },
     onSuccess: invalidateUsers,
   });
 
   const assignCredits = useMutation({
     mutationFn: async ({ userId, amount }: { userId: number; amount: number }) => {
-      return await apiRequest(`/users/${userId}/credits`, {
-        method: 'POST',
-        body: JSON.stringify({ amount }),
-      });
+      return await updateUserCreditsApi(userId, amount);
     },
     onSuccess: invalidateUsers,
   });
@@ -76,3 +70,4 @@ export const useUserMutations = () => {
     assignCredits,
   };
 };
+

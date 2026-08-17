@@ -6,17 +6,48 @@ const ACCESS_TOKEN = 'thisisjustarandomstring'
 interface AuthUser {
   userId: number | string
   fullName: string
+  name?: string
+  avatar?: string
   email: string
   role: string
   roleId?: number
   tenantId?: string
   tenantSlug?: string
   tenantName?: string
+  collegeName?: string
   status: string
   programId?: number | null
   semesterId?: number | null
+  programName?: string
+  currentSemester?: string | number
+  enrollmentNumber?: string
+  programmesList?: Array<{
+    programmeName?: string
+    currentSemester?: string | number
+    enrollmentNumber?: string
+    admissionDate?: string
+    programmeId?: number | string
+  }>
+  hasPassword?: boolean
   exp: number
   credits?: number
+  mobile?: string
+  phoneNumber?: string
+  organization?: string
+  profileImage?: string
+  studentId?: number | string
+  authType?: string
+  createdFrom?: string
+  applicantFullName?: string
+  studentCode?: string
+  alternateMobile?: string
+  address?: string
+  gender?: string
+  dateOfBirth?: string
+  twoFactorEnabled?: boolean
+  passwordLastChanged?: string
+  StudentDegreeAdmissionId?: string
+  externalStudentId?: string
   permissions?: Record<string, {
     create: boolean;
     read: boolean;
@@ -49,7 +80,7 @@ export const useAuthStore = create<AuthState>()((set) => {
       if (storedUser) {
         initUser = JSON.parse(storedUser)
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   return {

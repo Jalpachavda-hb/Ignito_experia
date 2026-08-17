@@ -48,7 +48,7 @@ const TerminalLog = () => {
   )
 }
 
-import { getApiOrigin } from '@/config/env'
+import { fetchTenantResolve } from '@/Utils/GetApiHandler'
 
 export function SignIn() {
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
@@ -57,12 +57,8 @@ export function SignIn() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname
-      const apiOrigin = getApiOrigin()
-      fetch(`${apiOrigin}/api/tenant/resolve`, {
-        headers: { 'X-Tenant-Domain': host }
-      })
-        .then(res => res.json())
-        .then(resData => {
+      fetchTenantResolve(host)
+        .then((resData: any) => {
           let data = resData
           if (resData?.payload) {
             try {
@@ -73,7 +69,7 @@ export function SignIn() {
             setTenantInfo(data.tenant)
           }
         })
-        .catch(err => console.error('Error resolving tenant domain:', err))
+        .catch((err: any) => console.error('Error resolving tenant domain:', err))
     }
   }, [])
 

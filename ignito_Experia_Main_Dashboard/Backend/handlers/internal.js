@@ -69,14 +69,14 @@ export async function internalTenantLoginHandler(req, res) {
     let tenantRows = [];
     if (tenantId) {
       [tenantRows] = await pool.execute(
-        `SELECT DbId, TenantId, Name, Slug, Status, AdminFullName, AdminEmail, AdminPasswordHash 
+        `SELECT DbId, TenantId, Name, Slug, Status, AdminFullName, AdminEmail, AdminPasswordHash, AdminPhone 
          FROM tenants 
          WHERE TenantId = ? AND LOWER(AdminEmail) = ?`,
         [tenantId, cleanEmail]
       );
     } else {
       [tenantRows] = await pool.execute(
-        `SELECT DbId, TenantId, Name, Slug, Status, AdminFullName, AdminEmail, AdminPasswordHash 
+        `SELECT DbId, TenantId, Name, Slug, Status, AdminFullName, AdminEmail, AdminPasswordHash, AdminPhone 
          FROM tenants 
          WHERE LOWER(AdminEmail) = ?`,
         [cleanEmail]
@@ -109,6 +109,8 @@ export async function internalTenantLoginHandler(req, res) {
         role: 'TENANT_ADMIN',
         name: tenant.AdminFullName || 'Tenant Administrator',
         email: tenant.AdminEmail,
+        phone: tenant.AdminPhone || null,
+        mobile: tenant.AdminPhone || null,
         tenantName: tenant.Name,
         tenantSlug: tenant.Slug,
       });

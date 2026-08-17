@@ -1,7 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Lab } from './schema'
-import { apiRequest } from '@/lib/apiClient'
+import { fetchAdminLabs, fetchRuntimeTypes } from '@/Utils/GetApiHandler'
+import {
+  updateAdminLabStatus,
+  updateAdminLab,
+  deleteAdminLab,
+  createAdminLab,
+} from '@/Utils/PostApiHandler'
 
 /**
  * Read-only Lab Consumption Queries for VLab Dashboard (Student & Super Admin).
@@ -41,8 +47,8 @@ export function useLabsQuery(status?: string) {
   return useQuery({
     queryKey: ['labs', status],
     queryFn: async (): Promise<Lab[]> => {
-      const url = status && status !== 'all' ? `/admin/labs?status=${status}` : '/admin/labs'
-      const data = await apiRequest(url)
+      const params = status && status !== 'all' ? { status } : undefined
+      const data: any = await fetchAdminLabs(params)
       // API returns { labs: [...] }
       if (data && data.labs && Array.isArray(data.labs)) {
         return data.labs.map(mapApiToFrontendLab)
@@ -59,7 +65,7 @@ export function useRuntimeTypesQuery() {
     queryKey: ['runtime-types'],
     queryFn: async (): Promise<{ value: string, label: string }[]> => {
       try {
-        const data = await apiRequest('/admin/runtime-types')
+        const data: any = await fetchRuntimeTypes()
         if (data && data.runtimeTypes && Array.isArray(data.runtimeTypes)) {
           return data.runtimeTypes
         }
@@ -76,10 +82,7 @@ export function useUpdateLabStatusMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ labId, status }: { labId: string; status: string }) => {
-      return await apiRequest(`/admin/labs/${labId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status }),
-      })
+      return await updateAdminLabStatus(labId, status)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
@@ -95,10 +98,7 @@ export function useUpdateLabMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ labId, payload }: { labId: string; payload: Partial<Lab> }) => {
-      return await apiRequest(`/admin/labs/${labId}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      })
+      return await updateAdminLab(labId, payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
@@ -114,7 +114,7 @@ export function useDeleteLabMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (labId: string) => {
-      return await apiRequest(`/admin/labs/${labId}`, { method: 'DELETE' })
+      return await deleteAdminLab(labId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
@@ -130,10 +130,7 @@ export function useCreateLabMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (payload: Partial<Lab>) => {
-      return await apiRequest('/admin/labs', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
+      return await createAdminLab(payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
@@ -144,4 +141,5 @@ export function useCreateLabMutation() {
     },
   })
 }
+
 

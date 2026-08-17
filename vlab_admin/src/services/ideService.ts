@@ -1,5 +1,15 @@
 import { getWsOrigin } from '@/config/env';
-import { apiRequest } from '../lib/apiClient';
+import {
+  fetchFiles,
+  fetchFileContent,
+  fetchAndroidBuildStatus,
+} from '../Utils/GetApiHandler';
+import {
+  saveFile,
+  runFile as runFileApi,
+  deleteFile,
+  startAndroidBuild,
+} from '../Utils/PostApiHandler';
 
 export interface TerminalConnection {
   sessionId: string;
@@ -7,25 +17,14 @@ export interface TerminalConnection {
   onMessage?: (data: any) => void;
 }
 
-export async function fetchFiles(sessionId: string) {
-  return apiRequest('/files', {
-    headers: { 'x-session-id': sessionId }
-  });
-}
-
-export async function fetchFileContent(path: string, sessionId: string) {
-  return apiRequest(`/files/content?path=${encodeURIComponent(path)}`, {
-    headers: { 'x-session-id': sessionId }
-  });
-}
-
-export async function saveFile(payload: any, sessionId: string) {
-  return apiRequest('/save', {
-    method: 'POST',
-    headers: { 'x-session-id': sessionId },
-    body: JSON.stringify(payload),
-  });
-}
+export {
+  fetchFiles,
+  fetchFileContent,
+  saveFile,
+  deleteFile,
+  startAndroidBuild,
+  fetchAndroidBuildStatus,
+};
 
 export async function runFile(payload: any, sessionId: string) {
   const isDotnet =
@@ -41,14 +40,12 @@ export async function runFile(payload: any, sessionId: string) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    return await apiRequest('/run', {
-      method: 'POST',
-      headers: { 'x-session-id': sessionId },
-      body: JSON.stringify(payload),
+    return await runFileApi(payload, sessionId, {
       signal: controller.signal,
+      timeout: timeoutMs,
     });
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
+    if (err?.name === 'AbortError' || err?.code === 'ECONNABORTED') {
       throw new Error(
         isDotnet
           ? isBuild
@@ -61,13 +58,6 @@ export async function runFile(payload: any, sessionId: string) {
   } finally {
     clearTimeout(timer);
   }
-}
-
-export async function deleteFile(path: string, sessionId: string) {
-  return apiRequest(`/files?path=${encodeURIComponent(path)}`, {
-    method: 'DELETE',
-    headers: { 'x-session-id': sessionId },
-  });
 }
 
 export function connectTerminalStream({ sessionId, runId, onMessage }: TerminalConnection): WebSocket {
@@ -85,17 +75,4 @@ export function connectTerminalStream({ sessionId, runId, onMessage }: TerminalC
   return socket;
 }
 
-export async function startAndroidBuild(sessionId: string) {
-  return apiRequest('/android/build', {
-    method: 'POST',
-    headers: { 'x-session-id': sessionId },
-    body: JSON.stringify({ sessionId, projectPath: '/workspace' }),
-  });
-}
-
-export async function fetchAndroidBuildStatus(sessionId: string, offset: number) {
-  return apiRequest(`/android/build/status?sessionId=${encodeURIComponent(sessionId)}&offset=${offset}`, {
-    headers: { 'x-session-id': sessionId }
-  });
-}
 

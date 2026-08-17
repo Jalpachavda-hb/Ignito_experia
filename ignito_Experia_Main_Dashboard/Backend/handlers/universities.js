@@ -46,7 +46,7 @@ export async function universitiesListHandler(req, res) {
       mode: t.IntegrationMode === 'LMS' ? 'With LMS' : 'Without LMS',
       status: t.Status ? t.Status.toLowerCase() : 'active',
       email: t.AdminEmail || 'admin@tenant.edu',
-      phone: t.AdminPhone || '+91 98765 43210',
+      phone: t.AdminPhone || '',
       adminName: t.AdminName || 'Tenant Administrator',
       students: 0,
       faculty: 0,
@@ -143,6 +143,10 @@ export async function universitiesCreateHandler(req, res) {
 
     // 3. Hash Password & Insert Tenant Entity directly with Admin details
     const passwordHash = bcrypt.hashSync(adminPassword.trim(), 10)
+    const cleanEmail = adminEmail.trim().toLowerCase()
+    const cleanPhone = adminPhone ? adminPhone.trim() : null
+    const cleanName = adminName.trim()
+
     await pool.execute(
       `INSERT INTO tenants 
         (TenantId, Name, Slug, OfficialDomain, LogoUrl, IntegrationMode, AdminFullName, AdminEmail, AdminPasswordHash, AdminPhone, Status, SettingsJson)
@@ -154,13 +158,32 @@ export async function universitiesCreateHandler(req, res) {
         officialDomain ? officialDomain.trim() : null,
         logoUrl ? logoUrl.trim() : null,
         modeEnum,
-        adminName.trim(),
-        adminEmail.trim().toLowerCase(),
+        cleanName,
+        cleanEmail,
         passwordHash,
-        adminPhone ? adminPhone.trim() : null,
+        cleanPhone,
         defaultSettings,
       ]
     )
+
+    // Sync Tenant Admin into Users table
+    try {
+      const [existingUsers] = await pool.execute('SELECT UserId FROM Users WHERE LOWER(Email) = ?', [cleanEmail])
+      if (existingUsers.length > 0) {
+        await pool.execute(
+          'UPDATE Users SET FullName = ?, PhoneNumber = COALESCE(?, PhoneNumber), Mobile = COALESCE(?, Mobile) WHERE UserId = ?',
+          [cleanName, cleanPhone, cleanPhone, existingUsers[0].UserId]
+        )
+      } else {
+        await pool.execute(
+          `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, PhoneNumber, Mobile)
+           VALUES (?, ?, ?, 'TENANT_ADMIN', 'Active', ?, ?)`,
+          [cleanName, cleanEmail, passwordHash, cleanPhone, cleanPhone]
+        )
+      }
+    } catch (e) {
+      console.warn('Could not sync tenant admin in Users table:', e.message)
+    }
 
     return res.status(201).json({
       success: true,
@@ -173,7 +196,7 @@ export async function universitiesCreateHandler(req, res) {
         officialDomain: officialDomain || null,
         integrationMode: modeEnum,
         status: 'ACTIVE',
-        adminEmail: adminEmail.trim().toLowerCase(),
+        adminEmail: cleanEmail,
       },
     })
   } catch (error) {
@@ -247,6 +270,10 @@ export async function universitiesUpdateHandler(req, res) {
       return res.status(500).json({ success: false, message: 'Database connection pool unavailable' })
     }
 
+    const cleanEmail = adminEmail ? adminEmail.trim().toLowerCase() : null
+    const cleanPhone = adminPhone ? adminPhone.trim() : null
+    const cleanName = adminName ? adminName.trim() : null
+
     // Update Tenant entity directly
     await pool.execute(
       `UPDATE tenants 
@@ -260,12 +287,28 @@ export async function universitiesUpdateHandler(req, res) {
         name.trim(),
         officialDomain ? officialDomain.trim() : null,
         logoUrl ? logoUrl.trim() : null,
-        adminName ? adminName.trim() : null,
-        adminEmail ? adminEmail.trim().toLowerCase() : null,
-        adminPhone ? adminPhone.trim() : null,
+        cleanName,
+        cleanEmail,
+        cleanPhone,
         tenantId,
       ]
     )
+
+    // Sync Tenant Admin into Users table
+    if (cleanEmail) {
+      try {
+        await pool.execute(
+          `UPDATE Users SET 
+             FullName = COALESCE(?, FullName),
+             PhoneNumber = COALESCE(?, PhoneNumber),
+             Mobile = COALESCE(?, Mobile)
+           WHERE LOWER(Email) = ?`,
+          [cleanName, cleanPhone, cleanPhone, cleanEmail]
+        )
+      } catch (e) {
+        console.warn('Could not sync user update to Users table:', e.message)
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -284,27 +327,92 @@ export async function universitiesUpdateHandler(req, res) {
 
 /**
  * DELETE /api/admin/universities/:tenantId
- * Delete University Tenant.
+ * Delete University Tenant, reserved slug, and Tenant Admin account from database.
  */
 export async function universitiesDeleteHandler(req, res) {
   try {
     const { tenantId } = req.params
+
+    if (!tenantId) {
+      return res.status(400).json({ success: false, message: 'Tenant ID is required' })
+    }
 
     const pool = getDbPool()
     if (!pool) {
       return res.status(500).json({ success: false, message: 'Database connection pool unavailable' })
     }
 
-    const [result] = await pool.execute('DELETE FROM tenants WHERE TenantId = ?', [tenantId])
+    // 1. Retrieve Tenant details before deletion
+    const [tenants] = await pool.execute(
+      'SELECT DbId, TenantId, Name, Slug, AdminEmail FROM tenants WHERE TenantId = ? OR DbId = ?',
+      [tenantId, tenantId]
+    )
 
-    if (result.affectedRows === 0) {
+    if (tenants.length === 0) {
       return res.status(404).json({ success: false, message: 'University tenant not found' })
     }
 
+    const targetTenant = tenants[0]
+    const actualTenantId = targetTenant.TenantId
+    const adminEmail = targetTenant.AdminEmail ? targetTenant.AdminEmail.trim().toLowerCase() : null
+
+    // 2. Identify associated user IDs for full data cleanup
+    const userIds = new Set()
+
+    if (adminEmail) {
+      const [adminUsers] = await pool.execute('SELECT UserId FROM Users WHERE LOWER(TRIM(Email)) = ?', [adminEmail])
+      adminUsers.forEach(u => userIds.add(u.UserId))
+    }
+
+    const [mappedUsers] = await pool.execute('SELECT UserId FROM user_tenant_mapping WHERE TenantId = ?', [actualTenantId])
+    mappedUsers.forEach(u => userIds.add(u.UserId))
+
+    const userIdsArray = Array.from(userIds)
+
+    // 3. Delete tenant mapping, credit wallets, external identities, and SSO replay data
+    await pool.execute('DELETE FROM user_tenant_mapping WHERE TenantId = ?', [actualTenantId])
+    try { await pool.execute('DELETE FROM credit_wallets WHERE TenantId = ?', [actualTenantId]); } catch (e) {}
+    try { await pool.execute('DELETE FROM external_identities WHERE TenantId = ?', [actualTenantId]); } catch (e) {}
+    try { await pool.execute('DELETE FROM SSOReplayStore WHERE TenantId = ?', [actualTenantId]); } catch (e) {}
+
+    // 4. Delete active sessions, tokens, and Tenant Admin user credentials
+    if (userIdsArray.length > 0) {
+      const placeholders = userIdsArray.map(() => '?').join(',')
+
+      try { await pool.execute(`DELETE FROM UserRefreshTokens WHERE UserId IN (${placeholders})`, userIdsArray); } catch (e) {}
+      try { await pool.execute(`DELETE FROM RefreshTokens WHERE UserId IN (${placeholders})`, userIdsArray); } catch (e) {}
+      try { await pool.execute(`DELETE FROM StudentSessions WHERE UserId IN (${placeholders})`, userIdsArray); } catch (e) {}
+      try { await pool.execute(`DELETE FROM StudentCreditWallets WHERE UserId IN (${placeholders})`, userIdsArray); } catch (e) {}
+
+      // Delete Tenant Admin user accounts from Users table
+      if (adminEmail) {
+        await pool.execute(
+          `DELETE FROM Users WHERE UserId IN (${placeholders}) OR LOWER(TRIM(Email)) = ?`,
+          [...userIdsArray, adminEmail]
+        )
+      } else {
+        await pool.execute(
+          `DELETE FROM Users WHERE UserId IN (${placeholders})`,
+          userIdsArray
+        )
+      }
+    } else if (adminEmail) {
+      await pool.execute("DELETE FROM Users WHERE LOWER(TRIM(Email)) = ?", [adminEmail])
+    }
+
+    // 5. Unlink labs assigned to this tenant
+    try {
+      await pool.execute('UPDATE Labs SET TenantId = NULL WHERE TenantId = ?', [actualTenantId])
+    } catch (e) {}
+
+    // 6. Delete Tenant Entity from tenants table (Releasing reserved Slug & TenantId)
+    await pool.execute('DELETE FROM tenants WHERE TenantId = ?', [actualTenantId])
+
     return res.status(200).json({
       success: true,
-      message: 'University tenant deleted successfully',
-      tenantId,
+      message: `University tenant '${targetTenant.Name}' and administrator account deleted successfully. Subdomain '${targetTenant.Slug}' is released.`,
+      tenantId: actualTenantId,
+      slug: targetTenant.Slug,
     })
   } catch (error) {
     console.error('Error deleting university tenant:', error)

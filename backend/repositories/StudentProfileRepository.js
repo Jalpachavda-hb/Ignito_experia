@@ -32,12 +32,16 @@ class StudentProfileRepository {
       Batch,
       Section,
       AuthenticationSource,
+      StudentDegreeAdmissionId,
+      StudentId,
       Status
     } = profileData;
 
     await connection.query(
       `UPDATE Users SET 
          ExternalStudentId = ?, 
+         StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?),
+         StudentId = COALESCE(StudentId, ?),
          UniversityId = ?, 
          Mobile = ?, 
          DepartmentId = ?, 
@@ -50,6 +54,8 @@ class StudentProfileRepository {
        WHERE UserId = ?`,
       [
         ExternalStudentId,
+        StudentDegreeAdmissionId || null,
+        StudentId || null,
         UniversityId,
         Mobile,
         DepartmentId,

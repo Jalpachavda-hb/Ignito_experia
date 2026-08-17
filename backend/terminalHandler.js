@@ -9,30 +9,37 @@ const LOCAL_SHELL = os.platform() === 'win32' ? 'cmd.exe' : 'bash';
 const activePtys = new Map(); // Store PTYs strictly by socket.id
 
 // OSC window-title sequences (\x1b]0;…\x07) and orphaned "0;…" when ESC is dropped (SSM/ECS).
-const OSC_TITLE_SEQUENCE = /\x1b\](?:\d+;)?[^\x07\x1b]*(?:\x07|\x1b\\)/g;
-const ORPHAN_TITLE_PREFIX = /^0;[^\x07\r\n]{0,200}?(?=[A-Za-z0-9_"'])/;
+const stripOscTitleSequences = (data) => {
+  return data
+    .replace(/\x1b\]0;[^\x07]*\x07/g, "")
+    .replace(/^0;[^\r\n]*\r/g, "");
+};
 
-const stripOscTitleSequences = (data) => data.replace(OSC_TITLE_SEQUENCE, '');
-
-const stripOrphanWindowTitle = (data) => data.replace(ORPHAN_TITLE_PREFIX, '');
-
+// Strips early SSM noise from early stream chunks.
 const stripStartupNoise = (data) => {
-  return stripOrphanWindowTitle(stripOscTitleSequences(data))
+  let cleaned = data.toString()
     .replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/g, '')
-    .replace(/Starting session with SessionId:\s*[a-zA-Z0-9-]+[\r\n]*/g, '')
-    .replace(/^(?:\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|[\s\r\n])+/g, '');
+    .replace(/Starting session with SessionId:\s*[a-zA-Z0-9-]+[\r\n]*/g, '');
+
+  const promptIndex = cleaned.indexOf('bash-');
+  if (promptIndex !== -1) {
+    cleaned = cleaned.substring(promptIndex);
+  }
+  return cleaned;
 };
 
 export const setupTerminal = (io) => {
-  io.on('connection', async (socket) => {
-    console.log('Terminal Connected:', socket.id);
+  io.on("connection", async (socket) => {
+    console.log("[Terminal] Client connected:", socket.id);
 
-    // =====================================
-    // GET SESSION
-    // =====================================
     const sessionId = socket.handshake.query.sessionId;
-    let session = null;
+    if (!sessionId) {
+      socket.emit("terminal-output", "\r\n\x1b[31m[ERROR: Session ID required]\x1b[0m\r\n");
+      socket.disconnect();
+      return;
+    }
 
+    let session = null;
     try {
       session = await getSession(sessionId);
     } catch (err) {
@@ -41,38 +48,40 @@ export const setupTerminal = (io) => {
 
     const cluster = process.env.ECS_CLUSTER || session?.cluster;
 
-    // 1. Detailed logging for debugging
-    console.log('[Terminal Debug - Detailed Flow Trace]', {
+    console.log('[Terminal Debug - Session Setup]', {
       event: 'START_LAB_TERMINAL_CONNECTION',
       sessionId: sessionId,
+      socketId: socket.id,
       sessionExists: !!session,
       taskArn: session?.taskArn || null,
       taskId: session?.taskArn ? session.taskArn.split('/').pop() : null,
       cluster: cluster,
       labId: session?.labId || null,
-      containerName: ENV.ecsContainerName || 'lab-runtime',
-      fullSessionObject: session
+      containerName: ENV.ecsContainerName || 'lab-runtime'
     });
 
     let ptyProcess = null;
     let isContainer = false;
     let hasSentContainerOutput = false;
 
-    // =====================================
-    // TRY ECS TERMINAL
-    // =====================================
+    // Create a unique temporary home directory for this socket connection.
+    // This isolates the AWS CLI and Session Manager Plugin configs (telemetry, logs, locks)
+    // to prevent TargetNotConnectedException/lock clashing when running multiple concurrent terminals.
+    const userTempDir = path.join(os.tmpdir(), `aws_ssm_term_${socket.id}`);
+    try {
+      fs.mkdirSync(userTempDir, { recursive: true });
+    } catch (e) {
+      console.warn('[Terminal] Failed to create temp isolation directory:', e.message);
+    }
+
     if (session && session.taskArn && cluster) {
       try {
         const taskId = session.taskArn.split('/').pop();
-
         const containerName = ENV.ecsContainerName || 'lab-runtime';
         const interactiveShell = ENV.ecsInteractiveShell;
 
-        console.log('Connecting terminal to ECS container...');
+        console.log(`Connecting terminal socket ${socket.id} to ECS container...`);
 
-        // =====================================
-        // AWS CLI PATH
-        // =====================================
         let awsExePath = ENV.awsCliPath || 'aws';
         if (awsExePath === 'aws' && os.platform() === 'win32') {
           if (fs.existsSync('C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe')) {
@@ -80,16 +89,11 @@ export const setupTerminal = (io) => {
           }
         }
 
-        // =====================================
-        // EXECUTE-COMMAND READINESS CHECK
-        // =====================================
         let actualContainerName = containerName;
         let agentReady = false;
 
         try {
           const { describeTask } = await import('./services/ecsService.js'); 
-
-          // 1. Initial quick check to see if agent is already RUNNING
           const initialTaskDetails = await describeTask(session.taskArn);
           if (initialTaskDetails) {
             const container = initialTaskDetails.containers?.find(c => c.name === 'lab-runtime') || initialTaskDetails.containers?.[0];
@@ -102,33 +106,23 @@ export const setupTerminal = (io) => {
             }
           }
 
-          // 2. If it is not ready yet, poll in a loop and show the loader
           if (!agentReady) {
             socket.emit('terminal-status', { status: 'polling', message: 'Checking ECS Container Readiness...' });
             console.log('[Terminal] Polling ExecuteCommandAgent readiness...');
 
             for (let i = 0; i < 90; i++) {
               const taskDetails = await describeTask(session.taskArn);
-
               if (taskDetails) {
                 const container = taskDetails.containers?.find(c => c.name === 'lab-runtime') || taskDetails.containers?.[0];
                 if (container && container.name) {
                   actualContainerName = container.name;
                 }
-
                 const execAgent = container?.managedAgents?.find(a => a.name === 'ExecuteCommandAgent');
-                console.log({
-                  taskStatus: taskDetails.lastStatus,
-                  containerStatus: container?.lastStatus,
-                  execAgent
-                });
                 if (execAgent?.lastStatus === 'RUNNING' && taskDetails.lastStatus === 'RUNNING') {
                   agentReady = true;
                   break;
                 }
               }
-
-              // Wait 2 seconds before next poll
               await new Promise(resolve => setTimeout(resolve, 2000));
               socket.emit('terminal-status', {
                 status: 'polling',
@@ -144,17 +138,15 @@ export const setupTerminal = (io) => {
           console.warn('[ExecuteCommandAgent NOT READY] Timeout reached.');
           socket.emit('terminal-status', {
             status: 'timeout',
-            message:
-              'Could not open a shell in the container. If BUILD/RUN is using the lab, wait for it to finish and retry. Only one AWS SSM session is allowed per container at a time.',
+            message: 'Could not open a shell in the container. If BUILD/RUN is active, wait for it to finish and retry.',
           });
-          return; // Stop execution, don't spawn pty
+          return;
         } else {
           console.log('[ExecuteCommandAgent READY] Container:', actualContainerName);
           socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
         }
 
         const region = process.env.AWS_REGION || "ap-south-1";
-
         const ptyArgs = [
           "ecs",
           "execute-command",
@@ -175,6 +167,9 @@ export const setupTerminal = (io) => {
         const ptyEnv = {
           ...process.env,
           ...getSsmEnv(),
+          HOME: userTempDir,
+          USERPROFILE: userTempDir,
+          HOMEPATH: userTempDir,
           TERM: "xterm-256color",
           AWS_PAGER: "",
         };
@@ -209,9 +204,6 @@ export const setupTerminal = (io) => {
         console.log("========== AWS EXECUTE COMMAND ==========");
         console.log("AWS CLI :", awsExePath);
         console.log("Cluster :", cluster);
-        console.log("Task ID :", taskId);
-        console.log("Container :", actualContainerName);
-        console.log("Region :", region);
         console.log("Command :", ptyArgs.join(" "));
         console.log("=========================================");
 
@@ -225,10 +217,8 @@ export const setupTerminal = (io) => {
         });
 
         activePtys.set(socket.id, ptyProcess);
-
-
         isContainer = true;
-        console.log("[SUCCESS] ECS terminal connected");
+        console.log(`[SUCCESS] ECS terminal connected for socket ${socket.id}`);
 
       } catch (err) {
         console.error('[ECS TERMINAL FAILED]', err.message);
@@ -243,7 +233,7 @@ export const setupTerminal = (io) => {
     if (!ptyProcess) {
       console.log('[LOCAL FALLBACK TERMINAL]');
       try {
-        const localWorkspaceRoot = path.join(path.resolve(process.cwd(), '..'), 'workspace');
+        const localWorkspaceRoot = path.resolve(process.cwd(), '..');
         ptyProcess = pty.spawn(LOCAL_SHELL, [], {
           name: 'xterm-color',
           cols: 120,
@@ -255,65 +245,47 @@ export const setupTerminal = (io) => {
             TERM: 'xterm-256color',
           },
         });
-
         activePtys.set(socket.id, ptyProcess);
       } catch (err) {
         console.error('[LOCAL TERMINAL FAILED]', err.message);
         socket.emit('terminal-output', `\r\n\x1b[31m[Failed to launch local terminal: ${err.message}]\x1b[0m\r\n`);
-        return; // Stop here if even the local fallback fails
+        return;
       }
-    }
-
-    // =====================================
-    // CONNECTION BANNER
-    // =====================================
-    if (isContainer) {
-      socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
-    } else {
-      socket.emit('terminal-status', { status: 'ready', message: 'Local Terminal Connected' });
     }
 
     // =====================================
     // TERMINAL EVENT LISTENERS
     // =====================================
-    if (ptyProcess) {
-      ptyProcess.onData((data) => {
-        if (isContainer) {
-          if (!hasSentContainerOutput) {
-            data = stripStartupNoise(data);
-          } else {
-            data = stripOscTitleSequences(data)
-              .replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/g, '')
-              .replace(/Starting session with SessionId:\s*[a-zA-Z0-9-]+[\r\n]*/g, '');
-          }
-
-          // Avoid sending empty chunks if they were completely replaced
-          if (!data) {
-            return;
-          }
-          hasSentContainerOutput = true;
+    ptyProcess.onData((data) => {
+      if (isContainer) {
+        if (!hasSentContainerOutput) {
+          data = stripStartupNoise(data);
+        } else {
+          data = stripOscTitleSequences(data)
+            .replace(/The Session Manager plugin was installed successfully\.\s*Use the AWS CLI to start a session\.[\r\n]*/g, '')
+            .replace(/Starting session with SessionId:\s*[a-zA-Z0-9-]+[\r\n]*/g, '');
         }
+        if (!data) return;
+        hasSentContainerOutput = true;
+      }
+      socket.emit('terminal-output', data);
+    });
 
-        socket.emit('terminal-output', data);
-      });
+    ptyProcess.onExit(({ exitCode }) => {
+      console.log('PTY EXIT CODE:', exitCode);
+      socket.emit('terminal-output', `\r\n[Terminal exited with code ${exitCode}]\r\n`);
+      activePtys.delete(socket.id);
+    });
 
-      ptyProcess.onExit(({ exitCode }) => {
-        console.log('PTY EXIT CODE:', exitCode);
-        socket.emit('terminal-output', `\r\n[Terminal exited with code ${exitCode}]\r\n`);
-        ptyProcess = null; // Prevent memory leak / double kill
-      });
-
-      ptyProcess.on('error', (err) => {
-        console.error('[PTY ERROR]', err);
-        socket.emit('terminal-output', `\r\n\x1b[31m${err.message}\x1b[0m\r\n`);
-      });
-    }
+    ptyProcess.on('error', (err) => {
+      console.error('[PTY ERROR]', err);
+      socket.emit('terminal-output', `\r\n\x1b[31m${err.message}\x1b[0m\r\n`);
+    });
 
     // =====================================
-    // TERMINAL INPUT
+    // SOCKET LISTENERS
     // =====================================
     socket.on('terminal-input', (data) => {
-      console.log('[INPUT RAW]', JSON.stringify(data));
       if (ptyProcess) {
         try {
           ptyProcess.write(data);
@@ -323,33 +295,25 @@ export const setupTerminal = (io) => {
       }
     });
 
-    // =====================================
-    // TERMINAL RUN FILE
-    // =====================================
-    socket.on('terminal-run-file', ({ path, content, language }) => {
+    socket.on('terminal-run-file', ({ path: filePath, content, language }) => {
       if (ptyProcess) {
         try {
           const b64 = Buffer.from(content).toString('base64');
           let syncCmd;
           if (isContainer) {
-            syncCmd = `echo "${b64}" | base64 -d > "${path}"`;
+            syncCmd = `echo "${b64}" | base64 -d > "${filePath}"`;
           } else {
-            // local machine fallback
-            const fs = require('fs');
-            const nodePath = require('path');
-            const localPath = nodePath.join(nodePath.resolve(process.cwd(), '..'), 'workspace', path.replace('/workspace/', '').replace(/^\/+/, ''));
+            const localPath = path.join(path.resolve(process.cwd(), '..'), 'workspace', filePath.replace('/workspace/', '').replace(/^\/+/, ''));
             try { fs.writeFileSync(localPath, content); } catch (e) { }
             syncCmd = `echo "Local file synced"`;
           }
 
           let runCmd = '';
-          if (language === 'python') runCmd = `python3 "${path}"`;
-          else if (language === 'java') runCmd = `javac "${path}" && java Main`;
-          else if (language === 'javascript') runCmd = `node "${path}"`;
+          if (language === 'python') runCmd = `python3 "${filePath}"`;
+          else if (language === 'java') runCmd = `javac "${filePath}" && java Main`;
+          else if (language === 'javascript') runCmd = `node "${filePath}"`;
           else runCmd = `echo "Language ${language} not supported for direct run"`;
 
-          // Adding a small sleep to ensure the prompt is ready if needed, 
-          // but sending the clear and commands directly should work.
           ptyProcess.write(`\nclear || cls\n${syncCmd} > /dev/null 2>&1\n${runCmd}\n`);
         } catch (err) {
           console.error('[PTY RUN FILE ERROR]', err.message);
@@ -357,9 +321,6 @@ export const setupTerminal = (io) => {
       }
     });
 
-    // =====================================
-    // TERMINAL RESIZE
-    // =====================================
     socket.on('terminal-resize', ({ cols, rows }) => {
       if (ptyProcess) {
         try {
@@ -370,26 +331,30 @@ export const setupTerminal = (io) => {
       }
     });
 
-    // =====================================
-    // DISCONNECT
-    // =====================================
     socket.on('disconnect', () => {
       console.log('Terminal disconnected:', socket.id);
-
-      // DO NOT kill immediately
-      // browser reconnects can trigger disconnect events
       setTimeout(() => {
         try {
           if (ptyProcess && !socket.connected) {
-            console.log('[KILLING PTY AFTER DISCONNECT]');
+            console.log('[KILLING PTY AFTER DISCONNECT]', socket.id);
             ptyProcess.kill();
-            ptyProcess = null;
             activePtys.delete(socket.id);
           }
+          // Clean up the temp directory after session close
+          if (fs.existsSync(userTempDir)) {
+            fs.rmSync(userTempDir, { recursive: true, force: true });
+          }
         } catch (err) {
-          console.warn('PTY kill failed:', err.message);
+          console.warn('PTY clean up failed:', err.message);
         }
       }, 5000);
     });
+
+    // Signal ready for frontend tab
+    if (isContainer) {
+      socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
+    } else {
+      socket.emit('terminal-status', { status: 'ready', message: 'Local Terminal Connected' });
+    }
   });
 };

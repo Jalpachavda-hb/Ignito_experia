@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated.index'
+import { Route as AuthenticatedUsersRouteImport } from './routes/_authenticated.users'
 import { Route as AuthenticatedUniversitiesRouteImport } from './routes/_authenticated.universities'
 import { Route as AuthenticatedTransactionsRouteImport } from './routes/_authenticated.transactions'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
@@ -33,6 +34,11 @@ const AuthenticatedRoute = AuthenticatedRouteImport.update({
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedUsersRoute = AuthenticatedUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedUniversitiesRoute =
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
   '/universities': typeof AuthenticatedUniversitiesRoute
+  '/users': typeof AuthenticatedUsersRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
@@ -100,6 +107,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/transactions': typeof AuthenticatedTransactionsRoute
   '/universities': typeof AuthenticatedUniversitiesRoute
+  '/users': typeof AuthenticatedUsersRoute
   '/': typeof AuthenticatedIndexRoute
 }
 export interface FileRoutesById {
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/transactions': typeof AuthenticatedTransactionsRoute
   '/_authenticated/universities': typeof AuthenticatedUniversitiesRoute
+  '/_authenticated/users': typeof AuthenticatedUsersRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
@@ -129,6 +138,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/transactions'
     | '/universities'
+    | '/users'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/sign-in'
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/transactions'
     | '/universities'
+    | '/users'
     | '/'
   id:
     | '__root__'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/transactions'
     | '/_authenticated/universities'
+    | '/_authenticated/users'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
 }
@@ -182,6 +194,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/users': {
+      id: '/_authenticated/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof AuthenticatedUsersRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/universities': {
@@ -252,6 +271,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTransactionsRoute: typeof AuthenticatedTransactionsRoute
   AuthenticatedUniversitiesRoute: typeof AuthenticatedUniversitiesRoute
+  AuthenticatedUsersRoute: typeof AuthenticatedUsersRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
@@ -264,6 +284,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTransactionsRoute: AuthenticatedTransactionsRoute,
   AuthenticatedUniversitiesRoute: AuthenticatedUniversitiesRoute,
+  AuthenticatedUsersRoute: AuthenticatedUsersRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 

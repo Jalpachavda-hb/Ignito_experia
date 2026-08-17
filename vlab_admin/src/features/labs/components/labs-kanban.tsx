@@ -25,11 +25,8 @@ export function LabsKanban({ data }: LabsKanbanProps) {
     setDialogOpen(action)
   }
 
-  const handleStatusToggle = (lab: Lab, checked: boolean) => {
-    updateStatusMutation.mutate({
-      labId: lab.id,
-      status: checked ? 'active' : 'inactive'
-    })
+  const handleStatusToggle = (_lab: Lab, _checked: boolean) => {
+    // Optional status toggle logic
   }
 
   return (

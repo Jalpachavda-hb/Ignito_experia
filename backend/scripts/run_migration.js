@@ -106,6 +106,7 @@ async function runMigration() {
     "ALTER TABLE `Users` ADD COLUMN `Address` TEXT NULL;",
     "ALTER TABLE `Users` ADD COLUMN `ProfileImage` VARCHAR(500) NULL;",
     "ALTER TABLE `Users` ADD COLUMN `StudentDegreeAdmissionId` VARCHAR(50) NULL;",
+    "ALTER TABLE `Users` ADD COLUMN `StudentId` VARCHAR(50) NULL;",
     "ALTER TABLE `Users` ADD COLUMN `ProgrammesJson` JSON NULL;",
     "ALTER TABLE `Users` ADD COLUMN `AcademicYear` VARCHAR(50) NULL;",
     "ALTER TABLE `Users` ADD COLUMN `EnrollmentStatus` VARCHAR(50) NULL DEFAULT 'Active';",

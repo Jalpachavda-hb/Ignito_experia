@@ -8,7 +8,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { SkipToMain } from '@/components/skip-to-main'
 import { useAuthStore } from '@/stores/auth-store'
-import { apiRequest } from '@/lib/apiClient'
+import { fetchAuthMe } from '@/Utils/GetApiHandler'
 
 type AuthenticatedLayoutProps = {
   children?: React.ReactNode
@@ -23,19 +23,14 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   // Bootstrap: if token exists but user is null (page refresh), restore from /auth/me
   useEffect(() => {
     if (auth.accessToken && !auth.user) {
-      apiRequest('/auth/me', { auth: true })
+      fetchAuthMe()
         .then((data: any) => {
           if (data?.user) {
             auth.setUser({
-              userId: data.user.id,
+              ...data.user,
+              userId: data.user.id || data.user.userId,
               fullName: data.user.fullName || data.user.name,
-              email: data.user.email,
-              role: data.user.role,
-              roleId: data.user.roleId,
-              status: data.user.status,
-              programId: data.user.programId,
-              semesterId: data.user.semesterId,
-              permissions: data.user.permissions,
+              name: data.user.fullName || data.user.name,
               exp: Date.now() + 24 * 60 * 60 * 1000,
             })
           }

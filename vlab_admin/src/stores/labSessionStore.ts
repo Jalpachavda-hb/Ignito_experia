@@ -8,10 +8,10 @@ interface LabSessionStore {
   elapsedTime: string | null;
   startError: string | null;
   stopError: string | null;
-  
+
   // Actions
   loadActiveSession: (userId: string) => Promise<void>;
-  startLab: (labId: string, dotnetSubtype?: string) => Promise<LabSession | null>;
+  startLab: (labId: string, dotnetSubtype?: string, academicCtx?: any) => Promise<LabSession | null>;
   stopLab: (sessionId: string, labId: string) => Promise<void>;
   setElapsedTime: (time: string | null) => void;
   clearSession: () => void;
@@ -27,13 +27,13 @@ const startCountdownTimer = (get: any, set: any) => {
     clearInterval(timerInterval);
     timerInterval = null;
   }
-  
+
   const tick = () => {
     const currentSession = get().activeSession;
     if (currentSession && currentSession.status === 'running') {
       let isExpired = false;
       let displayStr = '0:00';
-      
+
       if (currentSession.expiresAt) {
         const expiresMs = new Date(currentSession.expiresAt).getTime();
         const remainingMs = expiresMs - Date.now();
@@ -101,10 +101,10 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
     try {
       const response = await fetchUserActiveSession(userId);
       const session = response.session;
-      
+
       set({ activeSession: session || null });
       get().setElapsedTime(null);
-      
+
       if (session && session.status === 'running') {
         startCountdownTimer(get, set);
       } else {
@@ -118,7 +118,7 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
     }
   },
 
-  startLab: async (labId: string, dotnetSubtype?: string) => {
+  startLab: async (labId: string, dotnetSubtype?: string, academicCtx?: any) => {
     set({ startingLabId: labId, startError: null });
     try {
       const startResponse = await startLabSession({ labId, dotnetSubtype });
@@ -168,7 +168,7 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
   },
 
   setElapsedTime: (time: string | null) => set({ elapsedTime: time }),
-  
+
   clearSession: () => {
     set({ activeSession: null, elapsedTime: null, startError: null, stopError: null, startingLabId: null, stoppingLabId: null });
     if (timerInterval) {

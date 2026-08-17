@@ -73,8 +73,9 @@ export const usersColumns: ColumnDef<User>[] = [
       <DataTableColumnHeader column={column} title='Role' />
     ),
     cell: ({ row }) => {
-      const roleValue = row.getValue('Role') as string;
-      const userType = roles.find(({ value }) => value.toLowerCase() === roleValue.toLowerCase())
+      const rawRole = row.getValue('Role');
+      const roleValue = rawRole ? String(rawRole) : 'Student';
+      const userType = roles.find(({ value }) => value && value.toLowerCase() === roleValue.toLowerCase());
 
       if (!userType) {
         return <span className='text-sm capitalize'>{roleValue}</span>
@@ -90,7 +91,8 @@ export const usersColumns: ColumnDef<User>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id))
+      const rowVal = row.getValue(id);
+      return rowVal && Array.isArray(value) ? value.includes(rowVal) : false;
     },
     enableSorting: false,
     enableHiding: false,
@@ -109,7 +111,8 @@ export const usersColumns: ColumnDef<User>[] = [
     ),
     cell: ({ row }) => <div>{row.getValue('ProgramId') || '-'}</div>,
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id))
+      const rowVal = row.getValue(id);
+      return rowVal && Array.isArray(value) ? value.includes(rowVal) : false;
     },
   },
   {

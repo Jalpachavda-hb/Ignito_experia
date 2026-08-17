@@ -13,14 +13,32 @@ import {
 import { type SidebarData } from '../types'
 import { dashboardData } from '@/pages/student/dashboard/data'
 
-export function getStudentSidebarData(): SidebarData {
+export function getStudentSidebarData(lmsPrograms?: any[]): SidebarData {
   const { student } = dashboardData
 
-  // Generate dynamic semester list based on the total semesters in the program
-  const semesterItems = Array.from({ length: student.program.totalSemesters }).map((_, i) => ({
-    title: `Semester ${i + 1}`,
-    url: `/student/my-labs?semester=${i + 1}`
-  }))
+  let academicCourseItems: any[] = [];
+
+  if (lmsPrograms && Array.isArray(lmsPrograms) && lmsPrograms.length > 0) {
+    academicCourseItems = lmsPrograms.map((prog: any) => {
+      const sems = (prog.semesters && Array.isArray(prog.semesters) && prog.semesters.length > 0)
+        ? prog.semesters.map((s: any) => ({
+          title: `Semester ${s.semesterNumber || s.semesterId || s}`,
+          url: `/student/my-labs?programId=${prog.programId || ''}&semester=${s.semesterNumber || s.semesterId || s}`
+        }))
+        : [{
+          title: `Semester 1`,
+          url: `/student/my-labs?programId=${prog.programId || ''}&semester=1`
+        }];
+
+      return {
+        title: prog.programName || prog.programmeNameAndCode || 'Degree Program',
+        icon: GraduationCap,
+        items: sems
+      };
+    });
+  } else {
+    academicCourseItems = [];
+  }
 
   return {
     user: {
@@ -82,13 +100,7 @@ export function getStudentSidebarData(): SidebarData {
       },
       {
         title: 'Academic Courses',
-        items: [
-          {
-            title: student.program.name.split(' (')[0] || student.program.name, // e.g. Master of Computer Applications
-            icon: GraduationCap,
-            items: semesterItems
-          }
-        ]
+        items: academicCourseItems
       }
     ],
   }

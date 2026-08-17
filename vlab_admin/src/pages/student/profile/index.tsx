@@ -4,7 +4,8 @@ import { Main } from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, CheckCircle2 } from 'lucide-react';
 import { dashboardData } from '@/pages/student/dashboard/data';
-import { apiRequest } from '@/lib/apiClient';
+import { refreshStudentProfile } from '@/Utils/lmsApi_paths';
+import { fetchAuthMe } from '@/Utils/GetApiHandler';
 import { useAuthStore } from '@/stores/auth-store';
 
 import { ProfileSummaryCard } from './components/profile-summary-card';
@@ -18,16 +19,31 @@ export default function Profile() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshSuccess, setRefreshSuccess] = useState(false);
 
+  React.useEffect(() => {
+    fetchAuthMe()
+      .then((data: any) => {
+        if (data?.user) {
+          useAuthStore.getState().auth.setUser({
+            ...data.user,
+            userId: data.user.id || data.user.userId,
+            fullName: data.user.fullName || data.user.name,
+            exp: Date.now() + 24 * 60 * 60 * 1000,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const handleRefreshProfile = async () => {
     try {
       setIsRefreshing(true);
       setRefreshSuccess(false);
       
       // 1. Invalidate Redis cache and fetch latest from LMS API
-      await apiRequest('/student/refresh-profile', { method: 'POST', auth: true });
+      await refreshStudentProfile();
 
       // 2. Fetch fresh user state and update AuthStore
-      const data = await apiRequest('/auth/me', { auth: true });
+      const data: any = await fetchAuthMe();
       if (data?.user) {
         useAuthStore.getState().auth.setUser({
           ...data.user,
@@ -96,7 +112,7 @@ export default function Profile() {
             </div>
 
             {/* Bottom Grid - Detailed Information */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-stretch">
               <PersonalInfoCard student={student} />
               <AcademicInfoCard student={student} />
               <AccountInfoCard student={student} />

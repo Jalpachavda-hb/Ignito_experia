@@ -70,7 +70,7 @@ export const TestingWorkspace = React.forwardRef<any, TestingWorkspaceProps>(({
   }, [initialAddressUrl]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
 

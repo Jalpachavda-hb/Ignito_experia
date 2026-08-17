@@ -29,11 +29,36 @@ export const Route = createFileRoute('/_authenticated')({
       accessToken = ''
     }
 
-    // If we have an access token but no user (page refresh), try to restore the user state before deciding to redirect.
-    if (accessToken && !user) {
+    // 1. Verify tenant subdomain validity if on custom subdomain
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      const parts = host.split('.')
+      if (parts.length > 1 && parts[0] !== 'www' && parts[0] !== 'localhost') {
+        try {
+          const { fetchTenantResolve } = await import('@/Utils/GetApiHandler')
+          const resData: any = await fetchTenantResolve(host)
+          let data = resData
+          if (resData?.payload) {
+            try { data = JSON.parse(atob(resData.payload)) } catch (e) {}
+          }
+          if (data && data.success === false && (data.code === 'TENANT_NOT_FOUND' || data.code === 'TENANT_INACTIVE')) {
+            useAuthStore.getState().auth.reset()
+            throw redirect({
+              to: '/sign-in',
+              search: { redirect: location.pathname }
+            })
+          }
+        } catch (err: any) {
+          if (err?.to) throw err
+        }
+      }
+    }
+
+    // 2. Validate session & user token against backend DB
+    if (accessToken) {
       try {
-        const { apiRequest } = await import('@/lib/apiClient')
-        const data = await apiRequest('/auth/me', { auth: true })
+        const { fetchAuthMe } = await import('@/Utils/GetApiHandler')
+        const data: any = await fetchAuthMe()
         if (data?.user) {
           useAuthStore.getState().auth.setUser({
             ...data.user,

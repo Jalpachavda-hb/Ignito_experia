@@ -12,7 +12,7 @@ interface ProfileSummaryCardProps {
 
 export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
   const { auth } = useAuthStore();
-  const u = auth.user || {};
+  const u: any = auth.user || {};
 
   const name = u.fullName || u.applicantFullName || u.name || 'LMS Student';
   const initials = name
@@ -34,14 +34,14 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
       <div className="absolute inset-0 h-24 z-0" style={{ backgroundColor: '#fcdadb' }}></div>
       <CardContent className="pt-12 relative z-10 px-6 md:px-8 pb-6 sm:pb-8">
         <div className="flex flex-col md:flex-row items-center md:items-end gap-6 md:gap-8">
-          
+
           <Avatar className="w-32 h-32 rounded-full border-4 border-white dark:border-slate-950 bg-slate-100 shadow-md shrink-0 mt-4 md:mt-0">
             {profileImg ? <AvatarImage src={profileImg} alt={name} className="object-cover" /> : null}
             <AvatarFallback className="font-bold text-3xl bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300">
               {initials}
             </AvatarFallback>
           </Avatar>
-          
+
           <div className="flex-1 text-center md:text-left flex flex-col items-center md:items-start w-full">
             <h2 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white mt-2">
               {name}

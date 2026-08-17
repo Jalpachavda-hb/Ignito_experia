@@ -1,17 +1,15 @@
-import { apiRequest } from '../lib/apiClient';
+import {
+  loginWithCredentials as loginApi,
+  registerWithCredentials as registerApi,
+  logoutUser as logoutApi,
+} from '../Utils/PostApiHandler';
 
 export const loginWithCredentials = async ({ email, password, slug }: any) => {
   try {
-    const data = await apiRequest('/auth/login', {
-      method: 'POST',
-      auth: false,
-      body: JSON.stringify({ email, password, slug }),
-    });
-
-    if (!data.success && data.message) {
+    const data = await loginApi({ email, password, slug });
+    if (data && !data.success && data.message) {
       throw new Error(data.message);
     }
-
     return data;
   } catch (err: any) {
     throw err;
@@ -20,16 +18,10 @@ export const loginWithCredentials = async ({ email, password, slug }: any) => {
 
 export const registerWithCredentials = async (payload: any) => {
   try {
-    const data = await apiRequest('/auth/register', {
-      method: 'POST',
-      auth: false,
-      body: JSON.stringify(payload),
-    });
-
-    if (!data.success && data.message) {
+    const data = await registerApi(payload);
+    if (data && !data.success && data.message) {
       throw new Error(data.message);
     }
-
     return data;
   } catch (err: any) {
     throw err;
@@ -38,13 +30,11 @@ export const registerWithCredentials = async (payload: any) => {
 
 export const logoutUser = async () => {
   try {
-    const data = await apiRequest('/auth/logout', {
-      method: 'POST',
-      auth: false,
-    });
+    const data = await logoutApi();
     return data;
   } catch (err: any) {
     throw err;
   }
 };
+
 

@@ -31,17 +31,33 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
   await connection.beginTransaction();
 
   try {
+    let adminPhone = userPayload.phone || userPayload.mobile || null;
+    if (!adminPhone && userPayload.tenantId) {
+      try {
+        const [tenantRows] = await connection.query("SELECT AdminPhone FROM tenants WHERE TenantId = ?", [userPayload.tenantId]);
+        if (tenantRows.length > 0 && tenantRows[0].AdminPhone) {
+          adminPhone = tenantRows[0].AdminPhone;
+        }
+      } catch (e) {}
+    }
+
     // Ensure local user record exists in VLab DB for foreign key compliance
     let vlabUserId = userPayload.dbUserId;
-    const [vlabUsers] = await connection.query("SELECT UserId FROM Users WHERE LOWER(Email) = ?", [(userPayload.email || '').toLowerCase()]);
+    const [vlabUsers] = await connection.query("SELECT UserId, PhoneNumber, Mobile FROM Users WHERE LOWER(Email) = ?", [(userPayload.email || '').toLowerCase()]);
     if (!vlabUsers.length) {
       const [insertRes] = await connection.query(
-        "INSERT INTO Users (FullName, Email, PasswordHash, Role, Status) VALUES (?, ?, 'OWNER_AUTHENTICATED', ?, 'Active')",
-        [userPayload.name || 'Tenant Admin', userPayload.email, userPayload.role || 'TENANT_ADMIN']
+        "INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, PhoneNumber, Mobile) VALUES (?, ?, 'OWNER_AUTHENTICATED', ?, 'Active', ?, ?)",
+        [userPayload.name || 'Tenant Admin', userPayload.email, userPayload.role || 'TENANT_ADMIN', adminPhone, adminPhone]
       );
       vlabUserId = insertRes.insertId;
     } else {
       vlabUserId = vlabUsers[0].UserId;
+      if (adminPhone && (!vlabUsers[0].PhoneNumber || !vlabUsers[0].Mobile)) {
+        await connection.query(
+          "UPDATE Users SET PhoneNumber = COALESCE(PhoneNumber, ?), Mobile = COALESCE(Mobile, ?) WHERE UserId = ?",
+          [adminPhone, adminPhone, vlabUserId]
+        );
+      }
     }
 
     if (userPayload.tenantId) {
@@ -209,6 +225,8 @@ class AuthService {
               dbUserId: authData.userId,
               name: authData.name || "Tenant Administrator",
               email: authData.email,
+              phone: authData.phone || authData.mobile || null,
+              mobile: authData.mobile || authData.phone || null,
               role: authData.role || "TENANT_ADMIN",
               roleId: 1,
               tenantId: authData.tenantId,
@@ -258,6 +276,8 @@ class AuthService {
           dbUserId: tenant.DbId,
           name: tenant.AdminFullName || "Tenant Administrator",
           email: tenant.AdminEmail,
+          phone: tenant.AdminPhone || null,
+          mobile: tenant.AdminPhone || null,
           role: "TENANT_ADMIN",
           roleId: 1,
           tenantId: tenant.TenantId,

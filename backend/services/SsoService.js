@@ -47,6 +47,7 @@ class SsoService {
     if (!providerSubject) throw unauthorized("LMS token must contain a Subject (sub)");
 
     const admissionId = studentDegreeAdmissionId || decodedToken.studentDegreeAdmissionId || decodedToken.admissionId;
+    const resolvedStudentId = studentId || decodedToken.studentId || decodedToken.studentID || decodedToken.student_id || externalProfile?.studentId || externalProfile?.studentID || externalProfile?.student_id || null;
     const tenantId = decodedToken.tenantId || decodedToken.universityId || decodedToken.university || 'TEN000001';
     const provider = decodedToken.provider || 'GTU_LMS';
 
@@ -112,8 +113,8 @@ class SsoService {
           userId = newId.UserId;
           try {
             await connection.query(
-              `UPDATE Users SET TenantId = ?, CreatedFrom = 'LMS', AuthType = 'LMS', FullName = ?, Email = ?, ExternalStudentId = ?, StudentDegreeAdmissionId = ?, Status = 'Active' WHERE UserId = ?`,
-              [tenantId, fullName, email, admissionId || providerSubject, admissionId || null, userId]
+              `UPDATE Users SET TenantId = ?, CreatedFrom = 'LMS', AuthType = 'LMS', FullName = ?, Email = ?, ExternalStudentId = ?, StudentDegreeAdmissionId = ?, StudentId = ?, Status = 'Active' WHERE UserId = ?`,
+              [tenantId, fullName, email, admissionId || providerSubject, admissionId || null, resolvedStudentId || null, userId]
             );
           } catch (e) {}
           userObj = await userRepository.findById(userId, connection);
@@ -121,8 +122,8 @@ class SsoService {
           userId = userObj.UserId;
           try {
             await connection.query(
-              `UPDATE Users SET FullName = ?, Email = ?, TenantId = COALESCE(TenantId, ?), ExternalStudentId = COALESCE(ExternalStudentId, ?), StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?), Status = 'Active' WHERE UserId = ?`,
-              [fullName, email, tenantId, admissionId || providerSubject, admissionId || null, userId]
+              `UPDATE Users SET FullName = ?, Email = ?, TenantId = COALESCE(TenantId, ?), ExternalStudentId = COALESCE(ExternalStudentId, ?), StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?), StudentId = COALESCE(StudentId, ?), Status = 'Active' WHERE UserId = ?`,
+              [fullName, email, tenantId, admissionId || providerSubject, admissionId || null, resolvedStudentId || null, userId]
             );
           } catch (e) {}
         }
@@ -151,8 +152,8 @@ class SsoService {
         userObj = await userRepository.findById(userId, connection);
         try {
           await connection.query(
-            `UPDATE Users SET FullName = ?, Email = ?, ExternalStudentId = COALESCE(ExternalStudentId, ?), StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?), Status = 'Active' WHERE UserId = ?`,
-            [fullName, email, admissionId || providerSubject, admissionId || null, userId]
+            `UPDATE Users SET FullName = ?, Email = ?, ExternalStudentId = COALESCE(ExternalStudentId, ?), StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?), StudentId = COALESCE(StudentId, ?), Status = 'Active' WHERE UserId = ?`,
+            [fullName, email, admissionId || providerSubject, admissionId || null, resolvedStudentId || null, userId]
           );
         } catch (e) {}
       }

@@ -5,7 +5,7 @@ import { useLabStore } from '@/stores/labStore';
 import { MyLabsHeader } from './components/my-labs-header';
 import { ActiveLabs } from './components/active-labs';
 import { LabCard } from './components/lab-card';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2, BookOpen, FlaskConical } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSearch, useNavigate } from '@tanstack/react-router';
 import { useAuthStore } from '@/stores/auth-store';
@@ -14,6 +14,9 @@ import { SessionTimeoutModal } from './components/session-timeout-modal';
 import { PaymentGateway } from './components/payment-gateway';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DotnetSelectionModal } from './components/dotnet-selection-modal';
+import { getSemesterCourseListByProgrammeId } from '@/Utils/lmsApi_paths';
+import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 
 export default function MyLabs() {
   const { labs, isLoading, error, loadLabs } = useLabStore();
@@ -21,8 +24,9 @@ export default function MyLabs() {
   const { user, updateUser } = auth;
   const navigate = useNavigate();
 
-  const searchParams = useSearch({ strict: false }) as { semester?: string };
-  const semesterFilterQuery = searchParams.semester;
+  const searchParams = useSearch({ strict: false }) as { semester?: string; programId?: string };
+  const semesterFilterQuery = searchParams.semester || '1';
+  const programIdQuery = searchParams.programId || '2';
 
   const { activeSession, startingLabId, stoppingLabId, elapsedTime, startError, loadActiveSession, startLab, stopLab, clearStartError } = useLabSessionStore();
 
@@ -34,9 +38,68 @@ export default function MyLabs() {
   const [showDotnetModal, setShowDotnetModal] = useState(false);
   const [selectedDotnetLabId, setSelectedDotnetLabId] = useState<string | null>(null);
 
+  // Dynamic Semester Courses & Mapped Labs State
+  const [semesterCourses, setSemesterCourses] = useState<any[]>([]);
+  const [isCoursesLoading, setIsCoursesLoading] = useState(false);
+
   useEffect(() => {
     loadLabs();
   }, [loadLabs]);
+
+  // Fetch Semester Courses & Mapped Labs dynamically from LMS API
+  useEffect(() => {
+    if (!programIdQuery) {
+      setSemesterCourses([]);
+      return;
+    }
+
+    setIsCoursesLoading(true);
+    getSemesterCourseListByProgrammeId(programIdQuery)
+      .then((res: any) => {
+        const rawData = res?.rawData || res;
+        const semList = res?.semesterList || rawData?.semesterList || rawData?.semesterCourseList || [];
+        const allCourses = res?.courseList || res?.courses || rawData?.courseList || rawData?.courselist || [];
+
+        let courses: any[] = [];
+
+        if (allCourses && allCourses.length > 0) {
+          const matchedSem = semList.find((s: any) =>
+            String(s.semesterNumber) === String(semesterFilterQuery) ||
+            String(s.semesterId) === String(semesterFilterQuery)
+          );
+
+          const targetSemId = matchedSem ? String(matchedSem.semesterId || matchedSem.semesterNumber) : null;
+
+          courses = allCourses.filter((c: any) => {
+            const cSemId = String(c.semesterId || c.semesterNumber || '');
+            const cSemNum = String(c.semesterNumber || c.semesterId || '');
+            return (
+              (targetSemId && cSemId === targetSemId) ||
+              cSemNum === String(semesterFilterQuery) ||
+              cSemId === String(semesterFilterQuery)
+            );
+          });
+
+          if (courses.length === 0) {
+            courses = allCourses;
+          }
+        } else if (semList && semList.length > 0) {
+          const matchedSem = semList.find((s: any) =>
+            String(s.semesterNumber) === String(semesterFilterQuery) ||
+            String(s.semesterId) === String(semesterFilterQuery)
+          );
+          courses = matchedSem?.courseList || matchedSem?.courselist || semList[0]?.courseList || [];
+        }
+
+        setSemesterCourses(courses);
+      })
+      .catch(() => {
+        setSemesterCourses([]);
+      })
+      .finally(() => {
+        setIsCoursesLoading(false);
+      });
+  }, [programIdQuery, semesterFilterQuery]);
 
   // 1. Check Active Session on mount
   useEffect(() => {
@@ -68,22 +131,52 @@ export default function MyLabs() {
   }, [labs, activeSession]);
 
   const displayLabs = useMemo(() => {
-    const filtered = semesterFilterQuery
-      ? labs.filter((lab) => {
-          const labSemester = lab.semester || (lab.id && parseInt(lab.id.replace(/\D/g, '')) % 2 === 0 ? '2' : '1');
-          return (
-            labSemester.toLowerCase().includes(String(semesterFilterQuery).toLowerCase()) ||
-            labSemester === String(semesterFilterQuery)
-          );
-        })
-      : labs;
+    if (semesterFilterQuery && semesterCourses.length > 0) {
+      return semesterCourses.map((c: any, idx: number) => {
+        const cCode = String(c.courseCode || c.code || c.subjectCode || `CRS-${idx + 1}`);
+        const cName = c.courseName || c.name || c.subjectName || `Course ${cCode}`;
 
-    return [...filtered].sort((a, b) => {
-      const nameA = a.title || a.name || '';
-      const nameB = b.title || b.name || '';
-      return nameA.localeCompare(nameB);
-    });
-  }, [labs, semesterFilterQuery]);
+        if (c.mappedLab && c.mappedLab.labId) {
+          const mId = String(c.mappedLab.labId);
+          const labMatch = labs.find((l) => {
+            const lId = String(l.id || l.labId || l.LabId || '');
+            return lId === mId || lId.replace('lab-', '') === mId.replace('lab-', '');
+          });
+
+          return labMatch
+            ? { ...labMatch, title: cName, mappedLabTitle: c.mappedLab.title, courseCode: cCode, courseName: cName }
+            : {
+                id: c.mappedLab.labId,
+                title: cName,
+                subtitle: c.mappedLab.title || 'Course Assigned Lab',
+                category: 'Course Lab',
+                durationMinutes: c.mappedLab.durationMinutes || 90,
+                credits: c.mappedLab.credits || 30,
+                status: 'active',
+                courseCode: cCode,
+                courseName: cName,
+                mappedLabTitle: c.mappedLab.title
+              };
+        } else {
+          // Default standard Experia LabCard for course without explicit Admin lab mapping yet
+          const catalogFallback = labs[idx % (labs.length || 1)] || {};
+          return {
+            id: catalogFallback.id || `lab-course-${cCode.toLowerCase()}`,
+            title: cName,
+            category: catalogFallback.category || 'Practical Lab Workspace',
+            durationMinutes: catalogFallback.durationMinutes || 90,
+            credits: catalogFallback.credits || 30,
+            status: 'active',
+            courseCode: cCode,
+            courseName: cName,
+            logo: catalogFallback.logo || null
+          };
+        }
+      });
+    }
+
+    return labs;
+  }, [labs, semesterFilterQuery, semesterCourses]);
 
   const getLabId = (lab: any) => lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?._id || '';
 
@@ -99,7 +192,7 @@ export default function MyLabs() {
       return;
     }
 
-    const lab = labs.find(l => getLabId(l) === labId);
+    const lab = labs.find(l => getLabId(l) === labId) || displayLabs.find(l => getLabId(l) === labId);
     if (!lab) return;
 
     clearStartError();
@@ -120,8 +213,8 @@ export default function MyLabs() {
     }
 
     const isDotnet = labId.toLowerCase().includes('dotnet') ||
-                     lab.category?.toLowerCase().includes('dotnet') ||
-                     lab.title?.toLowerCase().includes('.net');
+      lab.category?.toLowerCase().includes('dotnet') ||
+      lab.title?.toLowerCase().includes('.net');
 
     if (isDotnet) {
       setSelectedDotnetLabId(labId);
@@ -129,7 +222,13 @@ export default function MyLabs() {
       return;
     }
 
-    const session = await startLab(labId);
+    const academicCtx = {
+      programId: programIdQuery,
+      semesterId: semesterFilterQuery,
+      courseCode: (lab as any).courseCode
+    };
+
+    const session = await startLab(labId, undefined, academicCtx);
     if (session?.sessionId) {
       navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: session.sessionId } });
     }
@@ -141,7 +240,14 @@ export default function MyLabs() {
     if (!labId) return;
     setSelectedDotnetLabId(null);
 
-    const session = await startLab(labId, subtype);
+    const lab = labs.find(l => getLabId(l) === labId) || displayLabs.find(l => getLabId(l) === labId);
+    const academicCtx = {
+      programId: programIdQuery,
+      semesterId: semesterFilterQuery,
+      courseCode: (lab as any)?.courseCode
+    };
+
+    const session = await startLab(labId, subtype, academicCtx);
     if (session?.sessionId) {
       navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: session.sessionId } });
     }
@@ -188,7 +294,7 @@ export default function MyLabs() {
             <span>Student Portal</span>
             <span className="text-border">/</span>
             <span className="text-red-500 font-semibold">
-              {semesterFilterQuery ? `Semester ${semesterFilterQuery} Labs` : 'My Labs'}
+              {semesterFilterQuery ? `Semester ${semesterFilterQuery} Course Labs` : 'My Labs'}
             </span>
           </div>
         </div>
@@ -199,11 +305,18 @@ export default function MyLabs() {
 
           {semesterFilterQuery ? (
             <div className="mb-8">
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Semester {semesterFilterQuery} Labs
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 mb-1">
+                <FlaskConical className="h-4 w-4" />
+                <span>Course Practical Labs</span>
+              </div>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
+                <span>Semester {semesterFilterQuery} Labs</span>
+                <Badge variant="outline" className="text-xs font-semibold bg-red-50 text-red-700 border-red-200">
+                  {displayLabs.length} Course Lab(s)
+                </Badge>
               </h1>
-              <p className="text-slate-500 mt-1.5 max-w-2xl">
-                Here are all the practical labs and assignments scheduled for this semester.
+              <p className="text-slate-500 text-sm mt-1.5 max-w-2xl">
+                Practical virtual lab environments assigned to your academic courses for Semester {semesterFilterQuery}.
               </p>
             </div>
           ) : (
@@ -226,10 +339,10 @@ export default function MyLabs() {
             </Alert>
           )}
 
-          {isLoading && labs.length === 0 ? (
+          {(isLoading || isCoursesLoading) && displayLabs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-red-500 mb-4" />
-              <p className="text-muted-foreground font-medium">Loading your labs...</p>
+              <p className="text-muted-foreground font-medium">Loading your course labs...</p>
             </div>
           ) : (
             <>
@@ -238,16 +351,18 @@ export default function MyLabs() {
                 <ActiveLabs labs={activeLabs} onResume={handleResumeLab} />
               )}
 
-              <div className="mt-8">
+              <div className="mt-6">
                 {displayLabs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-card rounded-xl border border-dashed border-border/60">
-                    <AlertCircle className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
-                    <h3 className="text-lg font-bold text-foreground">No labs found</h3>
-                    <p className="text-muted-foreground">No labs are available yet.</p>
+                    <BookOpen className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
+                    <h3 className="text-lg font-bold text-foreground">No Course Labs Found</h3>
+                    <p className="text-muted-foreground text-sm mt-1">
+                      No practical courses were found for Semester {semesterFilterQuery}.
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
-                    {displayLabs.map(lab => (
+                    {displayLabs.map((lab: any) => (
                       <LabCard
                         key={lab.id}
                         lab={lab}
@@ -303,7 +418,6 @@ export default function MyLabs() {
         initialAmount={showCreditModal?.credits || 50}
         onPaymentSuccess={(lab, amount) => {
           updateUser({ credits: (user?.credits || 0) + amount });
-          // Could optionally start the lab automatically after success
         }}
       />
 

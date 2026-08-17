@@ -11,7 +11,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { type Program } from '../data/schema'
 import { usePrograms } from '../context/programs-context'
-import { Eye, Edit, Trash, Network } from 'lucide-react'
+import { Eye, Edit, Trash, BookOpen } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
 
 interface ProgramsRowActionsProps {
   row: Row<Program>
@@ -36,12 +37,16 @@ export function ProgramsRowActions({ row }: ProgramsRowActionsProps) {
           <span className='sr-only'>Open menu</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='end' className='w-[170px]'>
+      <DropdownMenuContent align='end' className='w-[200px]'>
         <DropdownMenuItem asChild>
-          <a href={`/programs/${row.original.id}`} className="flex items-center cursor-pointer">
-            <Network className="mr-2 h-4 w-4 text-emerald-500" />
-            View Hierarchy
-          </a>
+          <Link
+            to='/programs/$programId'
+            params={{ programId: row.original.id }}
+            className='flex items-center cursor-pointer font-medium'
+          >
+            <BookOpen className="mr-2 h-4 w-4 text-primary" />
+            View Semesters & Courses
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handleAction('edit')}>
           <Edit className="mr-2 h-4 w-4" />
@@ -53,7 +58,7 @@ export function ProgramsRowActions({ row }: ProgramsRowActionsProps) {
           className='text-red-600 focus:text-red-600'
         >
           <Trash className="mr-2 h-4 w-4" />
-          Delete
+          Delete Program
           <DropdownMenuShortcut>⌘⌫</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>

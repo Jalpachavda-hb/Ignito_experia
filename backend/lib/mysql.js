@@ -232,6 +232,8 @@ export const verifyDbConnection = async () => {
         
         -- Merged StudentProfile Columns
         \`ExternalStudentId\` VARCHAR(100) NULL,
+        \`StudentDegreeAdmissionId\` VARCHAR(50) NULL,
+        \`StudentId\` VARCHAR(50) NULL,
         \`UniversityId\` BIGINT NULL,
         \`Mobile\` VARCHAR(20) NULL,
         \`DepartmentId\` BIGINT NULL,
@@ -241,6 +243,7 @@ export const verifyDbConnection = async () => {
         INDEX \`IDX_Users_Email\` (\`Email\`),
         INDEX \`IDX_Users_RoleId\` (\`RoleId\`),
         INDEX \`IDX_Users_External\` (\`ExternalStudentId\`),
+        INDEX \`IDX_Users_StudentId\` (\`StudentId\`),
         CONSTRAINT \`FK_Users_RoleId\` FOREIGN KEY (\`RoleId\`) REFERENCES \`Roles\`(\`RoleId\`) ON DELETE SET NULL ON UPDATE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
@@ -250,6 +253,10 @@ export const verifyDbConnection = async () => {
       "ALTER TABLE `Users` ADD COLUMN `DeletedAt` DATETIME NULL",
       "ALTER TABLE `Users` ADD COLUMN `DeletedBy` INT NULL",
       "ALTER TABLE `Users` ADD COLUMN `PhoneNumber` VARCHAR(50) NULL",
+      "ALTER TABLE `Users` ADD COLUMN `Mobile` VARCHAR(50) NULL",
+      "ALTER TABLE `Users` ADD COLUMN `ProfileImage` VARCHAR(500) NULL",
+      "ALTER TABLE `Users` ADD COLUMN `StudentDegreeAdmissionId` VARCHAR(50) NULL",
+      "ALTER TABLE `Users` ADD COLUMN `StudentId` VARCHAR(50) NULL",
     ];
     for (const sql of userColumnMigrations) {
       try {

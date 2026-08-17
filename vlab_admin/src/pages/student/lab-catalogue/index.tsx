@@ -255,7 +255,7 @@ export default function LabCatalogue() {
                           onDetails={handleViewDetails}
                           onStop={handleStopLabClick}
                           onResume={handleResumeLab}
-                          activeSession={activeSession?.labId === labId ? activeSession : undefined}
+                          activeSession={activeSession?.labId === labId ? (activeSession ?? undefined) : undefined}
                           elapsedTime={activeSession?.labId === labId ? elapsedTime || undefined : undefined}
                           isStarting={startingLabId === labId}
                           isStopping={stoppingLabId === labId}

@@ -25,6 +25,8 @@ import {
   internalTenantLoginHandler,
 } from "./handlers/internal.js";
 
+import { usersListHandler } from "./handlers/users.js";
+
 export function setupRoutes(app, apiPrefix) {
   const router = express.Router();
 
@@ -46,6 +48,8 @@ export function setupRoutes(app, apiPrefix) {
   router.get("/admin/profile", authMiddleware, getProfileHandler);
   router.put("/admin/profile", authMiddleware, updateProfileHandler);
 
+  // ── Users / Students Management (Owner Cross-Tenant) ──────────
+  router.get("/admin/users", authMiddleware, usersListHandler);
 
   // ── Labs (Owner — full CRUD) ─────────────────────────────────
   router.get("/admin/labs", authMiddleware, labsAdminListHandler);

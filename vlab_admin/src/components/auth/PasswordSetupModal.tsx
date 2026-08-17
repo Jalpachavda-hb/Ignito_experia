@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/password-input'
-import { apiRequest } from '@/lib/apiClient'
+import { setPassword } from '@/Utils/PostApiHandler'
 import { useAuthStore } from '@/stores/auth-store'
 
 interface PasswordSetupModalProps {
@@ -35,10 +35,7 @@ export function PasswordSetupModal({ isOpen, onClose, tenantDomain }: PasswordSe
 
     setIsSubmitting(true)
     try {
-      const res = await apiRequest('/auth/set-password', {
-        method: 'POST',
-        body: JSON.stringify({ newPassword, confirmPassword }),
-      })
+      const res: any = await setPassword({ newPassword, confirmPassword })
 
       if (res.success) {
         toast.success(res.message || 'Password set successfully!')
