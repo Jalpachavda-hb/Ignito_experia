@@ -1,40 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
 import { useLabStore } from '@/stores/labStore';
+import { useAuthStore } from '@/stores/auth-store';
+import { useLabSessionStore } from '@/stores/labSessionStore';
 import { CatalogueLabCard } from './components/catalogue-lab-card';
+import { SessionBlockSelector } from './components/session-block-selector';
 import { Code2, TerminalSquare, Database, LayoutGrid, Server, Beaker, Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useLabSessionStore } from '@/stores/labSessionStore';
-import { useAuthStore } from '@/stores/auth-store';
-import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useNavigate } from '@tanstack/react-router';
-import { toast } from 'sonner';
-import { DotnetSelectionModal } from '../my-labs/components/dotnet-selection-modal';
 
 export default function LabCatalogue() {
   const { labs, isLoading, error, loadLabs } = useLabStore();
   const { auth } = useAuthStore();
   const { user } = auth;
+  const { startLab } = useLabSessionStore();
   const navigate = useNavigate();
-  const { activeSession, startingLabId, stoppingLabId, elapsedTime, startLab, stopLab, startError, clearStartError, loadActiveSession } = useLabSessionStore();
 
-  const [showWarningModal, setShowWarningModal] = useState(false);
-  const [showStopModal, setShowStopModal] = useState(false);
-  const [pendingStop, setPendingStop] = useState<{ sessionId: string, labId: string } | null>(null);
-  const [showDotnetModal, setShowDotnetModal] = useState(false);
-  const [selectedDotnetLabId, setSelectedDotnetLabId] = useState<string | null>(null);
+  const [selectedLabForBlocks, setSelectedLabForBlocks] = useState<any | null>(null);
 
   useEffect(() => {
     loadLabs();
   }, [loadLabs]);
-
-  // Check Active Session on mount
-  useEffect(() => {
-    if (!user?.userId && !user?.email) return;
-    const userId = String(user.userId ?? user.email);
-    loadActiveSession(userId);
-  }, [user, loadActiveSession]);
 
   // Group labs by category
   const categorizedLabs = useMemo(() => {
@@ -61,7 +48,6 @@ export default function LabCatalogue() {
       }
     });
 
-    // Remove empty categories
     return Object.fromEntries(Object.entries(groups).filter(([_, items]) => items.length > 0));
   }, [labs]);
 
@@ -77,83 +63,15 @@ export default function LabCatalogue() {
 
   const getLabId = (lab: any) => lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?._id || '';
 
-  const handleStartLab = async (id: string) => {
-    clearStartError();
+  const handlePurchaseCredit = (lab: any) => {
+    setSelectedLabForBlocks(lab);
+  };
 
-    if (!id) {
-      toast.error('Cannot start lab: labId is missing or invalid');
-      return;
-    }
-
-    if (!user) {
-      toast.error('Please sign in to start a lab session');
-      navigate({ to: '/sign-in' });
-      return;
-    }
-
-    if (activeSession && activeSession.labId !== id) {
-      setShowWarningModal(true);
-      return;
-    }
-
-    const lab = labs.find(l => getLabId(l) === id);
-    const isDotnet = id.toLowerCase().includes('dotnet') ||
-                     lab?.category?.toLowerCase().includes('dotnet') ||
-                     lab?.title?.toLowerCase().includes('.net');
-
-    if (isDotnet) {
-      setSelectedDotnetLabId(id);
-      setShowDotnetModal(true);
-      return;
-    }
-
-    const session = await startLab(id);
+  const handleStartLabWithBlocks = async (labId: string, blocks: number) => {
+    const session = await startLab(labId, blocks);
     if (session?.sessionId) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: session.sessionId } });
+      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: session.sessionId } });
     }
-  };
-
-  const handleConfirmDotnetLab = async (subtype: 'console' | 'mvc') => {
-    setShowDotnetModal(false);
-    const id = selectedDotnetLabId;
-    if (!id) return;
-    setSelectedDotnetLabId(null);
-
-    const session = await startLab(id, subtype);
-    if (session?.sessionId) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId: id, sessionId: session.sessionId } });
-    }
-  };
-
-  const handleStopLabClick = (labId: string) => {
-    if (activeSession && activeSession.labId === labId) {
-      setPendingStop({ sessionId: activeSession.sessionId, labId });
-      setShowStopModal(true);
-    }
-  };
-
-  const handleStopLabConfirm = async () => {
-    if (!pendingStop) return;
-    const { sessionId, labId } = pendingStop;
-    setShowStopModal(false);
-
-    try {
-      await stopLab(sessionId, labId);
-    } catch (err) {
-      console.error('Failed to stop lab:', err);
-    } finally {
-      setPendingStop(null);
-    }
-  };
-
-  const handleResumeLab = (labId: string) => {
-    if (activeSession && activeSession.labId === labId) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: activeSession.sessionId } });
-    }
-  };
-
-  const handleViewDetails = (id: string) => {
-    console.log('View details from catalogue', id);
   };
 
   return (
@@ -169,11 +87,10 @@ export default function LabCatalogue() {
       </Header>
 
       <Main className="bg-[#f8fafc] dark:bg-background min-h-[calc(100vh-4rem)]">
-        <div className="w-full px-4 md:px-8 xl:px-12 py-8 space-y-12 max-w-[1600px] mx-auto">
+        <div className="w-full px-4 md:px-6 xl:px-10 py-6 space-y-6 max-w-[1600px] mx-auto">
 
           {/* Hero Section */}
           <div className="relative overflow-hidden bg-white dark:bg-slate-900 rounded-[24px] border border-slate-100 shadow-sm">
-            {/* Background Decorations */}
             <div className="absolute top-0 right-0 bottom-0 w-[60%] bg-gradient-to-l from-red-50/80 to-transparent pointer-events-none" />
             <div className="absolute -top-24 -right-24 w-96 h-96 bg-red-100/50 rounded-full blur-3xl pointer-events-none" />
 
@@ -183,11 +100,10 @@ export default function LabCatalogue() {
                   Our Lab <span className="text-red-500">Catalogue</span>
                 </h1>
                 <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base leading-relaxed">
-                  Explore our hands-on labs designed to enhance practical learning and industry-ready skills in a virtual environment.
+                  Explore our hands-on virtual labs. Select session blocks and launch your workspace with wallet credits.
                 </p>
               </div>
 
-              {/* Total Labs Box */}
               <div className="shrink-0 bg-white/80 backdrop-blur-md border border-red-100 shadow-sm rounded-2xl p-5 flex items-center gap-5 min-w-[240px]">
                 <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center text-red-500">
                   <Beaker className="w-6 h-6" />
@@ -208,14 +124,6 @@ export default function LabCatalogue() {
             </Alert>
           )}
 
-          {startError && (
-            <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-800">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Start Error</AlertTitle>
-              <AlertDescription>{startError}</AlertDescription>
-            </Alert>
-          )}
-
           {isLoading && labs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-red-500 mb-4" />
@@ -225,7 +133,6 @@ export default function LabCatalogue() {
             <div className="space-y-12 pb-12">
               {Object.entries(categorizedLabs).map(([category, categoryLabs]) => (
                 <div key={category} className="space-y-6">
-                  {/* Category Header */}
                   <div className="flex items-center justify-between border-b border-slate-200 pb-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shadow-sm">
@@ -240,7 +147,6 @@ export default function LabCatalogue() {
                     </span>
                   </div>
 
-                  {/* Cards Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
                     {categoryLabs.map((lab, index) => {
                       const labId = getLabId(lab);
@@ -251,14 +157,7 @@ export default function LabCatalogue() {
                           key={labId || index}
                           lab={lab}
                           isPopular={isPopular}
-                          onStart={handleStartLab}
-                          onDetails={handleViewDetails}
-                          onStop={handleStopLabClick}
-                          onResume={handleResumeLab}
-                          activeSession={activeSession?.labId === labId ? (activeSession ?? undefined) : undefined}
-                          elapsedTime={activeSession?.labId === labId ? elapsedTime || undefined : undefined}
-                          isStarting={startingLabId === labId}
-                          isStopping={stoppingLabId === labId}
+                          onPurchaseCredit={handlePurchaseCredit}
                         />
                       );
                     })}
@@ -278,32 +177,16 @@ export default function LabCatalogue() {
         </div>
       </Main>
 
-      <ConfirmDialog
-        open={showWarningModal}
-        onOpenChange={setShowWarningModal}
-        handleConfirm={() => setShowWarningModal(false)}
-        title="Active Session Found"
-        desc="You already have an active lab session. Please stop the current lab before starting a new one."
-        confirmText="OK"
-        cancelBtnText="Close"
-      />
-
-      <ConfirmDialog
-        open={showStopModal}
-        onOpenChange={setShowStopModal}
-        handleConfirm={handleStopLabConfirm}
-        title="Stop Lab Session?"
-        desc="Are you sure you want to stop this lab? This action will terminate the running environment."
-        confirmText="Stop Lab"
-        cancelBtnText="Cancel"
-      />
-
-      {/* Dotnet Project Selection Modal */}
-      <DotnetSelectionModal
-        open={showDotnetModal}
-        onOpenChange={setShowDotnetModal}
-        onConfirm={handleConfirmDotnetLab}
+      <SessionBlockSelector
+        isOpen={Boolean(selectedLabForBlocks)}
+        onClose={() => setSelectedLabForBlocks(null)}
+        lab={selectedLabForBlocks}
+        walletBalance={user?.credits ?? 0}
+        onStart={handleStartLabWithBlocks}
+        onPurchaseCredits={() => navigate({ to: '/student/credit-wallet' })}
       />
     </>
   );
 }
+
+

@@ -7,6 +7,7 @@ import { ArrowRight, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { sleep, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { forgotPassword } from '@/Utils/PostApiHandler'
 import {
   Form,
   FormControl,
@@ -35,19 +36,24 @@ export function ForgotPasswordForm({
     defaultValues: { email: '' },
   })
 
-  function onSubmit(data: z.infer<typeof formSchema>) {
+  async function onSubmit(data: z.infer<typeof formSchema>) {
     setIsLoading(true)
 
-    toast.promise(sleep(2000), {
-      loading: 'Sending email...',
-      success: () => {
-        setIsLoading(false)
+    try {
+      const res: any = await forgotPassword({ email: data.email })
+      setIsLoading(false)
+      if (res?.success) {
+        sessionStorage.setItem('resetEmail', data.email)
+        toast.success(res.message || `Reset OTP sent to ${data.email}`)
         form.reset()
         navigate({ to: '/otp' })
-        return `Email sent to ${data.email}`
-      },
-      error: 'Error',
-    })
+      } else {
+        toast.error(res?.message || 'Failed to process password reset')
+      }
+    } catch (err: any) {
+      setIsLoading(false)
+      toast.error(err?.message || 'Error processing request')
+    }
   }
 
   return (

@@ -19,7 +19,18 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 import { auditContextMiddleware } from "./middleware/auditContext.js";
 import { auditCleanupService } from "./services/AuditCleanupService.js";
-import { analyticsCronService } from "./services/analytics/AnalyticsCronService.js";
+import { startWorkerInterval as startLabExpiryWorker } from "./services/LabExpiryWorker.js";
+import { startUsageBillingWorker } from "./workers/UsageBillingWorker.js";
+import { startRuntimeStopWorker } from "./workers/RuntimeStopWorker.js";
+import { startSessionExpiryWorker } from "./workers/SessionExpiryWorker.js";
+import notificationService from "./services/NotificationService.js";
+
+// Wire NotificationService to Socket.IO for real-time client events
+notificationService.onNotification((event, payload) => {
+  if (io && payload.studentId) {
+    io.to(`user:${payload.studentId}`).emit(event, payload);
+  }
+});
 
 const app = express();
 const httpServer = createServer(app);
@@ -39,7 +50,9 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 app.use(auditContextMiddleware);
 
 const limiter = rateLimit({
@@ -57,9 +70,28 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const upload = multer({ dest: uploadsDir });
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname || '') || '.png';
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'profile-' + uniqueSuffix + ext);
+  }
+});
+const upload = multer({ storage });
 app.use(upload.any());
-app.use("/uploads", express.static(uploadsDir));
+
+app.use("/uploads", express.static(uploadsDir, {
+  setHeaders: (res, filePath) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    if (!path.extname(filePath)) {
+      res.setHeader("Content-Type", "image/png");
+    }
+  }
+}));
 
 
 
@@ -140,6 +172,18 @@ setInterval(() => {
   cleanupExpiredSessions();
 }, 30000);
 
+// Initialize MySQL Lab Expiry Worker (runs every 60 seconds)
+startLabExpiryWorker(60000);
+
+// Initialize Minute-Wise Lab Token Billing Worker (runs every 30 seconds)
+startUsageBillingWorker(30000);
+
+// Initialize Container Stop Retry Worker (runs every 15 seconds)
+startRuntimeStopWorker(15000);
+
+// Initialize Precise Token Expiry Worker (runs every 10 seconds)
+startSessionExpiryWorker(10000);
+
 // Run Enterprise Auth Session Cleanup every 5 minutes
 setInterval(() => {
   sessionCleanupService.runCleanupJob().catch(console.error);
@@ -149,11 +193,6 @@ setInterval(() => {
 setInterval(() => {
   auditCleanupService.runRetentionCleanup().catch(console.error);
 }, 24 * 60 * 60 * 1000);
-
-// Run Enterprise Analytics Precomputation hourly (should be daily in prod)
-setInterval(() => {
-  analyticsCronService.runDailyAggregation().catch(console.error);
-}, 60 * 60 * 1000);
 
 // Error handlers must be last
 app.use(notFoundHandler);

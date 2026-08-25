@@ -27,6 +27,8 @@ import { LeaderboardPerformance } from './components/leaderboard-perf';
 import { UpcomingBadgesList } from './components/upcoming-badges';
 import { RecentAchievementTimeline } from './components/recent-timeline';
 
+import { useLabStore } from '@/stores/labStore';
+
 // TypeScript interfaces
 import {
   SummaryStats,
@@ -40,6 +42,7 @@ import {
 } from './types';
 
 export default function BadgesAchievementsPage() {
+  const { labs, loadLabs } = useLabStore();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<SummaryStats | null>(null);
   const [badges, setBadges] = useState<BadgeType[]>([]);
@@ -50,6 +53,31 @@ export default function BadgesAchievementsPage() {
   const [milestones, setMilestones] = useState<AcademicMilestone[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardPerf | null>(null);
   const [timeline, setTimeline] = useState<RecentAchievement[]>([]);
+
+  useEffect(() => {
+    loadLabs();
+  }, [loadLabs]);
+
+  const realLabBadges: BadgeType[] = React.useMemo(() => {
+    if (!labs || labs.length === 0) return badges;
+
+    return labs.map((lab: any, idx: number) => {
+      const name = lab.title || lab.name || 'Virtual Lab';
+      const cat = lab.category || 'Programming';
+      const desc = lab.description || `Practical virtual lab environment for ${name}.`;
+
+      return {
+        id: lab.id || lab.labId || `lab-badge-${idx}`,
+        name: name,
+        description: desc,
+        category: cat,
+        iconUrl: lab.logo || lab.image || lab.icon || '',
+        earnedDate: 'Assigned Lab',
+        difficulty: lab.credits ? `${lab.credits} Credits` : 'Practical',
+        isUnlocked: true,
+      };
+    });
+  }, [labs, badges]);
 
   useEffect(() => {
     const fetchAllData = async () => {
@@ -109,7 +137,7 @@ export default function BadgesAchievementsPage() {
       </Header>
 
       <Main className="bg-slate-50 dark:bg-slate-950 min-h-[calc(100vh-4rem)] pb-12">
-        <div className="w-full p-4 sm:p-6 md:p-8 max-w-[1600px] mx-auto space-y-6">
+        <div className="w-full px-4 md:px-6 xl:px-10 py-6 space-y-6 max-w-[1600px] mx-auto">
           
           {/* Header Title Section */}
           <div className="mb-8">
@@ -144,50 +172,29 @@ export default function BadgesAchievementsPage() {
           ) : (
             <>
               {/* Section 1: Summary Statistics */}
-              {stats && <SummaryCards stats={stats} />}
+              <SummaryCards />
 
               {/* Section 2: Featured Badge Card */}
-              {badges.length > 0 && <FeaturedBadge badge={badges[0]} />}
+              {realLabBadges.length > 0 && <FeaturedBadge badge={realLabBadges[0]} />}
 
-              {/* Responsive Layout Grid (2 Columns: Left Main, Right Sidebar) */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-                
-                {/* Left Side: Unlocked grid and checklists */}
-                <div className="xl:col-span-2 space-y-6">
-                  {/* Badge Grid Collection */}
-                  <div className="bg-white dark:bg-slate-950 p-6 rounded-[20px] border border-slate-200/60 dark:border-slate-800 shadow-sm hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgb(0,0,0,0.3)] transition-all duration-300">
-                    <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">
-                      Badge Collection
-                    </h3>
-                    <BadgeGrid badges={badges} />
-                  </div>
-
-                  {/* Lab Achievements Checklist */}
-                  <LabAchievementsList achievements={labAchievements} />
-
-                  {/* Credit Achievements Checklist */}
-                  <CreditAchievementsList achievements={creditAchievements} />
-                </div>
-
-                {/* Right Side: Skill levels, Timeline feeds, Leaderboards */}
-                <div className="space-y-6">
-                  {/* Skill Mastery tracker */}
-                  <SkillMasteryTracker skills={skills} />
-
-                  {/* Leaderboard ranking dashboard */}
-                  {leaderboard && <LeaderboardPerformance data={leaderboard} />}
-
-                  {/* NEP Academic exit progress timeline */}
-                  <AcademicMilestonesTimeline milestones={milestones} />
-
-                  {/* Upcoming locked badge challenges */}
-                  <UpcomingBadgesList badges={upcomingBadges} />
-
-                  {/* Chronological activity milestones logs */}
-                  <RecentAchievementTimeline timeline={timeline} />
-                </div>
-
+              {/* Badge Grid Collection */}
+              <div className="bg-white dark:bg-slate-950 p-6 rounded-[20px] border border-slate-200/60 dark:border-slate-800 shadow-sm hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgb(0,0,0,0.3)] transition-all duration-300 w-full">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">
+                  Badge Collection
+                </h3>
+                <BadgeGrid badges={realLabBadges} />
               </div>
+
+              {/* Commented out as requested: Leaderboard, Lab/Credit Achievements, Skill Mastery, NEP Milestones, Upcoming Badges, Recent Timeline */}
+              {/* 
+              {leaderboard && <LeaderboardPerformance data={leaderboard} />}
+              <LabAchievementsList achievements={labAchievements} />
+              <CreditAchievementsList achievements={creditAchievements} />
+              <SkillMasteryTracker skills={skills} />
+              <AcademicMilestonesTimeline milestones={milestones} />
+              <UpcomingBadgesList badges={upcomingBadges} />
+              <RecentAchievementTimeline timeline={timeline} />
+              */}
             </>
           )}
 

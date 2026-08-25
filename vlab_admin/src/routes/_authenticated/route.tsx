@@ -23,10 +23,13 @@ export const Route = createFileRoute('/_authenticated')({
     let { accessToken, user } = useAuthStore.getState().auth
 
     // If user token is expired, clear user state
-    if (user && user.exp && user.exp < Date.now()) {
-      useAuthStore.getState().auth.reset()
-      user = null
-      accessToken = ''
+    if (user && user.exp) {
+      const expMs = user.exp < 10000000000 ? user.exp * 1000 : user.exp
+      if (expMs < Date.now()) {
+        useAuthStore.getState().auth.reset()
+        user = null
+        accessToken = ''
+      }
     }
 
     // 1. Verify tenant subdomain validity if on custom subdomain
@@ -64,18 +67,17 @@ export const Route = createFileRoute('/_authenticated')({
             ...data.user,
             userId: data.user.id || data.user.userId,
             fullName: data.user.fullName || data.user.name,
-            exp: Date.now() + 24 * 60 * 60 * 1000,
+            exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
           })
           user = useAuthStore.getState().auth.user
-        } else {
+        }
+      } catch (err: any) {
+        // Only reset if backend explicitly rejects authentication with 401
+        if (err?.status === 401 || err?.statusCode === 401 || err?.message?.includes('unauthorized')) {
           useAuthStore.getState().auth.reset()
           user = null
           accessToken = ''
         }
-      } catch (err) {
-        useAuthStore.getState().auth.reset()
-        user = null
-        accessToken = ''
       }
     }
 
@@ -97,6 +99,13 @@ export const Route = createFileRoute('/_authenticated')({
 
     if (isStudent) {
       if (path === '/') {
+        throw redirect({ to: '/student/dashboard' })
+      }
+      const isDirectUser = Boolean(
+        user.createdFrom === 'DIRECT' || 
+        (user.authType === 'DIRECT' && !user.studentDegreeAdmissionId && !(user as any).externalStudentId && user.createdFrom !== 'LMS')
+      );
+      if (isDirectUser && path.startsWith('/student/academic-progress')) {
         throw redirect({ to: '/student/dashboard' })
       }
       if (!isStudentPath && !isComputePath && path !== '/403' && path !== '/404') {

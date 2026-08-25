@@ -73,6 +73,9 @@ export function UserAuthForm({
 
           const token = response?.accessToken || response?.token
           auth.setAccessToken(token)
+          if (response?.refreshToken) {
+            auth.setRefreshToken?.(response.refreshToken)
+          }
 
           let finalUser = response?.user || {}
 
@@ -94,7 +97,7 @@ export function UserAuthForm({
             email: finalUser.email || data.email,
             role: finalUser.role || 'Student',
             status: finalUser.status || 'Active',
-            exp: Date.now() + 24 * 60 * 60 * 1000,
+            exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
           }
 
           auth.setUser(user)

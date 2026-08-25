@@ -1,15 +1,13 @@
 import { ok } from "../lib/apigw.js";
 import { unauthorized } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
-import { permissionService } from "../services/PermissionService.js";
 import { navigationService } from "../services/NavigationService.js";
-import studentProfileRepository from "../repositories/StudentProfileRepository.js";
 import userRepository from "../repositories/UserRepository.js";
+import { ROLES } from "../constants/roles.js";
 
 /**
  * GET /app/bootstrap
- * Master initialization endpoint. Returns User Profile, Roles, 
- * RBAC Matrix, Navigation, and System Settings in one payload.
+ * Master initialization endpoint. Returns User Profile, Navigation, and System Settings in one payload.
  */
 export const appBootstrapHandler = async ({ auth }) => {
   if (!auth) {
@@ -28,50 +26,21 @@ export const appBootstrapHandler = async ({ auth }) => {
   }
 
   // 2. Fetch User Profile
-  let profile = null;
-  let roleCode = auth.role ? String(auth.role).toUpperCase().replace(/\s+/g, '_') : null;
-
-  if (roleCode === 'STUDENT') {
-    profile = await studentProfileRepository.findById(auth.userId);
-  } else {
-    profile = await userRepository.findById(auth.userId);
-  }
+  const profile = await userRepository.findById(auth.userId);
 
   if (!profile || profile.Status !== 'Active') {
     throw unauthorized("User account is inactive or not found.");
   }
 
-  // 3. Resolve RBAC Permission Matrix
-  // If SuperAdmin, we inject a massive array of ALL permissions or pass a flag
-  let matrix = { userAllow: [], userDeny: [], roleAllow: [] };
-  let permissionsFlat = [];
-  
-  if (roleCode === 'SUPER_ADMIN') {
-    // SuperAdmin gets all module permissions derived from RolePermissions CRUD flags
-    const [allModulePerms] = await pool.query(
-      "SELECT DISTINCT ModuleCode, CanCreate, CanRead, CanUpdate, CanDelete FROM RolePermissions"
-    );
-    const superAdminPerms = new Set();
-    for (const mp of allModulePerms) {
-      if (mp.CanCreate) superAdminPerms.add(`${mp.ModuleCode}.CREATE`);
-      if (mp.CanRead)   superAdminPerms.add(`${mp.ModuleCode}.READ`);
-      if (mp.CanUpdate) superAdminPerms.add(`${mp.ModuleCode}.UPDATE`);
-      if (mp.CanDelete) superAdminPerms.add(`${mp.ModuleCode}.DELETE`);
-    }
-    permissionsFlat = Array.from(superAdminPerms);
-    matrix.roleAllow = permissionsFlat;
-  } else {
-    matrix = await permissionService.getUserPermissionMatrix(auth.userId, roleCode);
-    const pSet = new Set(matrix.roleAllow);
-    for (const p of matrix.userAllow) pSet.add(p);
-    for (const p of matrix.userDeny) pSet.delete(p);
-    permissionsFlat = Array.from(pSet);
-  }
+  const rawRole = (profile.Role || auth.role || "STUDENT").toUpperCase().replace(/\s+/g, "_");
+  const normalizedRole = ["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(rawRole)
+    ? ROLES.TENANT_ADMIN
+    : ROLES.STUDENT;
 
-  // 4. Generate Navigation
-  const navigation = await navigationService.buildNavigation(matrix, profile.UniversityId);
+  // 3. Generate Role-based Navigation
+  const navigation = await navigationService.buildNavigation(normalizedRole, profile.UniversityId);
 
-  // 5. Fetch Settings and Flags
+  // 4. Fetch Settings and Flags
   const settings = await navigationService.getApplicationSettings();
   const flags = {
     VIRTUAL_LABS: true,
@@ -80,20 +49,18 @@ export const appBootstrapHandler = async ({ auth }) => {
     CONTAINER_MONITORING: false
   };
 
-  // 6. Return Monolithic Payload
+  // 5. Return Clean Monolithic Payload
   return ok({
     success: true,
     user: {
-      id: profile.UserId || profile.StudentProfileId,
-      fullName: profile.FullName || `${profile.FirstName} ${profile.LastName}`,
+      id: profile.UserId,
+      userId: profile.UserId,
+      fullName: profile.FullName || profile.Name || 'User',
       email: profile.Email,
-      role: profile.Role || 'Student',
-      roleCode: roleCode,
+      role: normalizedRole,
       status: profile.Status,
-      universityId: profile.UniversityId,
-      departmentId: profile.DepartmentId,
+      universityId: profile.UniversityId || profile.TenantId,
     },
-    permissions: permissionsFlat,
     navigation,
     settings,
     featureFlags: flags

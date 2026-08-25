@@ -10,20 +10,7 @@ CREATE DATABASE IF NOT EXISTS `ignito_experia_owner`
 USE `ignito_experia_owner`;
 
 -- ============================================================
--- 1. Error Logs Table
--- ============================================================
-CREATE TABLE IF NOT EXISTS `error_logs` (
-    `LogId`       BIGINT AUTO_INCREMENT PRIMARY KEY,
-    `TableName`   VARCHAR(100),
-    `ProcedureName` VARCHAR(100),
-    `ErrorMessage` TEXT,
-    `ErrorNumber` INT,
-    `Parameters`  TEXT,
-    `LogDate`     DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- 2. Owner Users Table
+-- 1. Owner Users Table
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `owner_users` (
     `OwnerId`      BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -113,42 +100,9 @@ CREATE TABLE IF NOT EXISTS `tenants` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
--- 6. Tenant Users Table
--- ============================================================
-CREATE TABLE IF NOT EXISTS `users` (
-    `UserId`       BIGINT AUTO_INCREMENT PRIMARY KEY,
-    `Email`        VARCHAR(255) NOT NULL UNIQUE,
-    `PasswordHash` VARCHAR(255) NOT NULL,
-    `FullName`     VARCHAR(200) NOT NULL,
-    `Phone`        VARCHAR(50)  NULL,
-    `Status`       VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
-    `CreatedDate`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
-    `UpdatedDate`  DATETIME NULL,
-    INDEX `IDX_users_Email`  (`Email`),
-    INDEX `IDX_users_Status` (`Status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- 7. User-Tenant Mapping & Role Junction Table
--- ============================================================
-CREATE TABLE IF NOT EXISTS `user_tenant_mapping` (
-    `MappingId`   BIGINT AUTO_INCREMENT PRIMARY KEY,
-    `UserId`      BIGINT      NOT NULL,
-    `TenantId`    VARCHAR(50) NOT NULL,
-    `Role`        ENUM('TENANT_ADMIN', 'STUDENT') NOT NULL,
-    `Status`      VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-    `CreatedDate` DATETIME    DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (`UserId`) REFERENCES `users` (`UserId`) ON DELETE CASCADE,
-    FOREIGN KEY (`TenantId`) REFERENCES `tenants` (`TenantId`) ON DELETE CASCADE,
-    UNIQUE KEY `UK_user_tenant_role` (`UserId`, `TenantId`, `Role`),
-    INDEX `IDX_utm_TenantId` (`TenantId`),
-    INDEX `IDX_utm_Role`     (`Role`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
--- 6. Seed: Default Owner User (password: Owner@1234)
+-- 6. Seed: Default Owner User (password: Owner123!)
 --    Hash generated with bcrypt rounds=10
---    Update PasswordHash after running: node -e "import bcrypt from 'bcryptjs'; bcrypt.hash('Owner@1234', 10).then(console.log)"
+--    Update PasswordHash after running: node -e "import bcrypt from 'bcryptjs'; bcrypt.hash('Owner123!', 10).then(console.log)"
 -- ============================================================
 INSERT IGNORE INTO `owner_users` (`Email`, `PhoneNumber`, `PasswordHash`, `Role`, `Status`)
 VALUES ('owner@ignito.com', '1234567890', '$2a$10$PLACEHOLDER_HASH_REPLACE_ME', 'owner', 'active');

@@ -7,6 +7,7 @@ import { lmsProfileCacheService } from "../services/LmsProfileCacheService.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import { unauthorized } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
+import { sendOtpEmail } from "../lib/email.js";
 
 function parseCookies(headers = {}) {
   const cookieHeader = headers.cookie || headers.Cookie || "";
@@ -20,12 +21,36 @@ function parseCookies(headers = {}) {
   return cookies;
 }
 
-const makeCookieHeader = (token, maxAgeSeconds = 604800) => {
-  return `refreshToken=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${maxAgeSeconds}`;
+const isSecureRequest = (headers = {}) => {
+  const proto = headers['x-forwarded-proto'] || headers['X-Forwarded-Proto'] || '';
+  const origin = headers.origin || headers.Origin || '';
+  const host = headers.host || headers.Host || '';
+
+  if (proto === 'https' || origin.startsWith('https://')) {
+    return true;
+  }
+
+  if (origin.startsWith('http://') || host.includes('localhost') || host.includes('127.0.0.1')) {
+    return false;
+  }
+
+  return process.env.NODE_ENV === 'production';
 };
 
-const makeClearCookieHeader = () => {
-  return `refreshToken=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+const makeCookieHeader = (token, headers = {}, maxAgeSeconds = 604800) => {
+  const secure = isSecureRequest(headers);
+  const cookieFlags = secure
+    ? "HttpOnly; Secure; SameSite=None"
+    : "HttpOnly; SameSite=Lax";
+  return `refreshToken=${token}; ${cookieFlags}; Path=/; Max-Age=${maxAgeSeconds}`;
+};
+
+const makeClearCookieHeader = (headers = {}) => {
+  const secure = isSecureRequest(headers);
+  const cookieFlags = secure
+    ? "HttpOnly; Secure; SameSite=None"
+    : "HttpOnly; SameSite=Lax";
+  return `refreshToken=; ${cookieFlags}; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 };
 
 const corsHeaders = (headers = {}) => {
@@ -59,6 +84,7 @@ export const authRegisterHandler = async ({ body }) => {
       email: user.Email,
       role: user.Role,
       status: user.Status,
+      profileImage: user.ProfileImage || null,
     }
   });
 };
@@ -191,7 +217,7 @@ export const authLoginHandler = async ({ body, headers = {}, requestContext }) =
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": makeCookieHeader(refreshToken),
+      "Set-Cookie": makeCookieHeader(refreshToken, headers),
       ...corsHeaders(headers)
     },
     body: JSON.stringify({
@@ -271,7 +297,7 @@ export const authRefreshHandler = async ({ body, headers, requestContext }) => {
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": makeCookieHeader(refreshToken),
+      "Set-Cookie": makeCookieHeader(refreshToken, headers),
       ...corsHeaders(headers)
     },
     body: JSON.stringify({
@@ -299,7 +325,7 @@ export const authLogoutHandler = async ({ body, headers }) => {
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": makeClearCookieHeader(),
+      "Set-Cookie": makeClearCookieHeader(headers),
       ...corsHeaders(headers)
     },
     body: JSON.stringify({
@@ -309,7 +335,6 @@ export const authLogoutHandler = async ({ body, headers }) => {
   };
 };
 
-import { permissionService } from "../services/PermissionService.js";
 import studentProfileRepository from "../repositories/StudentProfileRepository.js";
 
 export const authMeHandler = async ({ auth }) => {
@@ -331,39 +356,21 @@ export const authMeHandler = async ({ auth }) => {
   let profile = null;
   let roleCode = auth.role ? String(auth.role).toUpperCase().replace(/\s+/g, '_') : null;
 
-  // 2. Fetch User Data (distinguish between Admin Users and Students based on token/role)
-  if (roleCode === 'STUDENT') {
-    profile = await studentProfileRepository.findById(auth.userId);
-  } else {
+  // 2. Fetch User Data (check Users table first for full column set, fallback to userRepository)
+  const [uRawRows] = await pool.query("SELECT * FROM Users WHERE UserId = ?", [auth.userId]);
+  profile = uRawRows[0] || null;
+  if (!profile) {
     profile = await userRepository.findById(auth.userId);
+  }
+  if (!profile && roleCode === 'STUDENT') {
+    profile = await studentProfileRepository.findById(auth.userId);
   }
 
   if (!profile) {
     throw unauthorized("User not found or inactive");
   }
 
-  // 3. Resolve Enterprise RBAC Permission Matrix (Phase 1 Logic)
-  let roleId = profile.RoleId;
-  if (!roleId && roleCode) {
-    const [roles] = await pool.query("SELECT RoleId FROM Roles WHERE LOWER(Name) = LOWER(?)", [roleCode]);
-    if (roles.length > 0) roleId = roles[0].RoleId;
-  }
-
   const permissions = {};
-  if (roleId) {
-    const [rolePerms] = await pool.query(
-      "SELECT ModuleCode, CanCreate, CanRead, CanUpdate, CanDelete FROM RolePermissions WHERE RoleId = ?",
-      [roleId]
-    );
-    for (const rp of rolePerms) {
-      permissions[rp.ModuleCode] = {
-        create: Boolean(rp.CanCreate),
-        read: Boolean(rp.CanRead),
-        update: Boolean(rp.CanUpdate),
-        delete: Boolean(rp.CanDelete)
-      };
-    }
-  }
 
   const admissionId = profile.StudentDegreeAdmissionId || profile.ExternalStudentId;
   const tenantId = profile.TenantId || profile.UniversityId || auth.tenantId || 'TEN000001';
@@ -394,7 +401,7 @@ export const authMeHandler = async ({ auth }) => {
 
   const fullName = cachedLmsProfile?.applicantFullName || profile.FullName || `${profile.FirstName || ''} ${profile.LastName || ''}`.trim() || 'Student';
 
-  const extMobile = cachedLmsProfile?.mobile || profile.Mobile || null;
+  const extMobile = cachedLmsProfile?.mobile || profile.PhoneNumber || null;
   const extAltMobile = cachedLmsProfile?.alternateMobile || profile.AlternateMobile || null;
   const extGender = cachedLmsProfile?.gender || profile.Gender || null;
   const extDob = cachedLmsProfile?.dateOfBirth || profile.DateOfBirth || null;
@@ -402,22 +409,34 @@ export const authMeHandler = async ({ auth }) => {
   const extImage = cachedLmsProfile?.studentProfileImage ? (cachedLmsProfile.studentProfileImage.startsWith('http') ? cachedLmsProfile.studentProfileImage : "https://verse.ignitolearn.com" + cachedLmsProfile.studentProfileImage) : (profile.ProfileImage || null);
   const extProgrammes = cachedLmsProfile?.enrollmentnumberprogrammenamelist || [];
   const extEnrollment = extProgrammes[0]?.enrollmentNumber || profile.StudentCode || profile.ExternalStudentId || null;
-  const extProgramName = extProgrammes[0]?.programmeName || profile.ProgramName || 'Master of Business Administration - International Business';
-  const extCurrentSemester = extProgrammes[0]?.currentSemester || profile.CurrentSemester || '1';
+  const extProgramName = extProgrammes[0]?.programmeName || profile.ProgramName || null;
+  const extCurrentSemester = extProgrammes[0]?.currentSemester || profile.CurrentSemester || null;
 
   let walletBalance = 0.00;
   let walletStatus = 'ACTIVE';
   try {
-    const wallet = await creditWalletRepository.findByUserAndTenant(auth.userId, tenantId);
-    if (wallet) {
-      walletBalance = Number(wallet.Balance || 0);
-      walletStatus = wallet.Status || 'ACTIVE';
+    const [tokenSumRows] = await pool.query(
+      `SELECT SUM(CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) THEN CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED) ELSE 0 END) AS TotalTokens FROM student_lab_token_wallets WHERE StudentId = ?`,
+      [profile.UserId || profile.StudentProfileId || auth.userId]
+    );
+    if (tokenSumRows[0] && tokenSumRows[0].TotalTokens !== null) {
+      walletBalance = Number(tokenSumRows[0].TotalTokens);
+    } else {
+      const wallet = await creditWalletRepository.getWallet(auth.userId, tenantId);
+      if (wallet) {
+        walletBalance = Number(wallet.Balance || 0);
+        walletStatus = wallet.Status || 'ACTIVE';
+      }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.warn("Wallet balance lookup warning:", e.message);
+  }
 
-  let tenantName = 'Acme University';
+  let tenantName = 'IgnitoLearn Portal';
   let tenantAdminPhone = null;
-  if (tenantId || roleCode === 'TENANT_ADMIN') {
+  const isDirectStudent = profile.AuthType === 'DIRECT' || profile.CreatedFrom === 'DIRECT' || (!profile.TenantId && roleCode === 'STUDENT');
+
+  if (tenantId && !isDirectStudent) {
     const [tRows] = await pool.query(
       "SELECT Name, AdminPhone, Status FROM tenants WHERE TenantId = ? OR LOWER(AdminEmail) = LOWER(?)",
       [tenantId || '', profile.Email || '']
@@ -430,18 +449,13 @@ export const authMeHandler = async ({ auth }) => {
       if (tRows[0].AdminPhone) tenantAdminPhone = tRows[0].AdminPhone;
     } else if (roleCode === 'TENANT_ADMIN') {
       throw unauthorized("University tenant not found or has been deleted.");
-    } else {
-      const [activeTenants] = await pool.query(
-        "SELECT Name FROM tenants WHERE Status = 'ACTIVE' ORDER BY DbId ASC LIMIT 1"
-      );
-      if (activeTenants.length > 0 && activeTenants[0].Name) {
-        tenantName = activeTenants[0].Name;
-      }
     }
   }
 
-  const userMobile = profile.Mobile || profile.PhoneNumber || tenantAdminPhone || extMobile || '';
+  const userMobile = profile.PhoneNumber || profile.Mobile || extMobile || tenantAdminPhone || null;
   const userProfileImage = profile.ProfileImage || extImage || null;
+  const finalCreatedFrom = profile.CreatedFrom || profile.createdFrom || (admissionId ? 'LMS' : 'DIRECT');
+  const finalAuthType = profile.AuthType || profile.authType || (admissionId ? 'LMS' : 'DIRECT');
 
   return ok({
     success: true,
@@ -451,8 +465,8 @@ export const authMeHandler = async ({ auth }) => {
       email: profile.Email,
       fullName: fullName,
       hasPassword: Boolean(profile.PasswordHash),
-      authType: profile.AuthType || 'LMS',
-      createdFrom: profile.CreatedFrom || 'LMS',
+      authType: finalAuthType,
+      createdFrom: finalCreatedFrom,
       status: profile.Status
     },
     tenant: {
@@ -508,9 +522,11 @@ export const authMeHandler = async ({ auth }) => {
       programName: extProgramName,
       currentSemester: extCurrentSemester,
       collegeName: tenantName,
-      createdFrom: profile.CreatedFrom || 'LMS',
-      authType: profile.AuthType || 'LMS',
+      createdFrom: finalCreatedFrom,
+      authType: finalAuthType,
       hasPassword: Boolean(profile.PasswordHash),
+      credits: walletBalance,
+      tokens: walletBalance,
       permissions,
     }
   });
@@ -521,8 +537,22 @@ export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
     throw unauthorized("Authentication required");
   }
 
-  const { fullName, mobile, phoneNumber, organization, profileImage } = body;
-  const targetPhone = mobile || phoneNumber || null;
+  const { fullName, name, mobile, phoneNumber, phone, profileImage, organization } = body;
+  const targetName = fullName || name || null;
+  const targetPhone = mobile || phoneNumber || phone || null;
+
+  let finalProfileImage = profileImage || null;
+  if (finalProfileImage && typeof finalProfileImage === 'string' && finalProfileImage.startsWith('data:image')) {
+    try {
+      const base64Data = finalProfileImage.replace(/^data:image\/\w+;base64,/, "");
+      const filename = `profile_${auth.userId}_${Date.now()}.png`;
+      const uploadPath = path.join(process.cwd(), "uploads", filename);
+      fs.writeFileSync(uploadPath, Buffer.from(base64Data, 'base64'));
+      finalProfileImage = `/uploads/${filename}`;
+    } catch (e) {
+      console.error("Error saving base64 profile image:", e);
+    }
+  }
 
   // 1. Update Users table
   await pool.query(
@@ -533,7 +563,7 @@ export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
        ProfileImage = COALESCE(?, ProfileImage),
        UpdatedAt = NOW()
      WHERE UserId = ?`,
-    [fullName || null, targetPhone, targetPhone, profileImage || null, auth.userId]
+    [targetName, targetPhone, targetPhone, finalProfileImage, auth.userId]
   );
 
   // 2. If user is TENANT_ADMIN or has tenantId, sync to tenants table
@@ -585,12 +615,17 @@ export const userProfilePhotoUploadHandler = async ({ auth, files = [], body = {
   if (files && files.length > 0) {
     const file = files[0];
     imageUrl = `/uploads/${file.filename}`;
-  } else if (body.image || body.base64) {
-    const base64Data = (body.image || body.base64).replace(/^data:image\/\w+;base64,/, "");
-    const filename = `profile_${auth.userId}_${Date.now()}.png`;
-    const uploadPath = path.join(process.cwd(), "uploads", filename);
-    fs.writeFileSync(uploadPath, Buffer.from(base64Data, 'base64'));
-    imageUrl = `/uploads/${filename}`;
+  } else if (body.image || body.base64 || body.profileImage) {
+    const rawData = body.image || body.base64 || body.profileImage;
+    if (rawData.startsWith('http://') || rawData.startsWith('https://') || rawData.startsWith('/uploads/')) {
+      imageUrl = rawData;
+    } else {
+      const base64Data = rawData.replace(/^data:image\/\w+;base64,/, "");
+      const filename = `profile_${auth.userId}_${Date.now()}.png`;
+      const uploadPath = path.join(process.cwd(), "uploads", filename);
+      fs.writeFileSync(uploadPath, Buffer.from(base64Data, 'base64'));
+      imageUrl = `/uploads/${filename}`;
+    }
   } else if (body.url || body.fileUrl) {
     imageUrl = body.url || body.fileUrl;
   }
@@ -652,6 +687,141 @@ export const authSetPasswordHandler = async ({ auth, body = {} }) => {
   return ok({
     success: true,
     message: "Experia password set successfully. You can now access your account directly."
+  });
+};
+
+export const userChangePasswordHandler = async ({ auth, body = {} }) => {
+  if (!auth || !auth.userId) {
+    throw unauthorized("Authentication required");
+  }
+  const { currentPassword, newPassword, confirmPassword } = body;
+  if (!currentPassword) {
+    throw badRequest("Current password is required");
+  }
+  if (!newPassword || newPassword.length < 6) {
+    throw badRequest("New password must be at least 6 characters long");
+  }
+  if (confirmPassword && newPassword !== confirmPassword) {
+    throw badRequest("New passwords do not match");
+  }
+
+  const [rows] = await pool.query("SELECT UserId, PasswordHash FROM Users WHERE UserId = ?", [auth.userId]);
+  if (!rows || rows.length === 0) {
+    throw unauthorized("User not found");
+  }
+
+  const user = rows[0];
+  if (user.PasswordHash) {
+    const isValid = await verifyPassword(currentPassword, user.PasswordHash);
+    if (!isValid) {
+      throw badRequest("Incorrect current password");
+    }
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+  await pool.query(
+    "UPDATE Users SET PasswordHash = ?, UpdatedAt = NOW() WHERE UserId = ?",
+    [hashedPassword, auth.userId]
+  );
+
+  return ok({
+    success: true,
+    message: "Password changed successfully."
+  });
+};
+
+const resetOtps = new Map();
+
+export const authForgotPasswordHandler = async ({ body = {} }) => {
+  const { email } = body;
+  if (!email || !email.trim()) {
+    throw badRequest("Email address is required");
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const [rows] = await pool.query(
+    "SELECT UserId, FullName, Email, AuthType, CreatedFrom FROM Users WHERE LOWER(Email) = ?",
+    [cleanEmail]
+  );
+
+  if (!rows || rows.length === 0) {
+    throw badRequest("No account found with this email address");
+  }
+
+  const user = rows[0];
+
+  // Verify that the user is an Experia Direct User
+  const isDirectUser = user.CreatedFrom === 'DIRECT' || user.AuthType === 'DIRECT' || user.AuthType === 'LMS_AND_DIRECT';
+  if (!isDirectUser) {
+    throw badRequest("Password reset is only available for Direct Experia users. University LMS users must authenticate via LMS SSO.");
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 15 * 60 * 1000;
+
+  resetOtps.set(cleanEmail, { otp, expiresAt, userId: user.UserId });
+  console.log(`[FORGOT_PASSWORD] Generated Reset OTP for ${cleanEmail}: ${otp}`);
+
+  const emailResult = await sendOtpEmail({
+    to: cleanEmail,
+    otp,
+    fullName: user.FullName
+  });
+
+  if (emailResult.success) {
+    return ok({
+      success: true,
+      message: `Password reset OTP has been sent to your email address (${cleanEmail}). Please check your inbox.`,
+      isExperiaUser: true
+    });
+  } else if (emailResult.mode === "DEV_LOG") {
+    return ok({
+      success: true,
+      message: `OTP code generated for ${cleanEmail}. (Demo OTP: ${otp}). To receive emails in your inbox, configure SMTP credentials in backend/.env.`,
+      otpDemo: otp,
+      isExperiaUser: true
+    });
+  } else {
+    throw badRequest(`Failed to send email to ${cleanEmail}: ${emailResult.error || 'SMTP delivery failed'}`);
+  }
+};
+
+export const authResetPasswordHandler = async ({ body = {} }) => {
+  const { email, otp, newPassword, confirmPassword } = body;
+  if (!email || !otp) {
+    throw badRequest("Email and OTP code are required");
+  }
+  if (!newPassword || newPassword.length < 6) {
+    throw badRequest("New password must be at least 6 characters long");
+  }
+  if (confirmPassword && newPassword !== confirmPassword) {
+    throw badRequest("New passwords do not match");
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cachedData = resetOtps.get(cleanEmail);
+
+  if (!cachedData || cachedData.otp !== String(otp).trim()) {
+    throw badRequest("Invalid or expired OTP code");
+  }
+
+  if (Date.now() > cachedData.expiresAt) {
+    resetOtps.delete(cleanEmail);
+    throw badRequest("OTP code has expired. Please request a new one.");
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+
+  await pool.query(
+    "UPDATE Users SET PasswordHash = ?, UpdatedAt = NOW() WHERE UserId = ?",
+    [hashedPassword, cachedData.userId]
+  );
+
+  resetOtps.delete(cleanEmail);
+
+  return ok({
+    success: true,
+    message: "Password reset successfully! You can now log in with your new password."
   });
 };
 
@@ -770,7 +940,7 @@ export const mapCourseLabHandler = async ({ auth, pathParameters = {}, body = {}
   const semesterId = body.semesterId || body.semesterNumber || "1";
   const courseCode = body.courseCode || courseId;
   const labId = body.labId;
-  const labTitle = body.labTitle || body.title || "Mapped Virtual Lab";
+  const labTitle = body.labTitle || body.title || "Mapped Virtual Lab"; 
 
   if (!courseCode || !labId) {
     throw badRequest("courseCode and labId are required");
@@ -794,19 +964,16 @@ export const mapCourseLabHandler = async ({ auth, pathParameters = {}, body = {}
 
   // Attempt DB persistence in course_lab_mappings table
   try {
-    const { getPool } = await import("../lib/postgres.js");
-    const pool = getPool();
-    const tenantId = auth.tenantId || 'tenant_001';
+    const tenantId = auth.tenantId || 'TEN000001';
 
     await pool.query(
       `INSERT INTO course_lab_mappings (tenant_id, program_id, semester_id, course_code, lab_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-       ON CONFLICT (tenant_id, program_id, semester_id, course_code)
-       DO UPDATE SET lab_id = EXCLUDED.lab_id, updated_at = NOW();`,
+       VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE lab_id = VALUES(lab_id), updated_at = NOW()`,
       [tenantId, String(programId), String(semesterId), String(courseCode), String(labId)]
     );
   } catch (err) {
-    console.warn("[MapLab] DB persistence skipped, saved in memory:", err.message);
+    console.warn("[MapLab] DB persistence error:", err.message);
   }
 
   return ok({
@@ -847,20 +1014,17 @@ export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
       // Query DB for persisted mappings
       const dbMappings = new Map();
       try {
-        const { getPool } = await import("../lib/postgres.js");
-        const pool = getPool();
-        const tenantId = auth.tenantId || 'tenant_001';
+        const tenantId = auth.tenantId || 'TEN000001';
 
-        const dbRes = await pool.query(
-          `SELECT m.program_id, m.semester_id, m.course_code, m.lab_id, l.title as lab_title, l.credits, l.duration_minutes
+        const [rows] = await pool.query(
+          `SELECT m.program_id, m.semester_id, m.course_code, m.lab_id
            FROM course_lab_mappings m
-           LEFT JOIN tenant_labs l ON m.lab_id = l.id
-           WHERE m.tenant_id = $1 AND m.program_id = $2`,
+           WHERE m.tenant_id = ? AND m.program_id = ?`,
           [tenantId, String(programmeId)]
         );
 
-        if (dbRes.rows && dbRes.rows.length > 0) {
-          for (const row of dbRes.rows) {
+        if (rows && rows.length > 0) {
+          for (const row of rows) {
             const key = `${row.program_id}-${row.semester_id}-${row.course_code}`;
             const labObj = {
               labId: row.lab_id,

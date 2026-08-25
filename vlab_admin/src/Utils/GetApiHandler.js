@@ -28,8 +28,10 @@ export async function executeRequest(path, options = {}) {
     }
   }
 
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+
   const reqHeaders = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...headers,
   };
@@ -38,7 +40,7 @@ export async function executeRequest(path, options = {}) {
     method,
     headers: reqHeaders,
     credentials: 'include',
-    ...(body ? { body: typeof body === 'string' ? body : JSON.stringify(body) } : {}),
+    ...(body ? { body: isFormData ? body : (typeof body === 'string' ? body : JSON.stringify(body)) } : {}),
     ...(signal ? { signal } : {}),
   };
 
@@ -48,10 +50,12 @@ export async function executeRequest(path, options = {}) {
     // Auto Refresh token on 401 Unauthorized for authenticated routes
     if (response.status === 401 && auth && !path.includes('/auth/refresh') && !path.includes('/auth/login')) {
       try {
+        const storedRefreshToken = useAuthStore.getState()?.auth?.refreshToken;
         const refreshRes = await fetch(`${cleanBase}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
+          ...(storedRefreshToken ? { body: JSON.stringify({ refreshToken: storedRefreshToken }) } : {}),
         });
 
         if (refreshRes.ok) {
@@ -59,12 +63,15 @@ export async function executeRequest(path, options = {}) {
           const newToken = refreshData.accessToken;
           if (newToken) {
             useAuthStore.getState().auth.setAccessToken(newToken);
+            if (refreshData.refreshToken) {
+              useAuthStore.getState().auth.setRefreshToken?.(refreshData.refreshToken);
+            }
             if (refreshData.user) {
               useAuthStore.getState().auth.setUser({
                 ...refreshData.user,
                 userId: refreshData.user.id || refreshData.user.userId,
                 fullName: refreshData.user.fullName || refreshData.user.name,
-                exp: Date.now() + 24 * 60 * 60 * 1000,
+                exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
               });
             }
             reqHeaders.Authorization = `Bearer ${newToken}`;
@@ -73,9 +80,12 @@ export async function executeRequest(path, options = {}) {
           }
         }
       } catch (refreshErr) {
-        useAuthStore.getState().auth.reset();
-        if (typeof window !== 'undefined') {
-          window.location.href = '/sign-in';
+        console.warn("Auto-refresh background attempt warning:", refreshErr);
+        if (path.includes('/auth/me')) {
+          useAuthStore.getState().auth.reset();
+          if (typeof window !== 'undefined') {
+            window.location.href = '/sign-in';
+          }
         }
         throw refreshErr;
       }

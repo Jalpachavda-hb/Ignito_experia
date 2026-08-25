@@ -38,17 +38,26 @@ export function WelcomeBanner({
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-2">
               {auth.user?.fullName || auth.user?.name || student.name}
             </h1>
-            <p className="text-sm font-medium text-muted-foreground mb-1">
-              {(auth.user?.programmesList && auth.user.programmesList.length > 0 ? auth.user.programmesList[0].programmeName : (auth.user?.programName || student.program.name))} <span className="mx-1">•</span> Semester {(auth.user?.programmesList && auth.user.programmesList.length > 0 ? auth.user.programmesList[0].currentSemester : (auth.user?.currentSemester || student.program.currentSemester))}
-              {auth.user?.programmesList && auth.user.programmesList.length > 1 && (
-                <span className="ml-2 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded border border-red-200">
-                  +{auth.user.programmesList.length - 1} More Enrolled
-                </span>
-              )}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {auth.user?.collegeName || student.collegeName}
-            </p>
+            {auth.user?.programmesList && auth.user.programmesList.length > 0 ? (
+              <p className="text-sm font-medium text-muted-foreground mb-1">
+                {auth.user.programmesList[0].programmeName} <span className="mx-1">•</span> Semester {auth.user.programmesList[0].currentSemester || '1'}
+                {auth.user.programmesList.length > 1 && (
+                  <span className="ml-2 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded border border-red-200">
+                    +{auth.user.programmesList.length - 1} More Enrolled
+                  </span>
+                )}
+              </p>
+            ) : auth.user?.programName ? (
+              <p className="text-sm font-medium text-muted-foreground mb-1">
+                {auth.user.programName} {auth.user.currentSemester ? `• Semester ${auth.user.currentSemester}` : ''}
+              </p>
+            ) : null}
+
+            {auth.user?.collegeName || auth.user?.tenantName || auth.user?.organization ? (
+              <p className="text-sm text-muted-foreground">
+                {auth.user?.collegeName || auth.user?.tenantName || auth.user?.organization}
+              </p>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-4 pt-2">
@@ -57,7 +66,7 @@ export function WelcomeBanner({
             </Button>
             <Button variant="outline" className="rounded-lg px-6 border-border/60 hover:bg-white hover:text-foreground bg-white/80 backdrop-blur-sm">
               <Wallet className="mr-2 h-4 w-4 text-muted-foreground" />
-              Credit Wallet
+              Token Wallet
             </Button>
           </div>
             

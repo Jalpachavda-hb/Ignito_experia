@@ -64,7 +64,8 @@ export function SecurityInfoCard({ student }: SecurityInfoCardProps) {
             </div>
           </div>
 
-          {/* Two Factor Authentication */}
+          {/* Two Factor Authentication - Commented out as requested */}
+          {/* 
           <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <Smartphone className="h-4 w-4 text-slate-500 shrink-0" />
@@ -81,6 +82,7 @@ export function SecurityInfoCard({ student }: SecurityInfoCardProps) {
               {student.twoFactorEnabled ? 'Enabled' : 'Disabled'}
             </Badge>
           </div>
+          */}
 
         </CardContent>
       </Card>

@@ -8,11 +8,12 @@ import {
 } from '../Utils/GetApiHandler';
 import {
   startLabSession,
+  extendLabSession,
   stopLabSession,
   updateLabCredits,
 } from '../Utils/PostApiHandler';
 
-export type LabStatus = 'pending' | 'starting' | 'running' | 'failed' | 'stopped';
+export type LabStatus = 'pending' | 'starting' | 'running' | 'expiring_soon' | 'failed' | 'stopped' | 'completed' | 'expired';
 
 export interface LabSession {
   sessionId: string;
@@ -27,6 +28,10 @@ export interface LabSession {
   };
   startedAt?: string;
   expiresAt?: string;
+  remainingSeconds?: number;
+  allocatedCredits?: number;
+  allocatedDurationMinutes?: number;
+  tenMinuteWarningSent?: boolean;
   durationMinutes?: number;
 }
 
@@ -46,6 +51,7 @@ export {
   fetchSubLabs,
   fetchLabDetails,
   startLabSession,
+  extendLabSession,
   fetchLabSessionStatus,
   fetchJupyterHealth,
   fetchUserActiveSession,

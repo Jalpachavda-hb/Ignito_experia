@@ -47,7 +47,6 @@ const NAV_ITEMS = [
   {
     group: 'Account',
     items: [
-      { icon: Settings, label: 'Settings', to: '/settings' },
       { icon: User, label: 'Profile', to: '/profile' },
     ],
   },

@@ -6,10 +6,11 @@ import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath
 import {
   File, Code2, Plus, Upload, Play, Save,
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RotateCw, Globe, Pencil, Copy, Check
+  Folder, FolderOpen, RotateCw, Globe, Pencil, Copy, Check, Coins
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
+import { useLabTokenStore } from '@/stores/labTokenStore';
 import { resolveApiRelativeUrl } from '@/config/env';
 import { TestingWorkspace } from './TestingWorkspace';
 import { SeleniumExecutionDialog } from '@/components/SeleniumExecutionDialog';
@@ -341,6 +342,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     activeFileIndexRef.current = activeFileIndex;
   }, [activeFileIndex]);
   const [labId, setLabId] = useState('');
+
+  const { labWallets, fetchStudentLabTokens } = useLabTokenStore();
+  useEffect(() => {
+    fetchStudentLabTokens();
+  }, [fetchStudentLabTokens]);
+  const activeLabWallet = (labWallets || []).find(w => w.labId === labId);
 
   const labType = propSession?.labType || '';
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
@@ -875,52 +882,26 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
   const pendingFetchRef = useRef<Set<string>>(new Set());
 
-  const selectFile = async (newIdx: number, newFilesList?: any[]) => {
-    if (newIdx === activeFileIndex && !isPreviewTabActive) return;
-
-    const currentFiles = newFilesList || files;
-
-    // 1. Save current active file before switching ONLY if it was modified by the user
-    if (activeFileIndex >= 0 && files[activeFileIndex]) {
-      const prevFile = files[activeFileIndex];
-      const lastSaved = lastSavedContentRef.current.get(prevFile.path);
-      if (prevFile.content !== undefined && lastSaved !== undefined && lastSaved !== prevFile.content) {
-        saveFile(prevFile, sessionId).catch((err: any) => {
-          console.error('Failed to save modified file before switching:', err);
-        });
-      }
-    }
-
-    const requestId = ++loadRequestIdRef.current;
+  const loadFileContent = async (targetPath: string) => {
+    if (!sessionId || !targetPath || pendingFetchRef.current.has(targetPath)) return;
+    pendingFetchRef.current.add(targetPath);
     setContentLoadingPath(targetPath);
     try {
-      const response = await fetchFileContent(targetPath, sessionId);
-      if (!mountedRef.current || requestId !== loadRequestIdRef.current) return;
-      if (dirtyPathsRef.current.has(targetPath)) {
+      const res = await fetchFileContent(targetPath, sessionId);
+      if (res && res.success) {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.path === targetPath ? { ...f, content: res.content } : f
+          )
+        );
         markPathLoaded(targetPath);
-        return;
+        lastSavedContentRef.current.set(targetPath, res.content ?? '');
       }
-      if (response.success) {
-        const content = response.content ?? '';
-        markPathLoaded(targetPath);
-        lastSavedContentRef.current.set(targetPath, content);
-        setFiles((prev) => {
-          const updated = [...prev];
-          const currentIdx = updated.findIndex((f) => f.path === targetPath);
-          if (currentIdx === -1) return prev;
-          // Never clobber local edits that landed while the request was in flight
-          if (dirtyPathsRef.current.has(targetPath)) return prev;
-          updated[currentIdx] = { ...updated[currentIdx], content };
-          return updated;
-        });
-      }
-    } catch (err: any) {
-      console.error('Content load error:', err);
-      toast.error(err.message || 'Unable to load file content. Please refresh or restart the session.');
+    } catch (err) {
+      console.error('Failed to load file content:', err);
     } finally {
-      if (mountedRef.current && requestId === loadRequestIdRef.current) {
-        setContentLoadingPath((prev) => (prev === targetPath ? null : prev));
-      }
+      pendingFetchRef.current.delete(targetPath);
+      setContentLoadingPath(null);
     }
   };
 
@@ -2055,6 +2036,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             {remainingTime && (
               <div className="text-red-500 font-mono text-[10px] font-black bg-red-950/40 border border-red-500/20 px-2.5 py-1 rounded animate-pulse shrink-0 ml-2">
                 TIME REMAINING: {remainingTime}
+              </div>
+            )}
+            {activeLabWallet && (
+              <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[10px] font-black bg-emerald-950/40 border border-emerald-500/20 px-2.5 py-1 rounded shrink-0 ml-2">
+                <Coins size={12} className="text-emerald-400" />
+                <span>{activeLabWallet.remainingTokens} TOKENS ({activeLabWallet.remainingTokens} MINS)</span>
               </div>
             )}
             <button

@@ -48,7 +48,7 @@ export interface CreditWallet {
 export interface LabActivity {
   id: string
   labName: string
-  status: 'Completed' | 'In Progress' | 'Not Started'
+  status: 'Completed' | 'In Progress' | 'Not Started' | 'Stopped'
   creditsUsed: number
   completionPercentage: number
   lastAccessed: string

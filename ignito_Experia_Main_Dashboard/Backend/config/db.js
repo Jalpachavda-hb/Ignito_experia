@@ -133,20 +133,17 @@ export async function verifyDbConnection() {
       }
       console.log("[DB] Schema tables created.");
 
-      // Seed default owner user with hashed password (Owner@1234) and default phone number
-      const hash = await bcrypt.hash("Owner@1234", 10);
+      // Seed default owner user with hashed password (Owner123!) and default phone number
+      const hash = await bcrypt.hash("Owner123!", 10);
       await conn.query(
         `INSERT INTO owner_users (Email, PhoneNumber, PasswordHash, Role, Status)
          VALUES (?, ?, ?, 'owner', 'active')
          ON DUPLICATE KEY UPDATE PasswordHash = VALUES(PasswordHash)`,
         ["owner@ignito.com", "1234567890", hash]
       );
-      console.log("[DB] Default owner user seeded: owner@ignito.com (password: Owner@1234, phone: 1234567890)");
+      console.log("[DB] Default owner user seeded: owner@ignito.com (password: Owner123!, phone: 1234567890)");
 
       // Install procedures
-      const logErrorPath = path.join(process.cwd(), "database", "procedures", "sp_LogError.sql");
-      await runSqlProcedure(conn, logErrorPath);
-
       const labsProceduresDir = path.join(process.cwd(), "database", "procedures", "labs");
       if (fs.existsSync(labsProceduresDir)) {
         const procFiles = fs.readdirSync(labsProceduresDir).filter(f => f.endsWith(".sql"));
@@ -215,13 +212,13 @@ export async function verifyDbConnection() {
     // Seed default owner user if table is empty
     const [ownerRows] = await conn.query("SELECT COUNT(*) as count FROM `owner_users`;");
     if (ownerRows[0].count === 0) {
-      const hash = await bcrypt.hash("Owner@1234", 10);
+      const hash = await bcrypt.hash("Owner123!", 10);
       await conn.query(
         `INSERT INTO owner_users (FullName, Email, PhoneNumber, Designation, Organization, PasswordHash, Role, Status)
          VALUES ('Platform Owner', 'owner@ignito.com', '1234567890', 'Platform Owner', 'Ignito Experia Owner', ?, 'owner', 'active')`,
         [hash]
       );
-      console.log("[DB] Seeded default owner user: owner@ignito.com (password: Owner@1234, phone: 1234567890)");
+      console.log("[DB] Seeded default owner user: owner@ignito.com (password: Owner123!, phone: 1234567890)");
     }
 
     // Ensure Phase 1 Tenant Provisioning tables exist
@@ -254,36 +251,8 @@ export async function verifyDbConnection() {
     try { await conn.query("ALTER TABLE `tenants` ADD COLUMN `AdminPasswordHash` VARCHAR(255) NULL;"); } catch (e) {}
     try { await conn.query("ALTER TABLE `tenants` ADD COLUMN `AdminPhone` VARCHAR(50) NULL;"); } catch (e) {}
 
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS \`users\` (
-          \`UserId\`       BIGINT AUTO_INCREMENT PRIMARY KEY,
-          \`Email\`        VARCHAR(255) NOT NULL UNIQUE,
-          \`PasswordHash\` VARCHAR(255) NOT NULL,
-          \`FullName\`     VARCHAR(200) NOT NULL,
-          \`Phone\`        VARCHAR(50)  NULL,
-          \`Status\`       VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
-          \`CreatedDate\`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
-          \`UpdatedDate\`  DATETIME NULL,
-          INDEX \`IDX_users_Email\`  (\`Email\`),
-          INDEX \`IDX_users_Status\` (\`Status\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
+    console.log("[DB] Tenant tables verified/created successfully.");
 
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS \`user_tenant_mapping\` (
-          \`MappingId\`   BIGINT AUTO_INCREMENT PRIMARY KEY,
-          \`UserId\`      BIGINT      NOT NULL,
-          \`TenantId\`    VARCHAR(50) NOT NULL,
-          \`Role\`        ENUM('TENANT_ADMIN', 'STUDENT') NOT NULL,
-          \`Status\`      VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
-          \`CreatedDate\` DATETIME    DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (\`UserId\`) REFERENCES \`users\` (\`UserId\`) ON DELETE CASCADE,
-          FOREIGN KEY (\`TenantId\`) REFERENCES \`tenants\` (\`TenantId\`) ON DELETE CASCADE,
-          UNIQUE KEY \`UK_user_tenant_role\` (\`UserId\`, \`TenantId\`, \`Role\`),
-          INDEX \`IDX_utm_TenantId\` (\`TenantId\`),
-          INDEX \`IDX_utm_Role\`     (\`Role\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
     console.log("[DB] Tenant tables verified/created successfully.");
   } catch (err) {
     console.error("[DB] Failed to initialize database:", err.message);

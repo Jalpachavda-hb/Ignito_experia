@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { PlayCircle, Clock, Database, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
+import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles } from 'lucide-react';
 import { Lab } from '../types';
 
 interface LabCardProps {
@@ -41,10 +41,15 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   const hasActiveSession = !!activeSession;
   const isRunning = activeSession?.status === 'running';
   const isSessionStarting = activeSession?.status === 'starting';
-  // Map 'active' to 'Available' for display purposes, so it doesn't look weird
-  const displayStatus = lab.status === 'active' ? 'Available' : (lab.status || 'Not Started');
+  // Map 'active' or default state so it doesn't display 'Active' or 'Available' badge on idle cards
+  const rawStatus = String(lab.status || '').trim().toLowerCase();
+  const displayStatus = (rawStatus === 'active' || rawStatus === 'available' || rawStatus === 'not started') ? '' : (lab.status || '');
   const labStatus = isStarting || isSessionStarting ? 'Starting...' : isStopping ? 'Stopping...' : isRunning ? 'Running' : displayStatus;
+  const isStatusVisible = Boolean(labStatus && !['available', 'not started', 'active'].includes(labStatus.toLowerCase()));
   const progress = labStatus === 'Completed' ? 100 : (isRunning || isSessionStarting || labStatus === 'In Progress') ? 35 : 0;
+
+  const accessType = lab.accessType || (lab.isPurchased ? 'personal' : lab.isUniversity ? 'university' : null);
+  const accessLabel = lab.accessLabel || (accessType === 'personal' ? 'Personal' : accessType === 'university' ? 'UNI' : null);
 
   const name = lab.title || lab.name || 'Unnamed Lab';
   const imageUrl = lab.logo || lab.image || lab.icon || null;
@@ -53,10 +58,28 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   // List View Layout
   if (viewMode === 'list') {
     return (
-      <Card className="flex flex-col sm:flex-row overflow-hidden transition-all duration-300 hover:shadow-lg border-border/60 hover:border-slate-300 group rounded-2xl">
+      <Card className="flex flex-col sm:flex-row overflow-hidden transition-all duration-300 hover:shadow-lg border-border/60 hover:border-slate-300 group rounded-2xl relative">
         <div className="w-full sm:w-64 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-center border-b sm:border-b-0 sm:border-r border-border/40 shrink-0 relative overflow-hidden p-6">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.02)_100%)] dark:bg-[radial-gradient(circle_at_center,transparent_0%,rgba(255,255,255,0.02)_100%)]" />
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:20px_20px] opacity-40" />
+
+          {/* Access Type Badge (UNI / Personal) */}
+          {accessLabel && (
+            <div className="absolute top-3 left-3 z-10">
+              <div className={`px-2.5 py-1 rounded-full shadow-xs border flex items-center gap-1.5 text-[10px] font-extrabold tracking-wider ${
+                accessType === 'personal' 
+                  ? 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800' 
+                  : 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+              }`}>
+                {accessType === 'personal' ? (
+                  <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                ) : (
+                  <GraduationCap className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                )}
+                <span>{accessLabel}</span>
+              </div>
+            </div>
+          )}
 
           {imageUrl ? (
             <img src={imageUrl} alt={name} className="relative z-10 w-full h-full object-contain drop-shadow-sm transition-transform duration-500 group-hover:scale-105" />
@@ -65,34 +88,45 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
               <MonitorPlay className={`h-8 w-8 ${theme.text}`} />
             </div>
           )}
-          <div className="absolute top-3 right-3 sm:hidden z-10">
-            <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-              <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
-              {labStatus}
+          {isStatusVisible && (
+            <div className="absolute top-3 right-3 sm:hidden z-10">
+              <div className="bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
+                {labStatus}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="flex-1 flex flex-col justify-between p-6">
           <div className="flex justify-between items-start mb-4">
             <div>
-              <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${theme.text}`}>{lab.category || 'General Lab'}</p>
+              <div className="flex items-center gap-2 mb-2">
+                <p className={`text-xs font-bold uppercase tracking-wider ${theme.text}`}>{lab.category || 'General Lab'}</p>
+                {accessLabel && (
+                  <Badge variant="outline" className={`hidden sm:inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                    accessType === 'personal' 
+                      ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300' 
+                      : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300'
+                  }`}>
+                    {accessType === 'personal' ? <Sparkles className="w-2.5 h-2.5 mr-1" /> : <GraduationCap className="w-2.5 h-2.5 mr-1" />}
+                    {accessLabel}
+                  </Badge>
+                )}
+              </div>
               <h3 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white leading-tight">{name}</h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 line-clamp-2">
                 {lab.description || 'Learn and explore various concepts through this interactive lab environment.'}
               </p>
             </div>
-            <div className="hidden sm:block">
-              <div className="bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                <div className={`w-2 h-2 rounded-full ${theme.bg}`}></div>
-                {labStatus}
+            {isStatusVisible && (
+              <div className="hidden sm:block">
+                <div className="bg-white dark:bg-slate-900 px-3 py-1.5 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  <div className={`w-2 h-2 rounded-full ${theme.bg}`}></div>
+                  {labStatus}
+                </div>
               </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-auto text-sm text-slate-500 font-medium">
-            <div className="flex items-center gap-1.5"><Clock className="h-4 w-4" /> {lab.durationMinutes || lab.duration || 60} Mins</div>
-            <div className="flex items-center gap-1.5"><Database className="h-4 w-4" /> {lab.credits || 0} Credits</div>
+            )}
           </div>
         </div>
 
@@ -146,18 +180,36 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
     );
   }
 
-  // Grid View Layout (Default) - Matches the provided screenshot
+  // Grid View Layout (Default)
   return (
-    <Card className="flex flex-col h-full overflow-hidden transition-all duration-300 hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgb(0,0,0,0.3)] hover:-translate-y-1 border-slate-200/60 dark:border-slate-800 group rounded-[20px] bg-white dark:bg-slate-950">
+    <Card className="flex flex-col h-full overflow-hidden transition-all duration-300 hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgb(0,0,0,0.3)] hover:-translate-y-1 border-slate-200/60 dark:border-slate-800 group rounded-[20px] bg-white dark:bg-slate-950 relative">
       <CardHeader className="p-0 relative h-[180px] flex items-center justify-center overflow-hidden shrink-0">
         {/* Subtle background patterns */}
         <div className="absolute inset-0 bg-[#f8fafc] dark:bg-slate-900/50" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.01)_100%)] dark:bg-[radial-gradient(circle_at_center,transparent_0%,rgba(255,255,255,0.02)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:16px_16px] opacity-70" />
 
-        {/* Abstract decorative shapes - similar to the screenshot */}
+        {/* Abstract decorative shapes */}
         <div className="absolute -top-12 -left-12 w-32 h-32 bg-red-100/40 dark:bg-red-900/20 rounded-full blur-3xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
         <div className="absolute top-10 -right-10 w-24 h-24 bg-blue-100/40 dark:bg-blue-900/20 rounded-full blur-2xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
+
+        {/* Access Type Badge (UNI / Personal) in Top Left */}
+        {accessLabel && (
+          <div className="absolute top-3.5 left-3.5 z-10">
+            <div className={`px-2.5 py-1 rounded-full shadow-xs border flex items-center gap-1.5 text-[10px] font-extrabold tracking-wider ${
+              accessType === 'personal' 
+                ? 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800' 
+                : 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+            }`}>
+              {accessType === 'personal' ? (
+                <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+              ) : (
+                <GraduationCap className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+              )}
+              <span>{accessLabel}</span>
+            </div>
+          </div>
+        )}
 
         {imageUrl ? (
           <div className="relative z-10 w-full h-full p-8 flex items-center justify-center">
@@ -169,12 +221,14 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
           </div>
         )}
 
-        <div className="absolute top-4 right-4 z-10">
-          <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
-            <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
-            {labStatus}
+        {isStatusVisible && (
+          <div className="absolute top-3.5 right-3.5 z-10">
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+              <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
+              {labStatus}
+            </div>
           </div>
-        </div>
+        )}
       </CardHeader>
 
       <CardContent className="px-5 pt-5 pb-0 flex-1 flex flex-col relative z-20 bg-white dark:bg-slate-950">
@@ -208,12 +262,6 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             <Progress value={progress} className={`h-1.5 bg-slate-100 dark:bg-slate-800 ${theme.progress}`} />
           </div>
         )}
-
-        <div className="mt-auto pt-4 border-t border-dashed border-slate-200 dark:border-slate-800/60 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">
-          <div className="flex items-center gap-1.5 flex-1 justify-center"><Clock className="h-3.5 w-3.5" /> {lab.durationMinutes || lab.duration || 60} Minutes</div>
-          <div className="w-[1px] h-3 bg-slate-200 dark:bg-slate-800"></div>
-          <div className="flex items-center gap-1.5 flex-1 justify-center"><Database className="h-3.5 w-3.5" /> {lab.credits || 0} Credits</div>
-        </div>
       </CardContent>
 
       <CardFooter className="p-5 pt-4 bg-white dark:bg-slate-950 flex flex-col gap-3">

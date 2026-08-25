@@ -1,29 +1,45 @@
 import pool from "../lib/mysql.js";
+import { ROLES } from "../constants/roles.js";
 
 class UserRepository {
   async findByEmail(email) {
     const params = [email.toLowerCase()];
-    let rows;
-    try {
-      [rows] = await pool.query(
-        "SELECT * FROM users WHERE LOWER(Email) = ?",
-        params,
-      );
-    } catch (err) {
-      [rows] = await pool.query(
-        "SELECT * FROM Users WHERE LOWER(Email) = ?",
-        params,
-      );
-    }
+    const [rows] = await pool.query(
+      "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
+      params
+    );
     if (!rows || !rows.length) return null;
     return rows[0];
   }
 
   async findById(userId, connection = pool) {
-    const [rows] = await connection.query("CALL sp_User_GetById(?)", [userId]);
-    // rows[0] contains the result set from the stored procedure
-    if (!rows[0] || !rows[0].length) return null;
-    return rows[0][0];
+    const [rows] = await connection.query(
+      `SELECT 
+        u.UserId, 
+        u.FullName, 
+        u.FullName AS Name,
+        u.Email, 
+        u.PhoneNumber,
+        u.Mobile,
+        u.ProfileImage,
+        u.Role, 
+        u.Status, 
+        u.TenantId,
+        u.ExternalStudentId,
+        u.StudentDegreeAdmissionId,
+        u.StudentId,
+        u.IsDeleted,
+        u.DeletedAt,
+        COALESCE(w.Balance, 0) AS CreditBalance,
+        u.LastLoginAt, 
+        u.CreatedAt,
+        u.UpdatedAt
+      FROM Users u
+      LEFT JOIN StudentCreditWallets w ON u.UserId = w.UserId
+      WHERE u.UserId = ? AND COALESCE(u.IsDeleted, 0) = 0`,
+      [userId]
+    );
+    return rows[0] || null;
   }
 
   async getAll(params = {}) {
@@ -41,12 +57,10 @@ class UserRepository {
     } = params;
 
     const normalizedActorRole = (actorRole || "").toUpperCase().replace(/\s+/g, "_");
-    const isSuperAdmin = normalizedActorRole === "SUPER_ADMIN" || normalizedActorRole === "SUPERADMIN" || normalizedActorRole === "SUPER_ADMINISTRATOR";
+    const isTenantAdmin = ["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(normalizedActorRole);
 
     let effectiveTenantId = null;
-
-    if (!isSuperAdmin) {
-      // TENANT_ADMIN / Non-SuperAdmin must fail closed if tenantId is missing
+    if (!isTenantAdmin) {
       if (!actorTenantId) {
         const err = new Error("TENANT_CONTEXT_MISSING");
         err.code = "TENANT_CONTEXT_MISSING";
@@ -54,7 +68,6 @@ class UserRepository {
       }
       effectiveTenantId = actorTenantId;
     } else {
-      // SUPER_ADMIN can optionally filter by filterTenantId if not 'ALL'
       if (filterTenantId && filterTenantId !== 'ALL') {
         effectiveTenantId = filterTenantId;
       }
@@ -78,10 +91,9 @@ class UserRepository {
     }
 
     if (role && role.trim()) {
-      whereClause += " AND (LOWER(r.Name) = LOWER(?) OR REPLACE(UPPER(r.Name), ' ', '_') = ?)";
-      const roleStr = role.trim();
-      const roleNorm = roleStr.toUpperCase().replace(/\s+/g, '_');
-      queryParams.push(roleStr, roleNorm);
+      whereClause += " AND UPPER(u.Role) = ?";
+      const roleNorm = role.trim().toUpperCase().replace(/\s+/g, '_');
+      queryParams.push(roleNorm);
     }
 
     if (status && status.trim()) {
@@ -92,7 +104,7 @@ class UserRepository {
     let orderCol = "u.UserId";
     if (sortBy === "Name" || sortBy === "FullName") orderCol = "u.FullName";
     else if (sortBy === "Email") orderCol = "u.Email";
-    else if (sortBy === "Role") orderCol = "r.Name";
+    else if (sortBy === "Role") orderCol = "u.Role";
     else if (sortBy === "Status") orderCol = "u.Status";
     else if (sortBy === "CreatedAt") orderCol = "u.CreatedAt";
 
@@ -112,15 +124,14 @@ class UserRepository {
         u.TenantId,
         t.Name AS UniversityName,
         t.Slug AS TenantSlug,
-        COALESCE(r.Name, 'Student') AS Role, 
+        u.Role, 
         u.Status, 
-        u.ExternalStudentId AS EnrollmentNumber,
+        COALESCE(NULLIF(u.ExternalStudentId, ''), NULLIF(u.StudentDegreeAdmissionId, ''), '') AS EnrollmentNumber,
         COALESCE(w.Balance, 0) AS CreditBalance,
         u.LastLoginAt, 
         u.CreatedAt,
         COUNT(*) OVER() AS TotalRecords
       FROM Users u
-      LEFT JOIN Roles r ON u.RoleId = r.RoleId
       LEFT JOIN tenants t ON u.TenantId = t.TenantId
       LEFT JOIN StudentCreditWallets w ON u.UserId = w.UserId
       ${whereClause}
@@ -139,48 +150,95 @@ class UserRepository {
   }
 
   async insert(userData, connection = pool) {
-    const { fullName, email, phoneNumber = null, passwordHash, roleId: inputRoleId, role: inputRole, status = 'Active', enrollmentNumber = null, programId = null, semesterId = null, createdBy = null } = userData;
+    const {
+      fullName,
+      email,
+      phoneNumber = null,
+      passwordHash,
+      role = 'STUDENT',
+      status = 'Active',
+      createdBy = null,
+      profileImage = null
+    } = userData;
 
-    let roleId = inputRoleId;
-    if (!roleId) {
-      const targetRoleName = inputRole || 'Student';
-      const [roleRows] = await connection.query("SELECT RoleId FROM Roles WHERE Name = ?", [targetRoleName]);
-      roleId = roleRows[0]?.RoleId || null;
-    }
+    const rawRole = (role || "").toUpperCase().replace(/\s+/g, "_");
+    const normalizedRole = ["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(rawRole)
+      ? ROLES.TENANT_ADMIN
+      : ROLES.STUDENT;
 
     const [result] = await connection.query(
-      "CALL sp_User_Insert(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @newUserId);",
-      [fullName, email, phoneNumber, passwordHash, roleId, status, enrollmentNumber, programId, semesterId, createdBy]
+      `INSERT INTO Users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedBy, CreatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdBy]
     );
-    
-    // Fetch the OUT parameter
-    const [outRows] = await connection.query("SELECT @newUserId AS newUserId;");
-    const newUserId = outRows[0].newUserId;
-    
+
+    const newUserId = result.insertId;
+
+    if (profileImage && newUserId) {
+      await connection.query(
+        "UPDATE Users SET ProfileImage = ?, UpdatedAt = NOW() WHERE UserId = ?",
+        [profileImage, newUserId]
+      );
+    }
+
     return this.findById(newUserId, connection);
   }
 
   async update(userId, userData) {
-    const { fullName, phoneNumber, roleId, enrollmentNumber, programId, semesterId, updatedBy } = userData;
-    await pool.query(
-      "CALL sp_User_Update(?, ?, ?, ?, ?, ?, ?, ?)",
-      [userId, fullName, phoneNumber, roleId, enrollmentNumber, programId, semesterId, updatedBy]
-    );
+    const { fullName, phoneNumber, role, updatedBy } = userData;
+
+    let normalizedRole = undefined;
+    if (role) {
+      const rawRole = role.toUpperCase().replace(/\s+/g, "_");
+      normalizedRole = ["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(rawRole)
+        ? ROLES.TENANT_ADMIN
+        : ROLES.STUDENT;
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (fullName !== undefined) {
+      updates.push("FullName = ?");
+      params.push(fullName);
+    }
+
+    if (phoneNumber !== undefined) {
+      updates.push("PhoneNumber = ?");
+      params.push(phoneNumber);
+    }
+
+    if (normalizedRole !== undefined) {
+      updates.push("Role = ?");
+      params.push(normalizedRole);
+    }
+
+    if (updatedBy !== undefined) {
+      updates.push("UpdatedBy = ?");
+      params.push(updatedBy);
+    }
+
+    if (updates.length > 0) {
+      updates.push("UpdatedAt = NOW()");
+      params.push(userId);
+      await pool.query(`UPDATE Users SET ${updates.join(", ")} WHERE UserId = ?`, params);
+    }
+
     return this.findById(userId);
   }
 
   async updateStatus(userId, status, updatedBy = null) {
     await pool.query(
-      "CALL sp_User_UpdateStatus(?, ?, ?)",
-      [userId, status, updatedBy]
+      "UPDATE Users SET Status = ?, UpdatedBy = ?, UpdatedAt = NOW() WHERE UserId = ?",
+      [status, updatedBy, userId]
     );
     return this.findById(userId);
   }
 
   async delete(userId, deletedBy = null) {
     await pool.query(
-      "CALL sp_User_Delete(?, ?)",
-      [userId, deletedBy]
+      "UPDATE Users SET IsDeleted = 1, DeletedAt = NOW(), DeletedBy = ? WHERE UserId = ?",
+      [deletedBy, userId]
     );
   }
 
@@ -191,44 +249,17 @@ class UserRepository {
     );
   }
 
-  async insertRefreshToken(userId, token, expiresAt) {
-    await pool.query(
-      "INSERT INTO UserRefreshTokens (UserId, RefreshToken, ExpiresAt) VALUES (?, ?, ?)",
-      [userId, token, expiresAt]
-    );
-  }
-
-  async findRefreshToken(token) {
-    const [rows] = await pool.query(
-      "SELECT * FROM UserRefreshTokens WHERE RefreshToken = ? AND IsRevoked = 0 AND ExpiresAt > NOW()",
-      [token]
-    );
-    return rows[0] || null;
-  }
-
-  async revokeRefreshToken(token) {
-    await pool.query(
-      "UPDATE UserRefreshTokens SET IsRevoked = 1 WHERE RefreshToken = ?",
-      [token]
-    );
-  }
-
-  async revokeAllRefreshTokensForUser(userId) {
-    await pool.query(
-      "UPDATE UserRefreshTokens SET IsRevoked = 1 WHERE UserId = ?",
-      [userId]
-    );
-  }
-
   async updatePassword(userId, passwordHash) {
     await pool.query(
       "UPDATE Users SET PasswordHash = ?, UpdatedAt = NOW() WHERE UserId = ?",
       [passwordHash, userId]
     );
   }
+
   async addCredits(userId, amount) {
     await pool.query(
-      "CALL sp_User_AddCredits(?, ?)",
+      `INSERT INTO StudentCreditWallets (UserId, Balance) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE Balance = Balance + VALUES(Balance), UpdatedAt = NOW()`,
       [userId, amount]
     );
     return this.findById(userId);

@@ -3,10 +3,11 @@ export interface Badge {
   name: string;
   description: string;
   earnedDate?: string;
-  category: 'Programming' | 'Database' | 'Linux' | 'Cloud' | 'Data Science' | 'Software Testing' | 'Software Engineering' | 'Professional Skills';
-  difficulty: 'Beginner' | 'Intermediate' | 'Advanced' | 'Expert';
-  progress: number; // 0 to 100
-  isLocked: boolean;
+  category: string;
+  difficulty: string;
+  progress?: number; // 0 to 100
+  isLocked?: boolean;
+  iconUrl?: string;
 }
 
 export interface SkillMastery {

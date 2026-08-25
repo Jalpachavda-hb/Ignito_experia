@@ -68,38 +68,114 @@ const normalizeLabObject = (lab) => {
 };
 
 class LabService {
-  async getAllAdmin(status) {
+  async getAllAdmin(status, tenantId = 'TEN000001') {
     const endpoint = status ? `/api/labs?status=${encodeURIComponent(status)}` : "/api/labs";
     const data = await fetchFromOwner(endpoint);
+    let labs = [];
     if (data && Array.isArray(data.labs)) {
-      return data.labs.map(normalizeLabObject);
+      labs = data.labs.map(normalizeLabObject);
+    } else {
+      console.warn("[LabService] Falling back to repository for getAllAdmin");
+      const dbLabs = await labRepository.getAllAdmin(status);
+      labs = (dbLabs || []).map(normalizeLabObject);
     }
-    // Safe fallback to database repository if Owner API is unreachable
-    console.warn("[LabService] Falling back to repository for getAllAdmin");
-    const dbLabs = await labRepository.getAllAdmin(status);
-    return (dbLabs || []).map(normalizeLabObject);
+
+    try {
+      const pool = (await import("../lib/mysql.js")).default;
+      const [mappings] = await pool.query(
+        "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ?",
+        [tenantId || 'TEN000001']
+      );
+      const mapDict = new Map();
+      (mappings || []).forEach(m => mapDict.set(String(m.lab_id), m));
+
+      labs.forEach(lab => {
+        const m = mapDict.get(String(lab.id)) || mapDict.get(String(lab.labCode));
+        if (m) {
+          lab.program = m.program_id === '1' ? 'MBAIBOL' : (m.program_id === '2' ? 'MCAOL' : m.program_id);
+          lab.semester = `Semester ${m.semester_id}`;
+          lab.course = m.course_code;
+        } else {
+          lab.program = null;
+          lab.semester = null;
+          lab.course = null;
+        }
+      });
+    } catch (e) {
+      console.warn("[LabService] Error attaching course_lab_mappings:", e.message);
+    }
+
+    return labs;
   }
 
-  async getAllActive() {
+  async getAllActive(tenantId = 'TEN000001') {
     const data = await fetchFromOwner("/api/labs");
+    let labs = [];
     if (data && Array.isArray(data.labs)) {
-      return data.labs.map(normalizeLabObject);
+      labs = data.labs.map(normalizeLabObject);
+    } else {
+      console.warn("[LabService] Falling back to repository for getAllActive");
+      const dbLabs = await labRepository.getAllActive();
+      labs = (dbLabs || []).map(normalizeLabObject);
     }
-    // Safe fallback to database repository if Owner API is unreachable
-    console.warn("[LabService] Falling back to repository for getAllActive");
-    const dbLabs = await labRepository.getAllActive();
-    return (dbLabs || []).map(normalizeLabObject);
+
+    try {
+      const pool = (await import("../lib/mysql.js")).default;
+      const [mappings] = await pool.query(
+        "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ?",
+        [tenantId || 'TEN000001']
+      );
+      const mapDict = new Map();
+      (mappings || []).forEach(m => mapDict.set(String(m.lab_id), m));
+
+      labs.forEach(lab => {
+        const m = mapDict.get(String(lab.id)) || mapDict.get(String(lab.labCode));
+        if (m) {
+          lab.program = m.program_id === '1' ? 'MBAIBOL' : (m.program_id === '2' ? 'MCAOL' : m.program_id);
+          lab.semester = `Semester ${m.semester_id}`;
+          lab.course = m.course_code;
+        } else {
+          lab.program = null;
+          lab.semester = null;
+          lab.course = null;
+        }
+      });
+    } catch (e) {
+      console.warn("[LabService] Error attaching course_lab_mappings:", e.message);
+    }
+
+    return labs;
   }
 
   async getById(labCodeOrId) {
     if (!labCodeOrId) return null;
+    const target = String(labCodeOrId).toLowerCase().trim();
+    const cleanTarget = target.replace(/-lab$/, '').replace(/^lab-/, '');
+
     const data = await fetchFromOwner(`/api/labs/${encodeURIComponent(labCodeOrId)}`);
     if (data && data.lab) {
       return normalizeLabObject(data.lab);
     }
-    // Safe fallback
+    const dbLab = await labRepository.getById(labCodeOrId);
+    if (dbLab) return normalizeLabObject(dbLab);
+
     const all = await this.getAllActive();
-    return all.find((l) => l.id === labCodeOrId || l.labCode === labCodeOrId || String(l.dbId) === String(labCodeOrId)) || null;
+    return all.find((l) => {
+      const id = String(l.id || '').toLowerCase();
+      const code = String(l.labCode || '').toLowerCase();
+      const title = String(l.title || '').toLowerCase();
+      const dbId = String(l.dbId || '').toLowerCase();
+
+      return (
+        id === target ||
+        code === target ||
+        title === target ||
+        dbId === target ||
+        id.replace(/-lab$/, '').replace(/^lab-/, '') === cleanTarget ||
+        code.replace(/-lab$/, '').replace(/^lab-/, '') === cleanTarget ||
+        title.replace(/\s+/g, '-').replace(/-lab$/, '') === cleanTarget
+      );
+    }) || null;
   }
 }
 

@@ -34,6 +34,30 @@ export const setPassword = async (payload) => {
   });
 };
 
+export const changePassword = async (payload) => {
+  return executeRequest(API_PATHS.AUTH.CHANGE_PASSWORD, {
+    method: 'POST',
+    body: payload,
+    auth: true,
+  });
+};
+
+export const forgotPassword = async (payload) => {
+  return executeRequest(API_PATHS.AUTH.FORGOT_PASSWORD, {
+    method: 'POST',
+    body: payload,
+    auth: false,
+  });
+};
+
+export const resetPassword = async (payload) => {
+  return executeRequest(API_PATHS.AUTH.RESET_PASSWORD, {
+    method: 'POST',
+    body: payload,
+    auth: false,
+  });
+};
+
 export const ssoLogin = async (payload, token) => {
   return executeRequest(API_PATHS.AUTH.SSO_LOGIN, {
     method: 'POST',
@@ -68,15 +92,40 @@ export {
 } from './lmsApi_paths';
 
 /**
- * @param {{ labId: string, duration?: number, dotnetSubtype?: string }} params
+ * @param {{ labId: string, sessionBlocks?: number, duration?: number, dotnetSubtype?: string, idempotencyKey?: string, userCredits?: number }} params
  */
-export const startLabSession = async ({ labId, duration, dotnetSubtype } = {}) => {
+export const startLabSession = async ({ labId, sessionBlocks = 1, duration, dotnetSubtype, idempotencyKey, userCredits } = {}) => {
   if (!labId) {
     throw new Error('labId is required to start a lab session');
   }
   return executeRequest(API_PATHS.LAB_SESSIONS.START_SESSION, {
     method: 'POST',
-    body: { labId, ...(duration ? { duration } : {}), ...(dotnetSubtype ? { dotnetSubtype } : {}) },
+    body: {
+      labId,
+      sessionBlocks,
+      ...(duration ? { duration } : {}),
+      ...(dotnetSubtype ? { dotnetSubtype } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+      ...(typeof userCredits === 'number' ? { userCredits } : {})
+    },
+    auth: true,
+  });
+};
+
+/**
+ * @param {string} sessionId
+ * @param {{ sessionBlocks?: number, idempotencyKey?: string }} [options]
+ */
+export const extendLabSession = async (sessionId, { sessionBlocks = 1, idempotencyKey } = {}) => {
+  if (!sessionId) {
+    throw new Error('sessionId is required to extend a lab session');
+  }
+  return executeRequest(API_PATHS.LAB_SESSIONS.EXTEND_SESSION(sessionId), {
+    method: 'POST',
+    body: {
+      sessionBlocks,
+      ...(idempotencyKey ? { idempotencyKey } : {})
+    },
     auth: true,
   });
 };

@@ -43,10 +43,19 @@ export function AppSidebar() {
     }
   }, [])
 
-  // Execute 2-Step LMS API Flow for Student Academic Courses & Semesters
+  // Execute 2-Step LMS API Flow for Student Academic Courses & Semesters (LMS Students only)
   useEffect(() => {
     const isStudentRoute = location.pathname.startsWith('/student')
     if (!isStudentRoute || !auth.user) return
+
+    const isDirectUser = Boolean(
+      auth.user.createdFrom === 'DIRECT' || 
+      (auth.user.authType === 'DIRECT' && !auth.user.studentDegreeAdmissionId && !(auth.user as any).externalStudentId && auth.user.createdFrom !== 'LMS')
+    )
+    if (isDirectUser) {
+      setLmsPrograms([])
+      return
+    }
 
     const studentId = auth.user.studentId || (auth.user as any).StudentDegreeAdmissionId || (auth.user as any).externalStudentId || auth.user.userId
     if (!studentId) return
@@ -65,12 +74,10 @@ export function AppSidebar() {
             const pid = prog.programId || prog.programmeId
             let progSemesters: any[] = []
 
-            // Filter semesters from Step 1 response matching programId
             if (rawSems && rawSems.length > 0) {
               progSemesters = rawSems.filter((s: any) => String(s.programId || s.programmeId) === String(pid))
             }
 
-            // Step 2 API Call: Fetch detailed semester course list for this programmeId
             if (pid) {
               try {
                 const semRes: any = await getSemesterCourseListByProgrammeId(pid)
@@ -101,10 +108,14 @@ export function AppSidebar() {
         setLmsPrograms(detailedPrograms)
       })
       .catch(() => { })
-  }, [auth.user, location.pathname])
+  }, [auth.user?.userId])
 
   const isStudentRoute = location.pathname.startsWith('/student')
-  const currentSidebarData = isStudentRoute ? getStudentSidebarData(lmsPrograms) : sidebarData
+  const isDirectUser = auth.user ? Boolean(
+    auth.user.createdFrom === 'DIRECT' || 
+    (auth.user.authType === 'DIRECT' && !auth.user.studentDegreeAdmissionId && !(auth.user as any).externalStudentId && auth.user.createdFrom !== 'LMS')
+  ) : false;
+  const currentSidebarData = isStudentRoute ? getStudentSidebarData(lmsPrograms, isDirectUser) : sidebarData
 
   const activeUser = auth.user ? {
     name: auth.user.fullName || auth.user.name || (auth.user.email ? auth.user.email.split('@')[0] : (auth.user.role || 'Super Admin')),

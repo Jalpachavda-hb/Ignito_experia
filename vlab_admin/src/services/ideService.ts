@@ -1,5 +1,6 @@
 import { getWsOrigin } from '@/config/env';
 import {
+  executeRequest,
   fetchFiles,
   fetchFileContent,
   fetchAndroidBuildStatus,
@@ -60,18 +61,13 @@ export async function runFile(payload: any, sessionId: string) {
   }
 }
 
-export async function deleteFile(path: string, sessionId: string) {
-  return apiRequest(`/files?path=${encodeURIComponent(path)}`, {
-    method: 'DELETE',
-    headers: { 'x-session-id': sessionId },
-  });
-}
 
 export async function renamePath(oldPath: string, newPath: string, sessionId: string) {
-  return apiRequest('/files/rename', {
+  return executeRequest('/files/rename', {
     method: 'POST',
     headers: { 'x-session-id': sessionId },
-    body: JSON.stringify({ oldPath, newPath }),
+    body: { oldPath, newPath },
+    auth: true,
   });
 }
 

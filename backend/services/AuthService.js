@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import userRepository from "../repositories/UserRepository.js";
 import sessionRepository from "../repositories/SessionRepository.js";
 import refreshTokenRepository from "../repositories/RefreshTokenRepository.js";
@@ -8,23 +10,7 @@ import { badRequest, unauthorized } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
 import { ENV } from "../config/env.js";
 
-const loadUserPermissions = async (roleId, connection = pool) => {
-  if (!roleId) return {};
-  const [rows] = await connection.query(
-    "SELECT ModuleCode, CanCreate, CanRead, CanUpdate, CanDelete FROM RolePermissions WHERE RoleId = ?",
-    [roleId]
-  );
-  const perms = {};
-  for (const r of rows) {
-    perms[r.ModuleCode] = {
-      create: Boolean(r.CanCreate),
-      read: Boolean(r.CanRead),
-      update: Boolean(r.CanUpdate),
-      delete: Boolean(r.CanDelete),
-    };
-  }
-  return perms;
-};
+import { ROLES } from "../constants/roles.js";
 
 const createVLabSession = async ({ userPayload, sessionMeta }) => {
   const connection = await pool.getConnection();
@@ -41,36 +27,39 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
       } catch (e) {}
     }
 
+    const rawRole = (userPayload.role || "").toUpperCase().replace(/\s+/g, "_");
+    const normalizedRole = ["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(rawRole)
+      ? ROLES.TENANT_ADMIN
+      : ROLES.STUDENT;
+
     // Ensure local user record exists in VLab DB for foreign key compliance
     let vlabUserId = userPayload.dbUserId;
-    const [vlabUsers] = await connection.query("SELECT UserId, PhoneNumber, Mobile FROM Users WHERE LOWER(Email) = ?", [(userPayload.email || '').toLowerCase()]);
+    const [vlabUsers] = await connection.query("SELECT UserId, PhoneNumber, ProfileImage FROM Users WHERE LOWER(Email) = ?", [(userPayload.email || '').toLowerCase()]);
     if (!vlabUsers.length) {
       const [insertRes] = await connection.query(
-        "INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, PhoneNumber, Mobile) VALUES (?, ?, 'OWNER_AUTHENTICATED', ?, 'Active', ?, ?)",
-        [userPayload.name || 'Tenant Admin', userPayload.email, userPayload.role || 'TENANT_ADMIN', adminPhone, adminPhone]
+        "INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, PhoneNumber) VALUES (?, ?, 'OWNER_AUTHENTICATED', ?, 'Active', ?)",
+        [userPayload.name || 'Tenant Admin', userPayload.email, normalizedRole, adminPhone]
       );
       vlabUserId = insertRes.insertId;
     } else {
       vlabUserId = vlabUsers[0].UserId;
-      if (adminPhone && (!vlabUsers[0].PhoneNumber || !vlabUsers[0].Mobile)) {
+      if (adminPhone && !vlabUsers[0].PhoneNumber) {
         await connection.query(
-          "UPDATE Users SET PhoneNumber = COALESCE(PhoneNumber, ?), Mobile = COALESCE(Mobile, ?) WHERE UserId = ?",
-          [adminPhone, adminPhone, vlabUserId]
+          "UPDATE Users SET PhoneNumber = COALESCE(PhoneNumber, ?) WHERE UserId = ?",
+          [adminPhone, vlabUserId]
         );
       }
     }
 
     if (userPayload.tenantId) {
-      const targetRole = (userPayload.role === 'SuperAdmin' || userPayload.role === 'TENANT_ADMIN') ? 'TENANT_ADMIN' : 'STUDENT';
       await connection.query(
         `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
          VALUES (?, ?, ?, 'ACTIVE')
          ON DUPLICATE KEY UPDATE Role = VALUES(Role), Status = 'ACTIVE'`,
-        [vlabUserId, userPayload.tenantId, targetRole]
+        [vlabUserId, userPayload.tenantId, normalizedRole]
       );
     }
 
-    const permissions = await loadUserPermissions(userPayload.roleId || 1, connection);
     const sessionId = crypto.randomUUID();
 
     const accessToken = signAccessToken({
@@ -78,8 +67,7 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
       userId: vlabUserId,
       name: userPayload.name,
       email: userPayload.email,
-      role: userPayload.role || 'TENANT_ADMIN',
-      roleId: userPayload.roleId || 1,
+      role: normalizedRole,
       tenantId: userPayload.tenantId,
       tenantSlug: userPayload.tenantSlug,
       tenantName: userPayload.tenantName,
@@ -121,13 +109,12 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
         userId: vlabUserId,
         name: userPayload.name,
         email: userPayload.email,
-        role: userPayload.role || 'TENANT_ADMIN',
-        roleId: userPayload.roleId || 1,
+        role: normalizedRole,
         status: userPayload.status || "ACTIVE",
         tenantId: userPayload.tenantId,
         tenantSlug: userPayload.tenantSlug,
         tenantName: userPayload.tenantName,
-        permissions
+        profileImage: userPayload.profileImage || (vlabUsers[0] ? vlabUsers[0].ProfileImage : null)
       }
     };
   } catch (err) {
@@ -139,7 +126,7 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
 
 class AuthService {
   async register(userData) {
-    const { fullName, email, password, role, slug } = userData;
+    const { fullName, email, password, role, slug, profileImage, photo, mobileNumber, phoneNumber } = userData;
     if (slug) {
       throw badRequest("Direct registration is not available on university portals. Please register on the main Experia domain.");
     }
@@ -151,17 +138,38 @@ class AuthService {
     if (existingUser) {
       throw badRequest("Email is already registered");
     }
+
+    let finalProfileImage = profileImage || photo || null;
+
+    if (finalProfileImage && typeof finalProfileImage === 'string' && finalProfileImage.startsWith('data:image')) {
+      try {
+        const base64Data = finalProfileImage.replace(/^data:image\/\w+;base64,/, "");
+        const filename = `profile_reg_${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
+        const uploadsDir = path.join(process.cwd(), "uploads");
+        if (!fs.existsSync(uploadsDir)) {
+          fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+        const uploadPath = path.join(uploadsDir, filename);
+        fs.writeFileSync(uploadPath, Buffer.from(base64Data, 'base64'));
+        finalProfileImage = `/uploads/${filename}`;
+      } catch (e) {
+        console.error("Error saving registration profile image:", e);
+        finalProfileImage = null;
+      }
+    }
  
     const passwordHash = hashPassword(password);
    
     return await userRepository.insert({
       fullName: fullName || "New User",
       email,
+      phoneNumber: mobileNumber || phoneNumber || null,
       passwordHash,
-      role: role || "Student",
+      role: ROLES.STUDENT,
       status: "Active",
       createdFrom: "DIRECT",
-      authType: "DIRECT"
+      authType: "DIRECT",
+      profileImage: finalProfileImage
     });
   }
 
@@ -330,9 +338,80 @@ class AuthService {
         role: user.Role || 'Student',
         roleId: user.RoleId || 1,
         tenantId: resolvedTenantId,
-        status: user.Status
+        status: user.Status,
+        profileImage: user.ProfileImage || null
       },
       sessionMeta
+    });
+  }
+
+  async refresh({ refreshToken, ipAddress, browser, os, device }) {
+    if (!refreshToken) {
+      throw unauthorized("Missing refresh token");
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(refreshToken).digest("hex");
+    const storedToken = await refreshTokenRepository.findByTokenHash(tokenHash);
+
+    if (!storedToken) {
+      throw unauthorized("Invalid or expired refresh token");
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await refreshTokenRepository.revoke(storedToken.Id, connection);
+      connection.release();
+    } catch (err) {
+      connection.release();
+      throw err;
+    }
+
+    let userPayload = null;
+    if (storedToken.UserId) {
+      const user = await userRepository.findById(storedToken.UserId).catch(() => null);
+      if (user) {
+        userPayload = {
+          id: user.UserId,
+          dbUserId: user.UserId,
+          name: user.FullName || user.Name,
+          email: user.Email,
+          role: user.Role || 'Student',
+          roleId: user.RoleId || 1,
+          tenantId: user.TenantId || null,
+          status: user.Status || 'Active'
+        };
+      } else {
+        const [tenantRows] = await pool.query(
+          "SELECT * FROM tenants WHERE TenantId = ? OR DbId = ?",
+          [storedToken.UserId, storedToken.UserId]
+        );
+        if (tenantRows.length > 0) {
+          const tenant = tenantRows[0];
+          userPayload = {
+            id: tenant.TenantId,
+            dbUserId: tenant.DbId,
+            name: tenant.AdminFullName || "Tenant Administrator",
+            email: tenant.AdminEmail,
+            phone: tenant.AdminPhone || null,
+            mobile: tenant.AdminPhone || null,
+            role: "TENANT_ADMIN",
+            roleId: 1,
+            tenantId: tenant.TenantId,
+            tenantSlug: tenant.Slug,
+            tenantName: tenant.Name,
+            status: tenant.Status
+          };
+        }
+      }
+    }
+
+    if (!userPayload) {
+      throw unauthorized("User associated with refresh token not found");
+    }
+
+    return await createVLabSession({
+      userPayload,
+      sessionMeta: { ipAddress, browser, os, device }
     });
   }
 

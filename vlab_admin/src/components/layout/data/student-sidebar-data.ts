@@ -13,12 +13,12 @@ import {
 import { type SidebarData } from '../types'
 import { dashboardData } from '@/pages/student/dashboard/data'
 
-export function getStudentSidebarData(lmsPrograms?: any[]): SidebarData {
+export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolean): SidebarData {
   const { student } = dashboardData
 
   let academicCourseItems: any[] = [];
 
-  if (lmsPrograms && Array.isArray(lmsPrograms) && lmsPrograms.length > 0) {
+  if (!isDirectUser && lmsPrograms && Array.isArray(lmsPrograms) && lmsPrograms.length > 0) {
     academicCourseItems = lmsPrograms.map((prog: any) => {
       const sems = (prog.semesters && Array.isArray(prog.semesters) && prog.semesters.length > 0)
         ? prog.semesters.map((s: any) => ({
@@ -40,6 +40,81 @@ export function getStudentSidebarData(lmsPrograms?: any[]): SidebarData {
     academicCourseItems = [];
   }
 
+  const academicItems = isDirectUser
+    ? [
+        {
+          title: 'Badges & Achievements',
+          url: '/student/badges-achievements',
+          icon: Award,
+        },
+        {
+          title: 'Profile',
+          url: '/student/profile',
+          icon: User,
+        },
+      ]
+    : [
+        {
+          title: 'Academic Progress',
+          url: '/student/academic-progress',
+          icon: Activity,
+        },
+        {
+          title: 'Badges & Achievements',
+          url: '/student/badges-achievements',
+          icon: Award,
+        },
+        {
+          title: 'Profile',
+          url: '/student/profile',
+          icon: User,
+        },
+      ];
+
+  const navGroups: any[] = [
+    {
+      title: 'Main Menu',
+      items: [
+        {
+          title: 'Dashboard',
+          url: '/student/dashboard',
+          icon: LayoutDashboard,
+        },
+        {
+          title: 'Lab Catalogue',
+          url: '/student/lab-catalogue',
+          icon: BookOpen,
+        },
+        {
+          title: 'My Labs',
+          url: '/student/my-labs',
+          icon: FlaskConical,
+        },
+        {
+          title: 'Token Wallet',
+          url: '/student/credit-wallet',
+          icon: Wallet,
+        },
+        {
+          title: 'Transactions',
+          url: '/student/transactions',
+          icon: ReceiptText,
+        },
+      ],
+    },
+    {
+      title: 'Academics',
+      items: academicItems
+    }
+  ];
+
+  if (!isDirectUser && academicCourseItems.length > 0) {
+    navGroups.push({
+      title: 'Academic Courses',
+      items: academicCourseItems
+    });
+  }
+
   return {
     user: {
       name: student.name,
@@ -47,61 +122,6 @@ export function getStudentSidebarData(lmsPrograms?: any[]): SidebarData {
       avatar: student.avatar,
     },
     teams: [],
-    navGroups: [
-      {
-        title: 'Main Menu',
-        items: [
-          {
-            title: 'Dashboard',
-            url: '/student/dashboard',
-            icon: LayoutDashboard,
-          },
-          {
-            title: 'Lab Catalogue',
-            url: '/student/lab-catalogue',
-            icon: BookOpen,
-          },
-          {
-            title: 'My Labs',
-            url: '/student/my-labs',
-            icon: FlaskConical,
-          },
-          {
-            title: 'Credit Wallet',
-            url: '/student/credit-wallet',
-            icon: Wallet,
-          },
-          {
-            title: 'Transactions',
-            url: '/student/transactions',
-            icon: ReceiptText,
-          },
-        ],
-      },
-      {
-        title: 'Academics',
-        items: [
-          {
-            title: 'Academic Progress',
-            url: '/student/academic-progress',
-            icon: Activity,
-          },
-          {
-            title: 'Badges & Achievements',
-            url: '/student/badges-achievements',
-            icon: Award,
-          },
-          {
-            title: 'Profile',
-            url: '/student/profile',
-            icon: User,
-          },
-        ]
-      },
-      {
-        title: 'Academic Courses',
-        items: academicCourseItems
-      }
-    ],
+    navGroups,
   }
 }

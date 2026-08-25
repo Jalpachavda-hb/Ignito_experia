@@ -51,12 +51,6 @@ export const sidebarData: SidebarData = {
           icon: FlaskConical,
           moduleCode: 'LAB_MANAGEMENT',
         },
-        {
-          title: 'Session Monitoring',
-          url: '/sessions',
-          icon: Activity,
-          moduleCode: 'SESSION_MONITORING',
-        },
       ],
     },
     {
@@ -80,18 +74,6 @@ export const sidebarData: SidebarData = {
           icon: GraduationCap,
           moduleCode: 'PROGRAM_MANAGEMENT',
         },
-        {
-          title: 'Courses',
-          url: '/courses',
-          icon: BookOpen,
-          moduleCode: 'COURSE_MANAGEMENT',
-        },
-        {
-          title: 'Semesters',
-          url: '/semesters',
-          icon: Layers,
-          moduleCode: 'SEMESTER_MANAGEMENT',
-        },
       ],
     },
     {
@@ -104,12 +86,6 @@ export const sidebarData: SidebarData = {
           moduleCode: 'CREDIT_MANAGEMENT',
         },
         {
-          title: 'Transactions',
-          url: '/transactions',
-          icon: ReceiptText,
-          moduleCode: 'TRANSACTION_MANAGEMENT',
-        },
-        {
           title: 'Reports',
           url: '/reports',
           icon: FileText,
@@ -119,17 +95,6 @@ export const sidebarData: SidebarData = {
           title: 'Audit Logs',
           url: '/audit-logs',
           icon: ScrollText,
-          moduleCode: 'SETTINGS',
-        },
-      ],
-    },
-    {
-      title: 'Configuration',
-      items: [
-        {
-          title: 'Settings',
-          url: '/settings',
-          icon: Settings,
           moduleCode: 'SETTINGS',
         },
       ],

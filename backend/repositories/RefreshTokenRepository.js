@@ -41,6 +41,13 @@ class RefreshTokenRepository {
       [profileId]
     );
   }
+
+  async deleteBySessionId(sessionId, connection = pool) {
+    await connection.query(
+      "UPDATE RefreshTokens SET RevokedAt = NOW() WHERE SessionId = ? AND RevokedAt IS NULL",
+      [sessionId]
+    );
+  }
 }
 
 export const refreshTokenRepository = new RefreshTokenRepository();

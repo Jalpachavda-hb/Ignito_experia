@@ -14,14 +14,7 @@ export const Route = createFileRoute('/_authenticated/transactions')({
   component: TransactionsPage,
 })
 
-const TRANSACTIONS = [
-  { id: 'TXN-90231', university: 'Pune Tech University', type: 'Subscription', plan: 'Enterprise Plan Year 1', amount: 350000, date: '2026-06-28 11:24', status: 'Completed' },
-  { id: 'TXN-90230', university: 'Mumbai Digital Institute', type: 'Credit Purchase', plan: '50,000 Labs Pack', amount: 45000, date: '2026-06-27 15:40', status: 'Completed' },
-  { id: 'TXN-90229', university: 'Bangalore CS Academy', type: 'Subscription', plan: 'Enterprise Plan Q3 Renewal', amount: 95000, date: '2026-06-25 09:12', status: 'Completed' },
-  { id: 'TXN-90228', university: 'Delhi Innovation College', type: 'Credit Purchase', plan: '10,000 Labs Pack', amount: 10000, date: '2026-06-22 17:33', status: 'Completed' },
-  { id: 'TXN-90227', university: 'Chennai Engineering College', type: 'Subscription', plan: 'Standard Plan Year 1', amount: 180000, date: '2026-06-20 14:10', status: 'Completed' },
-  { id: 'TXN-90226', university: 'Pune Tech University', type: 'Credit Purchase', plan: '100,000 Labs Extra', amount: 80000, date: '2026-06-18 10:05', status: 'Pending' },
-]
+const TRANSACTIONS: Array<{ id: string; university: string; type: string; plan: string; amount: number; date: string; status: string }> = []
 
 export default function TransactionsPage() {
   const [searchQuery, setSearchQuery] = useState('')

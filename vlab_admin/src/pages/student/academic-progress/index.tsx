@@ -152,28 +152,36 @@ export default function AcademicProgress() {
           {/* Second Row: Program Timeline */}
           <ProgramTimeline program={activeProgram} />
 
-          {/* Third Row: Charts */}
+          {/* Third Row: Charts - Commented out as requested */}
+          {/* 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
             <PerformanceChart data={dashboardData.semesterPerformance} />
             <WeeklyLearningChart data={dashboardData.weeklyActivity} />
           </div>
+          */}
 
-          {/* Fourth Row: Trackers */}
+          {/* Fourth Row: Trackers - Commented out as requested */}
+          {/* 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
             <SubjectProgress courses={dashboardData.currentCourses} semester={activeProgram.currentSemester} />
             <LabCompletionTracker data={dashboardData} />
           </div>
+          */}
 
-          {/* Fifth Row: Milestones & Tasks */}
+          {/* Fifth Row: Milestones & Tasks - Commented out as requested */}
+          {/* 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
             <DegreeMilestones milestones={dashboardData.milestones} />
             <AchievementsTasks data={dashboardData} />
           </div>
+          */}
 
-          {/* Bottom Row: Semester Accordion */}
+          {/* Bottom Row: Semester Accordion - Commented out as requested */}
+          {/* 
           <div className="w-full">
             <SemesterAccordion data={dashboardData} />
           </div>
+          */}
 
         </div>
       </Main>

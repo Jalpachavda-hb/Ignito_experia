@@ -39,6 +39,7 @@ export const parseApiEvent = (event) => {
     pathParameters,
     queryStringParameters,
     body,
+    files: event.files || [],
     headers,
     raw: event,
   };
@@ -88,6 +89,7 @@ export const expressRoute = (app, route, apiPrefix) => {
       pathParameters: req.params,
       queryStringParameters: req.query,
       body: req.body,
+      files: req.files || [],
       headers: req.headers,
     };
 
