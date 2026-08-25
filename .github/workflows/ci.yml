@@ -209,10 +209,26 @@ jobs:
             curl -fsS "http://127.0.0.1:8080/api/health/database" >/dev/null
             echo "OK: Main API /api/health/database"
 
-            HTTP_ROOT="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1/)"
-            HTTP_OWNER="$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1/owner/)"
-            echo "HTTP / => $HTTP_ROOT ; /owner/ => $HTTP_OWNER"
-            echo "$HTTP_ROOT" | grep -Eq '200|301|302'
-            echo "$HTTP_OWNER" | grep -Eq '200|301|302'
+            # Build output must exist (Nginx roots point at these)
+            test -f "$DEPLOY_PATH/vlab_admin/dist/index.html" || {
+              echo "FAIL: missing vlab_admin/dist/index.html"; exit 1;
+            }
+            test -f "$DEPLOY_PATH/ignito_Experia_Main_Dashboard/ignito_experia_admin/dist/index.html" || {
+              echo "FAIL: missing owner admin dist/index.html"; exit 1;
+            }
+            echo "OK: frontend dist/index.html files present"
+
+            # Curl with Host header — bare 127.0.0.1 hits default_server (often 404),
+            # not the experia.ignitolearn.com vhost Certbot configured.
+            HOST_HEADER="$(python3 -c "from urllib.parse import urlparse; print(urlparse('${APP_URL}').hostname or 'experia.ignitolearn.com')")"
+            HTTP_ROOT="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: $HOST_HEADER" http://127.0.0.1/)"
+            HTTP_OWNER="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: $HOST_HEADER" http://127.0.0.1/owner/)"
+            echo "HTTP Host=$HOST_HEADER / => $HTTP_ROOT ; /owner/ => $HTTP_OWNER"
+            echo "$HTTP_ROOT" | grep -Eq '200|301|302' || {
+              echo "FAIL: unexpected status for /"; exit 1;
+            }
+            echo "$HTTP_OWNER" | grep -Eq '200|301|302' || {
+              echo "FAIL: unexpected status for /owner/"; exit 1;
+            }
 
             echo "==> Deploy complete (MySQL, Nginx, PM2, HTTP OK)"
