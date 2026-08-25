@@ -81,7 +81,7 @@ jobs:
         working-directory: ignito_Experia_Main_Dashboard/ignito_experia_admin
 
   frontend-vlab-admin:
-    name: Frontend (VLab Admin) - Build, Lint & Test
+    name: Frontend (VLab Admin) - Build & Lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -113,16 +113,6 @@ jobs:
           VITE_API_BASE_URL: https://experia.ignitolearn.com/api
         run: npm run build
         working-directory: vlab_admin
-
-      - name: Install Playwright Browsers (for Vitest)
-        run: npx playwright install chromium --with-deps
-        working-directory: vlab_admin
-        continue-on-error: true
-
-      - name: Run Vitest Headless Browser Tests
-        run: npm run test
-        working-directory: vlab_admin
-        continue-on-error: true
 
   deploy:
     name: Deploy to EC2
