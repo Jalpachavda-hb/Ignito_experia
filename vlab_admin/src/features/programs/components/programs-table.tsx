@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { DataTablePagination, DataTableToolbar } from '@/components/data-table'
+import { useNavigate } from '@tanstack/react-router'
 import { type Program } from '../data/schema'
 import { programsColumns as columns } from './programs-columns'
 
@@ -30,6 +31,7 @@ type DataTableProps = {
 }
 
 export function ProgramsTable({ data }: DataTableProps) {
+  const navigate = useNavigate()
   const [rowSelection, setRowSelection] = useState({})
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [sorting, setSorting] = useState<SortingState>([])
@@ -120,7 +122,18 @@ export function ProgramsTable({ data }: DataTableProps) {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
-                  className='group/row'
+                  className='group/row cursor-pointer hover:bg-muted/40 transition-colors'
+                  onClick={(e) => {
+                    const target = e.target as HTMLElement;
+                    if (target.closest('button') || target.closest('a') || target.closest('[role="checkbox"]') || target.closest('[data-state]')) {
+                      return;
+                    }
+                    const pid = String(row.original.id || row.original.rawLmsData?.programId || '2');
+                    navigate({
+                      to: '/programs/$programId',
+                      params: { programId: pid }
+                    });
+                  }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell

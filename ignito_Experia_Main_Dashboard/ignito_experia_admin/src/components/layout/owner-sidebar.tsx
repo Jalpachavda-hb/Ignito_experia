@@ -36,6 +36,7 @@ const NAV_ITEMS = [
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', to: '/' },
       { icon: Building2, label: 'Universities', to: '/universities' },
+      { icon: User, label: 'User Management', to: '/users' },
       { icon: FlaskConical, label: 'Lab Management', to: '/labs' },
       { icon: CreditCard, label: 'Credit Management', to: '/credits' },
       { icon: Receipt, label: 'Transactions', to: '/transactions' },
@@ -46,7 +47,6 @@ const NAV_ITEMS = [
   {
     group: 'Account',
     items: [
-      { icon: Settings, label: 'Settings', to: '/settings' },
       { icon: User, label: 'Profile', to: '/profile' },
     ],
   },

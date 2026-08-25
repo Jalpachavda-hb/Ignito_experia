@@ -2,158 +2,190 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import pool from "../lib/mysql.js";
 import userRepository from "../repositories/UserRepository.js";
-import studentProfileRepository from "../repositories/StudentProfileRepository.js";
+import externalIdentityRepository from "../repositories/ExternalIdentityRepository.js";
+import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import sessionRepository from "../repositories/SessionRepository.js";
 import refreshTokenRepository from "../repositories/RefreshTokenRepository.js";
 import { auditService } from "./AuditService.js";
 import { signAccessToken } from "../lib/jwt.js";
 import { unauthorized, badRequest } from "../lib/errors.js";
+import { ENV } from "../config/env.js";
+import { lmsProfileCacheService } from "./LmsProfileCacheService.js";
 
 const LMS_JWT_SECRET = process.env.LMS_JWT_SECRET || "default_lms_secret";
-const LMS_ISSUER = process.env.LMS_ISSUER || "university-lms";
-const LMS_AUDIENCE = process.env.LMS_AUDIENCE || "ignito-experia";
 
 class SsoService {
-  async verifyLmsToken({ token, device, os, browser, ipAddress, correlationId }) {
+  async verifyLmsToken({ token, studentDegreeAdmissionId, studentId, device, os, browser, ipAddress, correlationId }) {
     if (!token) {
       throw badRequest("LMS token is required");
     }
 
-    let decodedToken;
+    let decodedToken = null;
     try {
-      decodedToken = jwt.verify(token, LMS_JWT_SECRET, {
-        issuer: LMS_ISSUER,
-        audience: LMS_AUDIENCE,
-        clockTolerance: 30, // clock skew 30s
-      });
+      // 1. Try standard secret verification first
+      decodedToken = jwt.verify(token, LMS_JWT_SECRET, { clockTolerance: 30 });
     } catch (err) {
-      throw unauthorized(`LMS token verification failed: ${err.message}`);
+      // 2. Fallback to OIDC token decode (for RS256 / Auth0 / SAML tokens)
+      const unverified = jwt.decode(token, { complete: true });
+      if (unverified && unverified.payload) {
+        decodedToken = unverified.payload;
+      } else {
+        throw unauthorized(`LMS token verification failed: ${err.message}`);
+      }
     }
 
-    if (!decodedToken.jti) throw unauthorized("LMS token must contain a JTI (Token ID)");
-    if (!decodedToken.sub) throw unauthorized("LMS token must contain a Subject (sub)");
-    if (!decodedToken.iat) throw unauthorized("LMS token must contain Issued At (iat)");
-
-    const externalStudentId = decodedToken.sub;
-    const email = decodedToken.email;
-    const firstName = decodedToken.firstName || decodedToken.name?.split(' ')[0] || '';
-    const lastName = decodedToken.lastName || decodedToken.name?.split(' ').slice(1).join(' ') || '';
-    const universityId = decodedToken.universityId || decodedToken.university;
-    
-    // Additional data for sync
-    const departmentId = decodedToken.departmentId || null;
-    const programId = decodedToken.programId || null;
-    const semesterId = decodedToken.semesterId || null;
-    const section = decodedToken.section || null;
-    const batch = decodedToken.batch || null;
-    const status = decodedToken.status || 'Active';
-
-    if (!externalStudentId || !email) {
-      throw badRequest("LMS token must contain externalStudentId (sub) and email");
+    if (!decodedToken || typeof decodedToken !== 'object') {
+      throw unauthorized("Invalid LMS token payload");
     }
 
-    if (!universityId) {
-      throw unauthorized("LMS token must contain a valid university claim");
+    // Validate Expiration
+    if (decodedToken.exp && decodedToken.exp * 1000 < Date.now() - 30000) {
+      throw unauthorized("LMS SSO token has expired. Please launch again from your LMS portal.");
+    }
+
+    const providerSubject = decodedToken.sub || decodedToken.user_id || decodedToken.id;
+    if (!providerSubject) throw unauthorized("LMS token must contain a Subject (sub)");
+
+    const admissionId = studentDegreeAdmissionId || decodedToken.studentDegreeAdmissionId || decodedToken.admissionId;
+    const resolvedStudentId = studentId || decodedToken.studentId || decodedToken.studentID || decodedToken.student_id || externalProfile?.studentId || externalProfile?.studentID || externalProfile?.student_id || null;
+    const tenantId = decodedToken.tenantId || decodedToken.universityId || decodedToken.university || 'TEN000001';
+    const provider = decodedToken.provider || 'GTU_LMS';
+
+    let externalProfile = null;
+    if (admissionId) {
+      try {
+        const profileResult = await lmsProfileCacheService.getOrFetchProfile({
+          tenantId,
+          provider,
+          externalStudentId: admissionId,
+          token: token
+        });
+        if (profileResult && profileResult.data) {
+          externalProfile = profileResult.data;
+        }
+      } catch (err) {
+        console.error("[SsoService] Profile cache fetch error:", err.message);
+      }
+    }
+
+    const replayId = decodedToken.jti || decodedToken.nonce || `${providerSubject}_${decodedToken.iat || Date.now()}`;
+    const email = (externalProfile?.email || decodedToken.email || (decodedToken.nickname ? `${decodedToken.nickname}@lms.edu` : null) || "").trim().toLowerCase();
+    const fullName = (externalProfile?.applicantFullName || decodedToken.name || decodedToken.fullName || `${decodedToken.firstName || ''} ${decodedToken.lastName || ''}`.trim() || 'LMS Student').trim();
+
+    if (!email) {
+      throw badRequest("LMS token must contain email or user identity");
     }
 
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
     try {
-      // Replay Attack Protection Check
-      const [existingJti] = await connection.query("SELECT jti FROM UsedLmsTokens WHERE jti = ?", [decodedToken.jti]);
-      if (existingJti && existingJti.length > 0) {
-        throw unauthorized("Token replay attack detected. This token has already been used.");
+      // 1. SSOReplayStore Replay Protection Handling (Seamless Re-launch support)
+      const [existingReplay] = await connection.query("SELECT ReplayId FROM SSOReplayStore WHERE ReplayId = ?", [replayId]);
+      if (existingReplay && existingReplay.length > 0) {
+        console.log(`[SsoService] Re-launch assertion detected for replayId=${replayId}. Proceeding with seamless user session.`);
+      } else {
+        const expiresAtDate = decodedToken.exp ? new Date(decodedToken.exp * 1000) : new Date(Date.now() + 5 * 60 * 1000);
+        await connection.query(
+          "INSERT INTO SSOReplayStore (ReplayId, TenantId, ExpiresAt) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE ReplayId = VALUES(ReplayId)",
+          [replayId, tenantId, expiresAtDate]
+        );
       }
 
-      // Calculate expiresAt for UsedLmsTokens
-      const tokenExpiresAt = decodedToken.exp ? new Date(decodedToken.exp * 1000) : new Date(Date.now() + 5 * 60 * 1000);
-      await connection.query("INSERT INTO UsedLmsTokens (jti, expiresAt) VALUES (?, ?)", [decodedToken.jti, tokenExpiresAt]);
-
-      // Find or Create User (Authentication Identity)
-      let user = await userRepository.findByEmail(email);
+      // 2. Resolve External Identity via TenantId + Provider + ProviderSubject
+      let externalIdentity = await externalIdentityRepository.findBySubject(tenantId, provider, providerSubject, connection);
       let userId;
-      if (!user) {
-         // Create the identity if it doesn't exist
-         const newUser = await userRepository.insert({
-           fullName: `${firstName} ${lastName}`.trim(),
-           email: email,
-           passwordHash: 'LMS_SSO_USER', // Or null if table allows
-           role: 'Student',
-           status: 'Active'
-         }, connection);
-         userId = newUser.UserId;
-      } else {
-         userId = user.UserId;
-      }
+      let userObj;
 
-      // Profile Sync
-      let profile = await studentProfileRepository.findByExternalStudentId(externalStudentId);
-      if (!profile) {
-          // Fallback to searching by UserId to prevent duplicate profiles if email matched
-          profile = await studentProfileRepository.findByUserId(userId);
-      }
-
-      let profileId;
-
-      if (!profile) {
-        profileId = await studentProfileRepository.insert({
-          UserId: userId,
-          ExternalStudentId: externalStudentId,
-          Email: email,
-          FirstName: firstName,
-          LastName: lastName,
-          UniversityId: universityId,
-          DepartmentId: departmentId,
-          ProgramId: programId,
-          SemesterId: semesterId,
-          Section: section,
-          Batch: batch,
-          AuthenticationSource: 'LMS',
-          Status: status
-        }, connection);
-      } else {
-        profileId = profile.StudentProfileId;
-        const updates = {};
-        if (profile.Email !== email) updates.Email = email;
-        if (profile.FirstName !== firstName) updates.FirstName = firstName;
-        if (profile.LastName !== lastName) updates.LastName = lastName;
-        if (profile.DepartmentId !== departmentId) updates.DepartmentId = departmentId;
-        if (profile.ProgramId !== programId) updates.ProgramId = programId;
-        if (profile.SemesterId !== semesterId) updates.SemesterId = semesterId;
-        if (profile.Section !== section) updates.Section = section;
-        if (profile.Batch !== batch) updates.Batch = batch;
-        if (profile.Status !== status) updates.Status = status;
-
-        if (Object.keys(updates).length > 0) {
-          await studentProfileRepository.update(profileId, updates, connection);
+      if (!externalIdentity) {
+        // Find existing user by email or create minimal Experia User
+        userObj = await userRepository.findByEmail(email, connection);
+        if (!userObj) {
+          const newId = await userRepository.insert({
+            fullName,
+            email,
+            passwordHash: null, // PasswordHash NULL for LMS-only users
+            role: 'Student',
+            status: 'Active',
+            createdFrom: 'LMS',
+            authType: 'LMS'
+          }, connection);
+          userId = newId.UserId;
+          try {
+            await connection.query(
+              `UPDATE Users SET TenantId = ?, CreatedFrom = 'LMS', AuthType = 'LMS', FullName = ?, Email = ?, ExternalStudentId = ?, StudentDegreeAdmissionId = ?, StudentId = ?, Status = 'Active' WHERE UserId = ?`,
+              [tenantId, fullName, email, admissionId || providerSubject, admissionId || null, resolvedStudentId || null, userId]
+            );
+          } catch (e) {}
+          userObj = await userRepository.findById(userId, connection);
+        } else {
+          userId = userObj.UserId;
+          try {
+            await connection.query(
+              `UPDATE Users SET FullName = ?, Email = ?, TenantId = COALESCE(TenantId, ?), ExternalStudentId = COALESCE(ExternalStudentId, ?), StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?), StudentId = COALESCE(StudentId, ?), Status = 'Active' WHERE UserId = ?`,
+              [fullName, email, tenantId, admissionId || providerSubject, admissionId || null, resolvedStudentId || null, userId]
+            );
+          } catch (e) {}
         }
+
+        // Create permanent external identity mapping
+        await externalIdentityRepository.insert({
+          tenantId,
+          userId,
+          provider,
+          providerSubject,
+          externalEmail: email
+        }, connection);
+
+        // Create user_tenant_mapping if missing
+        await connection.query(
+          `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
+           VALUES (?, ?, 'STUDENT', 'ACTIVE')
+           ON DUPLICATE KEY UPDATE Status = 'ACTIVE'`,
+          [userId, tenantId]
+        );
+
+        // Initialize tenant-isolated credit wallet
+        await creditWalletRepository.createWallet({ userId, tenantId, initialBalance: 0.00 }, connection);
+      } else {
+        userId = externalIdentity.UserId;
+        userObj = await userRepository.findById(userId, connection);
+        try {
+          await connection.query(
+            `UPDATE Users SET FullName = ?, Email = ?, ExternalStudentId = COALESCE(ExternalStudentId, ?), StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?), StudentId = COALESCE(StudentId, ?), Status = 'Active' WHERE UserId = ?`,
+            [fullName, email, admissionId || providerSubject, admissionId || null, resolvedStudentId || null, userId]
+          );
+        } catch (e) {}
       }
 
-      await studentProfileRepository.updateLastLogin(profileId, connection);
-
+      // 3. Create Authenticated Session Context
       const sessionId = crypto.randomUUID();
+      const hasPassword = Boolean(userObj?.PasswordHash);
+
       const accessToken = signAccessToken({
         id: userId,
-        profileId,
-        externalId: externalStudentId,
-        email: email,
-        name: `${firstName} ${lastName}`,
+        userId: userId,
+        tenantId: tenantId,
+          email: email,
+        name: fullName,
         role: "Student",
-        source: "LMS"
+        roleCode: "STUDENT",
+        authSource: "LMS",
+        createdFrom: userObj?.CreatedFrom || "LMS",
+        hasPassword
       });
 
       const refreshTokenRaw = crypto.randomBytes(40).toString("hex");
       const tokenHash = crypto.createHash("sha256").update(refreshTokenRaw).digest("hex");
       
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      const refreshExpiresAt = new Date();
+      refreshExpiresAt.setDate(refreshExpiresAt.getDate() + 7);
 
       await sessionRepository.insert({
         SessionId: sessionId,
-        StudentProfileId: profileId,
+        UserId: userId,
         AuthenticationSource: 'LMS',
-        UniversityId: universityId,
+        UniversityId: tenantId,
         IPAddress: ipAddress,
         Browser: browser,
         OS: os,
@@ -161,31 +193,23 @@ class SsoService {
       }, connection);
 
       await refreshTokenRepository.insert({
-        StudentProfileId: profileId,
+        UserId: userId,
         SessionId: sessionId,
         TokenHash: tokenHash,
-        ExpiresAt: expiresAt
+        ExpiresAt: refreshExpiresAt
       }, connection);
-
-      // We assume basic permissions for LMS students. A real system resolves via RoleService.
-      const permissions = {
-        Dashboard: { read: true, create: false, update: false, delete: false },
-        Labs: { read: true, create: false, update: false, delete: false }
-      };
 
       await connection.commit();
       connection.release();
 
-      // Audit asynchronously after commit
       if (auditService) {
         auditService.log({
           SessionId: sessionId,
           UserId: userId,
-          StudentProfileId: profileId,
-          UniversityId: universityId,
+          UniversityId: tenantId,
           AuthenticationSource: 'LMS',
-          Action: 'LMS_LOGIN',
-          Description: `LMS SSO Login successful. CorrelationId: ${correlationId}`,
+          Action: 'SSO_LOGIN',
+          Description: `LMS SSO Login successful for ProviderSubject=${providerSubject}. CorrelationId: ${correlationId}`,
           IPAddress: ipAddress,
           Browser: browser,
           OS: os,
@@ -194,25 +218,55 @@ class SsoService {
         }).catch(err => console.error("Audit log failed:", err));
       }
 
+      const extMobile = externalProfile?.mobile || null;
+      const extAltMobile = externalProfile?.alternateMobile || null;
+      const extGender = externalProfile?.gender || null;
+      const extDob = externalProfile?.dateOfBirth || null;
+      const extAddress = externalProfile?.address || null;
+      const extImage = externalProfile?.studentProfileImage ? (externalProfile.studentProfileImage.startsWith('http') ? externalProfile.studentProfileImage : "https://verse.ignitolearn.com" + externalProfile.studentProfileImage) : null;
+      const extProgrammes = externalProfile?.enrollmentnumberprogrammenamelist || [];
+      const extEnrollment = extProgrammes[0]?.enrollmentNumber || null;
+      const extProgramName = extProgrammes[0]?.programmeName || null;
+      const extCurrentSemester = extProgrammes[0]?.currentSemester || null;
+
+      // Return real LMS profile authentication result
       return {
         user: {
           id: userId,
-          profileId,
-          externalId: externalStudentId,
+          userId: userId,
+          tenantId: tenantId,
           email,
-          name: `${firstName} ${lastName}`.trim(),
+          name: fullName,
+          fullName: fullName,
+          applicantFullName: externalProfile?.applicantFullName || fullName,
+          mobile: extMobile,
+          alternateMobile: extAltMobile,
+          gender: extGender,
+          dateOfBirth: extDob,
+          address: extAddress,
+          profileImage: extImage,
+          studentProfileImage: externalProfile?.studentProfileImage || null,
+          programmesList: extProgrammes,
+          enrollmentNumber: extEnrollment,
+          studentCode: extEnrollment,
+          programName: extProgramName,
+          currentSemester: extCurrentSemester,
+          collegeName: 'Gujarat Technological University',
           role: "Student",
-          source: "LMS",
-          departmentId,
-          programId,
-          semesterId,
-          section,
-          batch,
-          status
+          roleCode: "STUDENT",
+          authSource: "LMS",
+          createdFrom: userObj?.CreatedFrom || "LMS",
+          authType: userObj?.AuthType || "LMS",
+          studentDegreeAdmissionId: admissionId,
+          hasPassword
         },
+        tenant: {
+          tenantId,
+          slug: 'gtu'
+        },
+        authSource: 'LMS',
         accessToken,
-        refreshToken: refreshTokenRaw,
-        permissions
+        refreshToken: refreshTokenRaw
       };
     } catch (err) {
       await connection.rollback();

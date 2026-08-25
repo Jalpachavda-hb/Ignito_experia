@@ -1,7 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Lab } from './schema'
-import { apiRequest } from '@/lib/apiClient'
+import { fetchAdminLabs, fetchRuntimeTypes } from '@/Utils/GetApiHandler'
+import {
+  updateAdminLabStatus,
+  updateAdminLab,
+  deleteAdminLab,
+  createAdminLab,
+} from '@/Utils/PostApiHandler'
+
+/**
+ * Read-only Lab Consumption Queries for VLab Dashboard (Student & Super Admin).
+ * Lab Management (Create, Edit, Delete, Status Toggle) is performed exclusively
+ * in the Owner Dashboard.
+ */
 
 // Map the DB response to the original frontend Lab schema
 const mapApiToFrontendLab = (apiLab: any): Lab => {
@@ -11,7 +23,7 @@ const mapApiToFrontendLab = (apiLab: any): Lab => {
     subtitle: apiLab.subtitle || '',
     program: apiLab.program || '',
     semester: apiLab.semester || '',
-    logoUrl: apiLab.logoUrl || '',
+    logoUrl: apiLab.logoUrl || apiLab.logo || '',
     category: apiLab.category || 'Development',
     credits: apiLab.credits || 0,
     durationMinutes: apiLab.durationMinutes || 60,
@@ -22,34 +34,11 @@ const mapApiToFrontendLab = (apiLab: any): Lab => {
     containerApiPath: apiLab.containerApiPath || '',
     taskDefinition: apiLab.taskDefinition || apiLab.dockerImage || 'ubuntu:latest',
     instructions: apiLab.instructions || '',
-    status: apiLab.status || 'maintenance',
+    status: apiLab.status || 'active',
     deletedAt: apiLab.deletedAt ? new Date(apiLab.deletedAt) : undefined,
     deletedBy: apiLab.deletedBy || '',
     createdAt: apiLab.createdAt ? new Date(apiLab.createdAt) : new Date(),
     updatedAt: apiLab.updatedAt ? new Date(apiLab.updatedAt) : new Date()
-  }
-}
-
-// Map the frontend Lab payload back to what the backend expects
-const mapFrontendToApiPayload = (lab: Partial<Lab>) => {
-  return {
-    labCode: lab.id || `lab-${Date.now()}`,
-    title: lab.title,
-    subtitle: lab.subtitle || '',
-    program: lab.program || '',
-    semester: lab.semester || '',
-    logoUrl: lab.logoUrl || '',
-    durationMinutes: lab.durationMinutes,
-    credits: lab.credits,
-    complexity: lab.complexity || 'Intermediate',
-    category: lab.category,
-    runtimeType: lab.runtimeType || 'ide',
-    runtimePort: lab.runtimePort || null,
-    runtimePath: lab.runtimePath || '',
-    containerApiPath: lab.containerApiPath || '',
-    taskDefinition: lab.taskDefinition || '',
-    instructions: lab.instructions || '',
-    status: lab.status || 'maintenance',
   }
 }
 
@@ -58,14 +47,16 @@ export function useLabsQuery(status?: string) {
   return useQuery({
     queryKey: ['labs', status],
     queryFn: async (): Promise<Lab[]> => {
-      const url = status ? `/admin/labs?status=${status}` : '/admin/labs'
-      const data = await apiRequest(url)
+      const params = status && status !== 'all' ? { status } : undefined
+      const data: any = await fetchAdminLabs(params)
       // API returns { labs: [...] }
       if (data && data.labs && Array.isArray(data.labs)) {
         return data.labs.map(mapApiToFrontendLab)
       }
       return []
-    }
+    },
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -74,7 +65,7 @@ export function useRuntimeTypesQuery() {
     queryKey: ['runtime-types'],
     queryFn: async (): Promise<{ value: string, label: string }[]> => {
       try {
-        const data = await apiRequest('/admin/runtime-types')
+        const data: any = await fetchRuntimeTypes()
         if (data && data.runtimeTypes && Array.isArray(data.runtimeTypes)) {
           return data.runtimeTypes
         }
@@ -87,55 +78,35 @@ export function useRuntimeTypesQuery() {
   })
 }
 
-// Mutations
-export function useCreateLabMutation() {
+export function useUpdateLabStatusMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: Partial<Lab>) => {
-      const apiPayload = mapFrontendToApiPayload(payload)
-      return await apiRequest('/admin/labs', {
-        method: 'POST',
-        body: JSON.stringify(apiPayload)
-      })
+    mutationFn: async ({ labId, status }: { labId: string; status: string }) => {
+      return await updateAdminLabStatus(labId, status)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
-    }
+      toast.success('Lab status updated!')
+    },
+    onError: (err: Error) => {
+      toast.error('Failed to update status: ' + err.message)
+    },
   })
 }
 
 export function useUpdateLabMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ labId, payload }: { labId: string, payload: Partial<Lab> }) => {
-      const apiPayload = mapFrontendToApiPayload(payload)
-      return await apiRequest(`/admin/labs/${labId}`, {
-        method: 'PUT',
-        body: JSON.stringify(apiPayload)
-      })
+    mutationFn: async ({ labId, payload }: { labId: string; payload: Partial<Lab> }) => {
+      return await updateAdminLab(labId, payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
-    }
-  })
-}
-
-export function useUpdateLabStatusMutation() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ labId, status }: { labId: string, status: string }) => {
-      return await apiRequest(`/admin/labs/${labId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status })
-      })
+      toast.success('Lab updated successfully!')
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['labs'] })
-      toast.success('Status updated successfully')
+    onError: (err: Error) => {
+      toast.error('Failed to update lab: ' + err.message)
     },
-    onError: (error: any) => {
-      toast.error('Failed to update status: ' + (error?.message || 'Unknown error'))
-    }
   })
 }
 
@@ -143,13 +114,31 @@ export function useDeleteLabMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (labId: string) => {
-      return await apiRequest(`/admin/labs/${labId}`, {
-        method: 'DELETE'
-      })
+      return await deleteAdminLab(labId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
-    }
+      toast.success('Lab deleted successfully!')
+    },
+    onError: (err: Error) => {
+      toast.error('Failed to delete lab: ' + err.message)
+    },
+  })
+}
+
+export function useCreateLabMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: Partial<Lab>) => {
+      return await createAdminLab(payload)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['labs'] })
+      toast.success('Lab created successfully!')
+    },
+    onError: (err: Error) => {
+      toast.error('Failed to create lab: ' + err.message)
+    },
   })
 }
 

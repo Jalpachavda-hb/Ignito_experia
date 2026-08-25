@@ -48,8 +48,30 @@ const TerminalLog = () => {
   )
 }
 
+import { fetchTenantResolve } from '@/Utils/GetApiHandler'
+
 export function SignIn() {
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const [tenantInfo, setTenantInfo] = useState<{ name?: string; logoUrl?: string; slug?: string } | null>(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      fetchTenantResolve(host)
+        .then((resData: any) => {
+          let data = resData
+          if (resData?.payload) {
+            try {
+              data = JSON.parse(atob(resData.payload))
+            } catch (e) {}
+          }
+          if (data?.success && data?.isTenant && data?.tenant) {
+            setTenantInfo(data.tenant)
+          }
+        })
+        .catch((err: any) => console.error('Error resolving tenant domain:', err))
+    }
+  }, [])
 
   return (
     <div 
@@ -72,8 +94,17 @@ export function SignIn() {
         <div className="lg:w-[55%] flex flex-col justify-center p-8 md:p-12 border-b lg:border-b-0 lg:border-r border-slate-200/60 bg-white/40">
           <div className="space-y-10">
             
-            <div className="flex items-center">
-              <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 sm:h-12 w-auto object-contain" />
+            <div className="flex items-center gap-3">
+              {tenantInfo?.logoUrl ? (
+                <img src={tenantInfo.logoUrl} alt={tenantInfo.name || 'Tenant Logo'} className="h-10 sm:h-12 w-auto object-contain rounded-xl" />
+              ) : (
+                <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 sm:h-12 w-auto object-contain" />
+              )}
+              {tenantInfo?.name && (
+                <span className="font-bold text-lg text-slate-800 border-l border-slate-300 pl-3">
+                  {tenantInfo.name}
+                </span>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -114,13 +145,19 @@ export function SignIn() {
             
             {/* Mobile Logo */}
             <div className="flex lg:hidden items-center justify-center mb-8">
-              <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 w-auto object-contain" />
+              {tenantInfo?.logoUrl ? (
+                <img src={tenantInfo.logoUrl} alt={tenantInfo.name || 'Tenant Logo'} className="h-10 w-auto object-contain rounded-xl" />
+              ) : (
+                <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 w-auto object-contain" />
+              )}
             </div>
 
             <div className="flex flex-col space-y-2 text-center lg:text-left mb-8">
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900">Admin Authentication</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                {tenantInfo?.name ? `${tenantInfo.name} Portal` : 'Ignito Experia Portal'}
+              </h2>
               <p className="text-sm text-slate-500 font-medium">
-                Secure login to manage virtual environments.
+                {tenantInfo?.name ? `Log in with your ${tenantInfo.name} Experia credentials or access labs via LMS.` : 'Secure login to access virtual lab environments.'}
               </p>
             </div>
             
@@ -128,12 +165,18 @@ export function SignIn() {
               <UserAuthForm redirectTo={redirect} />
             </div>
             
-            <div className="mt-8 text-center text-sm text-slate-500 font-medium">
-              Don't have an account?{' '}
-              <Link to="/sign-up" className="font-bold text-primary hover:text-primary/80 transition-colors">
-                Request Access
-              </Link>
-            </div>
+            {!tenantInfo?.name ? (
+              <div className="mt-8 text-center text-sm text-slate-500 font-medium">
+                Don't have an account?{' '}
+                <Link to="/sign-up" className="font-bold text-primary hover:text-primary/80 transition-colors">
+                  Register Direct Account
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-8 text-center text-xs text-slate-500 bg-amber-50/80 border border-amber-200/60 rounded-xl p-3">
+                This university portal is available only to students and staff associated with {tenantInfo.name}. Registration is unavailable on university portals.
+              </div>
+            )}
             
             <p className="text-center text-xs text-slate-400 font-medium mt-8">
               Secured by IgnitoExperia &middot;{' '}

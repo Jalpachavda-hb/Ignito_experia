@@ -11,6 +11,7 @@ export const signAccessToken = (user) =>
       role: user.role,
       name: user.name,
       roleId: user.roleId,
+      tenantId: user.tenantId,
       source: user.source,
     },
     ENV.jwtSecret,
@@ -78,7 +79,7 @@ export const requireAuth = (event) => {
   const fromAuthorizer = authFromAuthorizerContext(event);
   if (fromAuthorizer) return fromAuthorizer;
 
-  const token = getBearerToken(event.headers || {});
+  const token = getBearerToken(event.headers || {}) || event.queryStringParameters?.token;
   if (!token) throw unauthorized("Missing Authorization Bearer token");
   const claims = verifyAccessToken(token);
   return {
@@ -88,6 +89,7 @@ export const requireAuth = (event) => {
     role: claims.role,
     name: claims.name,
     roleId: claims.roleId,
+    tenantId: claims.tenantId,
     source: claims.source,
     claims,
   };

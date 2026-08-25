@@ -1,19 +1,28 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
 import { Button } from '@/components/ui/button';
 import { Download, HelpCircle, FileText } from 'lucide-react';
-import { dashboardData } from '@/pages/student/dashboard/data';
+import { useTransactionStore } from '@/stores/transactionStore';
+import { useLabStore } from '@/stores/labStore';
+import { useLabTokenStore } from '@/stores/labTokenStore';
 
 import { TransactionsHeader } from './components/transactions-header';
 import { TransactionTable } from './components/transaction-table';
 import { MonthlyActivityChart } from './components/monthly-activity-chart';
 import { TransactionBreakdownChart } from './components/transaction-breakdown-chart';
 import { LabCreditHistory } from './components/lab-credit-history';
-import { AcademicTransactions } from './components/academic-transactions';
 
 export default function Transactions() {
-  const { transactions, wallet, recentLabs } = dashboardData;
+  const { transactions, fetchTransactions } = useTransactionStore();
+  const { labs, loadLabs } = useLabStore();
+  const { fetchStudentLabTokens } = useLabTokenStore();
+
+  useEffect(() => {
+    fetchTransactions();
+    loadLabs();
+    fetchStudentLabTokens();
+  }, [fetchTransactions, loadLabs, fetchStudentLabTokens]);
 
   return (
     <>
@@ -25,19 +34,10 @@ export default function Transactions() {
             <span className="text-slate-900 dark:text-white font-semibold">Transactions</span>
           </div>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="hidden sm:flex gap-2">
-            <FileText className="h-4 w-4" /> Download Statement
-          </Button>
-          <Button size="sm" className="gap-2 bg-red-600 hover:bg-red-700 text-white">
-            <Download className="h-4 w-4" /> Export Report
-          </Button>
-        </div>
       </Header>
       
       <Main className="bg-slate-50 dark:bg-slate-950 min-h-[calc(100vh-4rem)] pb-12">
-        <div className="w-full p-4 sm:p-6 md:p-8 space-y-8 max-w-[1600px] mx-auto">
+        <div className="w-full px-4 md:px-6 xl:px-10 py-6 space-y-6 max-w-[1600px] mx-auto">
           
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
@@ -54,25 +54,21 @@ export default function Transactions() {
             </div>
           </div>
           
-          <TransactionsHeader 
-            transactions={transactions} 
-            totalCredits={wallet.totalCredits} 
-          />
+          <TransactionsHeader />
           
           <TransactionTable transactions={transactions} />
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="xl:col-span-2 space-y-6">
-              <MonthlyActivityChart data={wallet.consumptionData ?? []} />
+              <MonthlyActivityChart />
             </div>
             <div>
-              <TransactionBreakdownChart transactions={transactions} />
+              <TransactionBreakdownChart mode="purchased" transactions={transactions} />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <LabCreditHistory recentLabs={recentLabs} />
-            <AcademicTransactions />
+          <div className="w-full">
+            <LabCreditHistory recentLabs={labs.slice(0, 5)} />
           </div>
 
         </div>

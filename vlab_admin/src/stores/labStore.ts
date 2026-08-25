@@ -16,14 +16,27 @@ interface LabStore {
   loadSubLabs: () => Promise<void>;
 }
 
+function normalizeLab(lab: any): Lab {
+  const labId = lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?.lab_code || (lab?.dbId ? String(lab.dbId) : "") || (lab?._id ? String(lab._id) : "") || "";
+  return {
+    ...lab,
+    id: labId,
+    labId: labId,
+    title: lab?.title || lab?.Title || lab?.name || lab?.Name || 'Unnamed Lab',
+    category: lab?.category || lab?.Category || 'Other Specialties',
+    durationMinutes: lab?.durationMinutes ?? lab?.DurationMinutes ?? lab?.duration ?? 60,
+    credits: lab?.credits ?? lab?.Credits ?? 0,
+  };
+}
+
 export const useLabStore = create<LabStore>((set) => ({
   labs: [],
   subLabs: {},
   isLoading: false,
   error: null,
-  addLab: (lab) => set((state) => ({ labs: [...state.labs, lab] })),
+  addLab: (lab) => set((state) => ({ labs: [...state.labs, normalizeLab(lab)] })),
   updateLab: (updatedLab) => set((state) => ({
-    labs: state.labs.map((l) => l.id === updatedLab.id ? updatedLab : l)
+    labs: state.labs.map((l) => l.id === updatedLab.id ? normalizeLab(updatedLab) : l)
   })),
   deleteLab: (id) => set((state) => ({
     labs: state.labs.filter((l) => l.id !== id)
@@ -52,8 +65,11 @@ export const useLabStore = create<LabStore>((set) => ({
         fetchSubLabs().catch(() => ({ subLabs: {} })) // Prevent subLabs from failing the entire fetch
       ]);
   
+      const rawLabs = Array.isArray(labsResponse?.labs) ? labsResponse.labs : (Array.isArray(labsResponse) ? labsResponse : []);
+      const normalizedLabs = rawLabs.map(normalizeLab);
+
       set({
-        labs: Array.isArray(labsResponse?.labs) ? labsResponse.labs : (Array.isArray(labsResponse) ? labsResponse : []),
+        labs: normalizedLabs,
         subLabs: subLabsResponse?.subLabs || {},
         isLoading: false,
         error: null

@@ -2,32 +2,43 @@ import { ok } from "../lib/apigw.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { getSession } from "../services/sessionRepository.js";
 import { createRun, getRun, completeRun } from "../services/runRepository.js";
-import { getFile, upsertFile } from "../services/fileRepository.js";
+import { getFile } from "../services/fileRepository.js";
 import { readFromContainer } from "../services/containerClient.js";
-import { executeCode } from "../services/ExecutionService.js";
 import { resolveLabType } from "../lib/labTypeMapper.js";
-import { getContainerHost, getContainerPort } from "../lib/labTools.js";
 import { validateFile } from "../utils/validation.js";
 import fs from "fs";
 import path from "path";
 
+// Modular Production Pipeline Imports
+import { SessionManager } from "../execution/SessionManager.js";
+import { FileSync } from "../execution/FileSync.js";
+import { RuntimeResolver } from "../runtime/RuntimeResolver.js";
+import { BrowserManager } from "../execution/BrowserManager.js";
+import { LogStreamer } from "../execution/LogStreamer.js";
+import { ExecuteCommand } from "../execution/ExecuteCommand.js";
 
 export const runsCreateHandler = async ({ body, auth }) => {
   const sessionId = body?.sessionId || body?.session_id;
   const filePath = body?.path || body?.filePath;
   const language = body?.language;
   const content = body?.content || body?.code;
+  const executionMode = body?.executionMode === "headless" ? "headless" : "gui";
 
   if (!sessionId) throw badRequest("sessionId is required");
 
-  const session = await getSession(sessionId);
-  if (!session) throw notFound("Session not found");
-  if (String(session.userId) !== String(auth.userId) && auth.role !== "Super Admin") {
-    throw forbidden("You do not own this session");
-  }
+  // 1. Session & Container Validation
+  const session = await SessionManager.validateSession(sessionId, auth);
 
-  // Prefer request body content (the editor sends the latest buffer).
-  // Container reads can lag behind if auto-save hasn't completed.
+  // 2. Resolve Lab Runtime
+  const labType = resolveLabType({
+    labId: session.labId,
+    language,
+    labType: body?.labType,
+  });
+  
+  // Resolve runtime config from resolvers
+  const runtimeConfig = RuntimeResolver.resolve(labType, language);
+
   let code = content || "";
   if (!code && filePath) {
     if (session.status === "running") {
@@ -39,7 +50,7 @@ export const runsCreateHandler = async ({ body, auth }) => {
     }
     if (!code) {
       const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-      const localPath = path.join(path.resolve(process.cwd(), ".."), cleanPath);
+      const localPath = path.join(path.resolve(process.cwd(), ".."), "workspace", cleanPath);
       if (fs.existsSync(localPath)) {
         try {
           code = fs.readFileSync(localPath, "utf-8");
@@ -50,20 +61,13 @@ export const runsCreateHandler = async ({ body, auth }) => {
     }
   }
 
-  const labType = resolveLabType({
-    labId: session.labId,
-    language,
-    labType: body?.labType,
-  });
-
-  const isAndroid = labType === "android" || session.labId === "android" || session.labId === "mobile-app-lab";
-
   // Fallback to DB file content if not found anywhere
   if (!code && filePath) {
     const file = await getFile(sessionId, filePath);
     if (file) code = file.content;
   }
 
+  const isAndroid = labType === "android" || session.labId === "android" || session.labId === "mobile-app-lab";
   if (!code && !isAndroid) throw badRequest("content or saved file path is required");
 
   // Enforce runtime-specific validation before running
@@ -82,7 +86,14 @@ export const runsCreateHandler = async ({ body, auth }) => {
     }
   }
 
+  // 3. File Synchronization
+  if (filePath && code) {
+    await FileSync.syncFile(session, filePath, code);
+  }
+
+  // 4. Create database run record
   const run = await createRun({ sessionId, labType });
+
   let payload = {
     path: filePath,
     language,
@@ -90,8 +101,10 @@ export const runsCreateHandler = async ({ body, auth }) => {
     labType,
     action: body?.action,
     stdin: body?.stdin,
+    executionMode,
   };
 
+  // Process wrapper transformation for Hadoop (if required)
   if (labType === "big-data" && language === "java") {
     const classNameMatch = code.match(/public\s+class\s+([a-zA-Z0-9_]+)/);
     const className = classNameMatch ? classNameMatch[1] : "Main";
@@ -136,19 +149,44 @@ except Exception as e:
       labType: "big-data"
     };
   }
-  console.log("\n=========================================");
-  console.log("             RUN CODE REQUEST            ");
-  console.log("=========================================");
-  console.log(`Session ID:  ${sessionId}`);
-  console.log(`Lab ID:      ${session.labId}`);
-  console.log(`Lab Type:    ${labType}`);
-  console.log(`Language:    ${language || "unknown"}`);
-  console.log(`File Path:   ${filePath || "ad-hoc code run"}`);
-  console.log(`Code length: ${code.length} chars`);
 
+  // 5. Execution Coordination
+  if (labType === "testing") {
+    // Execute inside container asynchronously
+    (async () => {
+      try {
+        const result = await ExecuteCommand.execute(session, run.runId, payload);
+        await completeRun(run.runId, result);
+      } catch (err) {
+        console.error("[runsCreateHandler] Async execution failed:", err);
+      } finally {
+        LogStreamer.completeRunLogs(run.runId);
+      }
+    })();
+
+    // Resolve VNC browser URL and SSE logs endpoint
+    const browserUrl = BrowserManager.getBrowserUrl(session);
+    return ok({
+      success: true,
+      runId: run.runId,
+      sessionId,
+      executionMode,
+      viewerUrl: executionMode === "gui" ? browserUrl : null,
+      browser: {
+        url: browserUrl,
+        connected: true,
+        title: "Ignito VLab Dashboard"
+      },
+      logs: {
+        streamUrl: `/api/runs/${run.runId}/logs`
+      }
+    });
+  }
+
+  // Non-Selenium execution (Java, Python, .NET, Linux, Hadoop, etc.)
   let result;
   try {
-    result = await executeCode(session, payload, { runId: run.runId });
+    result = await ExecuteCommand.execute(session, run.runId, payload);
   } catch (err) {
     result = {
       success: false,
@@ -159,17 +197,8 @@ except Exception as e:
     };
   }
 
-  console.log("-----------------------------------------");
-  console.log("            EXECUTION RESULTS            ");
-  console.log("-----------------------------------------");
-  console.log(`Success:  ${result.success}`);
-  console.log(`Output:\n${result.output || "(no output)"}`);
-  if (result.error) {
-    console.log(`Error:\n${result.error}`);
-  }
-  console.log("=========================================\n");
-
   await completeRun(run.runId, result);
+  LogStreamer.completeRunLogs(run.runId);
 
   return ok({
     runId: run.runId,

@@ -23,7 +23,8 @@ export const labSchema = z.object({
   title: z.string().min(1, 'Title is required.'),
   subtitle: z.string().min(1, 'Subtitle is required.'),
   program: z.string().optional(),
-  semester: z.string().min(1, 'Semester is required.'),
+  semester: z.string().optional(),
+  course: z.string().optional(),
   logoUrl: z.string().min(1, 'Logo URL is required.'),
   category: labCategorySchema.optional(), // Keep category if needed elsewhere, though not specifically in the form
   credits: z.number().min(0, 'Credit cost cannot be negative.'),

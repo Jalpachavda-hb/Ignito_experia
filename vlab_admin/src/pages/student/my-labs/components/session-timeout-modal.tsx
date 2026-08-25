@@ -32,19 +32,6 @@ export function SessionTimeoutModal({ session }: SessionTimeoutModalProps) {
           return;
         }
       }
-
-      // 2. Query backend to verify if ECS task/session is still active
-      try {
-        const currentSession = await fetchLabSessionStatus(session.sessionId);
-        if (!currentSession || currentSession.status === 'stopped' || currentSession.status === 'failed') {
-          setMessage('Your lab session has been stopped or disconnected. You will now be redirected to the dashboard.');
-          setIsTimeOut(true);
-        }
-      } catch (err: any) {
-        // If API returns 404 (session deleted from DB/memory) or network error
-        setMessage('Your lab session has expired or is no longer active. You will now be redirected to the dashboard.');
-        setIsTimeOut(true);
-      }
     };
 
     // Run first check immediately

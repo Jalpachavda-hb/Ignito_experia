@@ -1,62 +1,66 @@
 import { forbidden, unauthorized } from "../lib/errors.js";
-import pool from "../lib/mysql.js";
+import { ROLES } from "../constants/roles.js";
 
 /**
- * Asserts that the authenticated user possesses the required permission.
- * Throws HttpError 403 Forbidden if not authorized.
- * @param {object} parsed The parsed API Gateway event object
- * @param {string} moduleCode The module to check (e.g. ROLE_MANAGEMENT)
- * @param {string} action The action to check ('create', 'read', 'update', 'delete')
+ * Asserts that the authenticated user's role is included in allowedRoles.
+ * Throws HttpError 401 Unauthorized or 403 Forbidden if not authorized.
+ * Preserves parsed.auth structure.
+ */
+export const requireRoles = (...allowedRoles) => {
+  return (parsed) => {
+    if (!parsed || !parsed.auth) {
+      throw unauthorized("Authentication required");
+    }
+
+    const rawRole = (parsed.auth.role || "").toUpperCase().replace(/\s+/g, "_");
+    if (!rawRole) {
+      throw unauthorized("Authentication required: missing role");
+    }
+
+    // Normalize incoming role to standard ENUM values (STUDENT or TENANT_ADMIN)
+    let normalizedRole = ROLES.STUDENT;
+    if (["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(rawRole)) {
+      normalizedRole = ROLES.TENANT_ADMIN;
+    }
+
+    const isAllowed = allowedRoles.some((r) => {
+      const targetNorm = r.toUpperCase().replace(/\s+/g, "_");
+      return normalizedRole === targetNorm || rawRole === targetNorm;
+    });
+
+    if (!isAllowed) {
+      throw forbidden("Access Denied: Insufficient permissions.");
+    }
+
+    return true;
+  };
+};
+
+/**
+ * Backward-compatible helper for legacy handler calls.
+ * Checks role concept without querying Roles or RolePermissions database tables.
  */
 export const requirePermission = async (parsed, moduleCode, action) => {
   if (!parsed || !parsed.auth) {
     throw unauthorized("Authentication required");
   }
 
-  const { roleId, role } = parsed.auth;
-  
-  // Super Admin bypasses all checks
-  if (role === "Super Admin") {
-    return;
+  const rawRole = (parsed.auth.role || "").toUpperCase().replace(/\s+/g, "_");
+
+  // Admin modules require TENANT_ADMIN role
+  const adminModules = [
+    "USER_MANAGEMENT", "LAB_MANAGEMENT", "PROGRAM_MANAGEMENT",
+    "SEMESTER_MANAGEMENT", "CREDIT_MANAGEMENT", "REPORTS", "SETTINGS", "SESSION_MONITORING"
+  ];
+
+  if (adminModules.includes(moduleCode)) {
+    const isTenantAdmin = ["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(rawRole);
+    if (!isTenantAdmin && action !== "read") {
+      throw forbidden(`Access Denied: Action '${action}' on '${moduleCode}' requires Tenant Admin role.`);
+    }
   }
 
-  if (!roleId) {
-    throw forbidden("Access Denied: No role assigned.");
-  }
-
-  // Fetch permissions for this RoleId and ModuleCode
-  const [rows] = await pool.query(
-    "SELECT CanCreate, CanRead, CanUpdate, CanDelete FROM RolePermissions WHERE RoleId = ? AND ModuleCode = ?",
-    [roleId, moduleCode]
-  );
-
-  if (!rows || rows.length === 0) {
-    throw forbidden(`Access Denied: No permissions defined for module '${moduleCode}'`);
-  }
-
-  const perm = rows[0];
-  let hasAccess = false;
-
-  switch (action) {
-    case "create":
-      hasAccess = Boolean(perm.CanCreate);
-      break;
-    case "read":
-      hasAccess = Boolean(perm.CanRead);
-      break;
-    case "update":
-      hasAccess = Boolean(perm.CanUpdate);
-      break;
-    case "delete":
-      hasAccess = Boolean(perm.CanDelete);
-      break;
-    default:
-      throw forbidden(`Access Denied: Invalid permission action '${action}'`);
-  }
-
-  if (!hasAccess) {
-    throw forbidden(`Access Denied: You do not have permission to perform '${action}' on '${moduleCode}'`);
-  }
+  return true;
 };
 
 export default requirePermission;

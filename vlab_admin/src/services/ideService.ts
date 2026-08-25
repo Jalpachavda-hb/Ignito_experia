@@ -1,5 +1,16 @@
 import { getWsOrigin } from '@/config/env';
-import { apiRequest } from '../lib/apiClient';
+import {
+  executeRequest,
+  fetchFiles,
+  fetchFileContent,
+  fetchAndroidBuildStatus,
+} from '../Utils/GetApiHandler';
+import {
+  saveFile,
+  runFile as runFileApi,
+  deleteFile,
+  startAndroidBuild,
+} from '../Utils/PostApiHandler';
 
 export interface TerminalConnection {
   sessionId: string;
@@ -7,45 +18,35 @@ export interface TerminalConnection {
   onMessage?: (data: any) => void;
 }
 
-export async function fetchFiles(sessionId: string) {
-  return apiRequest('/files', {
-    headers: { 'x-session-id': sessionId }
-  });
-}
-
-export async function fetchFileContent(path: string, sessionId: string) {
-  return apiRequest(`/files/content?path=${encodeURIComponent(path)}`, {
-    headers: { 'x-session-id': sessionId }
-  });
-}
-
-export async function saveFile(payload: any, sessionId: string) {
-  return apiRequest('/save', {
-    method: 'POST',
-    headers: { 'x-session-id': sessionId },
-    body: JSON.stringify(payload),
-  });
-}
+export {
+  fetchFiles,
+  fetchFileContent,
+  saveFile,
+  deleteFile,
+  startAndroidBuild,
+  fetchAndroidBuildStatus,
+};
 
 export async function runFile(payload: any, sessionId: string) {
   const isDotnet =
     payload?.labType === 'dotnet' ||
     payload?.language === 'csharp' ||
     String(payload?.path || '').toLowerCase().endsWith('.cs');
-  const isBuild = payload?.action === 'build';
+  const isAndroid =
+    payload?.labType === 'android' ||
+    String(payload?.path || '').toLowerCase().includes('build.sh');
+  const isBuild = payload?.action === 'build' || payload?.path?.includes('build');
   const controller = new AbortController();
-  const timeoutMs = isDotnet ? (isBuild ? 360000 : 300000) : 60000;
+  const timeoutMs = isDotnet || isAndroid ? (isBuild ? 360000 : 300000) : 60000;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    return await apiRequest('/run', {
-      method: 'POST',
-      headers: { 'x-session-id': sessionId },
-      body: JSON.stringify(payload),
+    return await runFileApi(payload, sessionId, {
       signal: controller.signal,
+      timeout: timeoutMs,
     });
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
+    if (err?.name === 'AbortError' || err?.code === 'ECONNABORTED') {
       throw new Error(
         isDotnet
           ? isBuild
@@ -60,10 +61,13 @@ export async function runFile(payload: any, sessionId: string) {
   }
 }
 
-export async function deleteFile(path: string, sessionId: string) {
-  return apiRequest(`/files?path=${encodeURIComponent(path)}`, {
-    method: 'DELETE',
+
+export async function renamePath(oldPath: string, newPath: string, sessionId: string) {
+  return executeRequest('/files/rename', {
+    method: 'POST',
     headers: { 'x-session-id': sessionId },
+    body: { oldPath, newPath },
+    auth: true,
   });
 }
 
@@ -81,3 +85,5 @@ export function connectTerminalStream({ sessionId, runId, onMessage }: TerminalC
 
   return socket;
 }
+
+

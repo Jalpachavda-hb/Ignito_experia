@@ -55,38 +55,61 @@ export function UserAuthForm({
   async function onSubmit(data: z.infer<typeof formSchema>) {
     setIsLoading(true)
 
+    let slug = ''
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      const parts = host.split('.')
+      if (parts.length > 1 && parts[0] !== 'www' && parts[0] !== 'localhost') {
+        slug = parts[0]
+      }
+    }
+
     toast.promise(
-      loginWithCredentials({ email: data.email, password: data.password }),
+      loginWithCredentials({ email: data.email, password: data.password, slug }),
       {
         loading: 'Signing in...',
-        success: (response: any) => {
+        success: async (response: any) => {
           setIsLoading(false)
 
-          const sessionUser = response?.user || {}
+          const token = response?.accessToken || response?.token
+          auth.setAccessToken(token)
+          if (response?.refreshToken) {
+            auth.setRefreshToken?.(response.refreshToken)
+          }
+
+          let finalUser = response?.user || {}
+
+          try {
+            const { fetchAuthMe } = await import('@/Utils/GetApiHandler')
+            const meData: any = await fetchAuthMe()
+            if (meData?.user) {
+              finalUser = meData.user
+            }
+          } catch (err) {
+            console.warn("Direct login profile fetch warning:", err)
+          }
 
           const user = {
-            userId: sessionUser.id,
-            fullName: sessionUser.name || 'User',
-            email: sessionUser.email || data.email,
-            role: sessionUser.role || 'Student',
-            roleId: sessionUser.roleId,
-            status: sessionUser.status || 'Active',
-            programId: sessionUser.programId,
-            semesterId: sessionUser.semesterId,
-            exp: Date.now() + 24 * 60 * 60 * 1000,
-            permissions: sessionUser.permissions,
+            ...finalUser,
+            userId: finalUser.id || finalUser.userId,
+            fullName: finalUser.fullName || finalUser.name || 'User',
+            name: finalUser.fullName || finalUser.name || 'User',
+            email: finalUser.email || data.email,
+            role: finalUser.role || 'Student',
+            status: finalUser.status || 'Active',
+            exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
           }
 
           auth.setUser(user)
-          auth.setAccessToken(response?.accessToken || response?.token)
 
           let targetPath = redirectTo || '/'
-          if (user.role === 'Student' && targetPath === '/') {
+          const isStudentRole = (user.role || '').toLowerCase() === 'student'
+          if (isStudentRole && targetPath === '/') {
             targetPath = '/student/dashboard'
           }
           navigate({ to: targetPath, replace: true })
 
-          return `Welcome back, ${user.email}!`
+          return `Welcome back, ${user.fullName || user.email}!`
         },
         error: (err) => {
           setIsLoading(false)

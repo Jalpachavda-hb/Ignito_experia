@@ -10,6 +10,7 @@ interface SemesterLabCardProps {
 }
 
 export function SemesterLabCard({ lab, onStart }: SemesterLabCardProps) {
+  const labId = lab.id || lab.labId || lab.LabId || lab.labCode || lab.LabCode || lab._id || '';
   const name = lab.title || lab.name || 'Unnamed Lab';
   const imageUrl = lab.logo || lab.image || lab.icon || null;
   const time = lab.durationMinutes || lab.duration || 60;
@@ -45,7 +46,7 @@ export function SemesterLabCard({ lab, onStart }: SemesterLabCardProps) {
         
         {/* Button */}
         <Button 
-          onClick={() => onStart?.(lab.id)}
+          onClick={() => onStart?.(labId)}
           className="w-full bg-[#df0000] hover:bg-red-700 text-white font-bold h-[42px] rounded-md uppercase tracking-wider text-[12px] shadow-none"
         >
           START LAB <ChevronRight className="w-4 h-4 ml-1" />

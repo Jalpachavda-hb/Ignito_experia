@@ -41,7 +41,7 @@ export const usersColumns: ColumnDef<User>[] = [
       <DataTableColumnHeader column={column} title='Name' />
     ),
     cell: ({ row }) => (
-      <LongText className='max-w-36 ps-3'>{row.getValue('FullName')}</LongText>
+      <LongText className='min-w-[220px] max-w-[360px] font-medium text-foreground ps-3'>{row.getValue('FullName')}</LongText>
     ),
     meta: {
       className: cn(
@@ -60,21 +60,14 @@ export const usersColumns: ColumnDef<User>[] = [
     ),
   },
   {
-    accessorKey: 'PhoneNumber',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Phone Number' />
-    ),
-    cell: ({ row }) => <div>{row.getValue('PhoneNumber') || '-'}</div>,
-    enableSorting: false,
-  },
-  {
     accessorKey: 'Role',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Role' />
     ),
     cell: ({ row }) => {
-      const roleValue = row.getValue('Role') as string;
-      const userType = roles.find(({ value }) => value.toLowerCase() === roleValue.toLowerCase())
+      const rawRole = row.getValue('Role');
+      const roleValue = rawRole ? String(rawRole) : 'Student';
+      const userType = roles.find(({ value }) => value && value.toLowerCase() === roleValue.toLowerCase());
 
       if (!userType) {
         return <span className='text-sm capitalize'>{roleValue}</span>
@@ -90,52 +83,10 @@ export const usersColumns: ColumnDef<User>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id))
+      const rowVal = row.getValue(id);
+      return rowVal && Array.isArray(value) ? value.includes(rowVal) : false;
     },
     enableSorting: false,
     enableHiding: false,
-  },
-  {
-    accessorKey: 'EnrollmentNumber',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Enrollment No.' />
-    ),
-    cell: ({ row }) => <div className="font-mono text-xs font-semibold">{row.getValue('EnrollmentNumber') || '-'}</div>,
-  },
-  {
-    accessorKey: 'ProgramId',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Program' />
-    ),
-    cell: ({ row }) => <div>{row.getValue('ProgramId') || '-'}</div>,
-    filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id))
-    },
-  },
-  {
-    accessorKey: 'SemesterId',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Semester' />
-    ),
-    cell: ({ row }) => <div>{row.getValue('SemesterId') || '-'}</div>,
-  },
-  {
-    accessorKey: 'CreditBalance',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Credits' />
-    ),
-    cell: ({ row }) => {
-      const credits = row.getValue('CreditBalance') as string | number;
-      const parsedCredits = typeof credits === 'string' ? parseFloat(credits) : credits;
-      return (
-        <div className='font-medium text-amber-600 dark:text-amber-500'>
-          {isNaN(parsedCredits) ? '-' : Intl.NumberFormat('en-US').format(parsedCredits)}
-        </div>
-      )
-    },
-  },
-  {
-    id: 'actions',
-    cell: DataTableRowActions,
   },
 ]

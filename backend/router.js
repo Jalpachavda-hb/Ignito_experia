@@ -7,22 +7,32 @@ import {
   authLogoutHandler,
   authMeHandler,
   ssoLoginHandler,
+  tenantResolveHandler,
+  authSetPasswordHandler,
+  userChangePasswordHandler,
+  authForgotPasswordHandler,
+  authResetPasswordHandler,
+  studentRefreshProfileHandler,
+  studentPurchasedProgrammesHandler,
+  studentProgrammeSemestersHandler,
+  getPracticalAvailableProgramsHandler,
+  mapCourseLabHandler,
+  userProfileUpdateHandler,
+  userProfilePhotoUploadHandler,
+  internalTenantDeleteHandler,
 } from "./handlers/auth.js";
 import {
   labsListHandler,
   labsGetHandler,
   subLabsHandler,
   labsAdminListHandler,
-  labsCreateHandler,
-  labsUpdateHandler,
-  labsDeleteHandler,
-  labsUpdateStatusHandler,
 } from "./handlers/labs.js";
 import {
   sessionsStartHandler,
   sessionsGetHandler,
   sessionsStopHandler,
   sessionsListByUserHandler,
+  sessionsExtendHandler,
 } from "./handlers/sessions.js";
 import { runsCreateHandler, runsGetHandler, runLegacyHandler } from "./handlers/runs.js";
 import {
@@ -31,6 +41,7 @@ import {
   filesSaveHandler,
   filesDeleteHandler,
   filesDownloadHandler,
+  filesRenameHandler,
 } from "./handlers/files.js";
 import { submitHandler } from "./handlers/submit.js";
 import { jupyterHealthHandler } from "./handlers/jupyterHealth.js";
@@ -47,12 +58,34 @@ import {
 } from "./handlers/users.js";
 import { runtimeTypesListHandler } from "./handlers/runtimeTypes.js";
 import {
-  rolesListHandler,
-  rolesGetHandler,
-  rolesCreateHandler,
-  rolesUpdateHandler,
-  rolesDeleteHandler,
-} from "./handlers/roles.js";
+  getWalletHandler,
+  purchaseCreditsHandler,
+  getTransactionHistoryHandler,
+} from "./handlers/credits.js";
+import {
+  createRazorpayOrderHandler,
+  verifyRazorpaySignatureHandler,
+} from "./handlers/razorpayPayment.js";
+import { internalOwnerStudentsHandler } from "./handlers/ownerReporting.js";
+import {
+  ownerCreatePackageHandler,
+  ownerListPackagesHandler,
+  ownerUpdatePackageHandler,
+  ownerSetPackageStatusHandler,
+} from "./handlers/ownerTokenPackages.js";
+import {
+  tokenOrderCreateHandler,
+  tokenOrderVerifyPaymentHandler,
+  tokenOrderWebhookHandler,
+  tokenOrderListHandler,
+  tokenOrderGetDetailsHandler,
+} from "./handlers/tokenOrders.js";
+import {
+  studentLabTokensSummaryHandler,
+  studentLabSingleTokenBalanceHandler,
+  studentAvailableTokenPackagesHandler,
+  studentLabTokenUsageHandler,
+} from "./handlers/studentTokens.js";
 
 /**
  * Route table — paths match AWS API Gateway (no /api prefix).
@@ -63,12 +96,39 @@ export const ROUTES = [
   { method: "GET", path: "/health", handler: healthHandler, auth: false },
   { method: "GET", path: "/health/database", handler: databaseHealthHandler, auth: false },
 
+  { method: "GET", path: "/tenant/resolve", handler: tenantResolveHandler, auth: false },
   { method: "POST", path: "/auth/register", handler: authRegisterHandler, auth: false },
   { method: "POST", path: "/auth/login", handler: authLoginHandler, auth: false },
   { method: "POST", path: "/auth/refresh", handler: authRefreshHandler, auth: false },
   { method: "POST", path: "/auth/logout", handler: authLogoutHandler, auth: false },
   { method: "POST", path: "/auth/sso-login", handler: ssoLoginHandler, auth: false },
+  { method: "POST", path: "/auth/set-password", handler: authSetPasswordHandler, auth: true },
+  { method: "POST", path: "/user/change-password", handler: userChangePasswordHandler, auth: true },
+  { method: "POST", path: "/auth/forgot-password", handler: authForgotPasswordHandler, auth: false },
+  { method: "POST", path: "/auth/reset-password", handler: authResetPasswordHandler, auth: false },
   { method: "GET", path: "/auth/me", handler: authMeHandler, auth: true },
+  { method: "GET", path: "/student/me", handler: authMeHandler, auth: true },
+  { method: "POST", path: "/student/refresh-profile", handler: studentRefreshProfileHandler, auth: true },
+  { method: "POST", path: "/student/purchased-programmes", handler: studentPurchasedProgrammesHandler, auth: true },
+  { method: "POST", path: "/student/programme-semesters", handler: studentProgrammeSemestersHandler, auth: true },
+  { method: "POST", path: "/student/practical-available-programs", handler: getPracticalAvailableProgramsHandler, auth: true },
+  { method: "POST", path: "/admin/courses/:courseId/map-lab", handler: mapCourseLabHandler, auth: true },
+  { method: "PUT", path: "/user/profile", handler: userProfileUpdateHandler, auth: true },
+  { method: "POST", path: "/user/profile-photo", handler: userProfilePhotoUploadHandler, auth: true },
+  { method: "POST", path: "/upload", handler: userProfilePhotoUploadHandler, auth: true },
+
+  // Credit Wallet & Transactions
+  { method: "GET", path: "/credits/wallet", handler: getWalletHandler, auth: true },
+  { method: "POST", path: "/credits/purchase", handler: purchaseCreditsHandler, auth: true },
+  { method: "GET", path: "/credits/transactions", handler: getTransactionHistoryHandler, auth: true },
+
+  // Razorpay Payment Gateway (Order Creation & Cryptographic Signature Verification)
+  { method: "POST", path: "/payments/razorpay/create-order", handler: createRazorpayOrderHandler, auth: false },
+  { method: "POST", path: "/payments/razorpay/verify", handler: verifyRazorpaySignatureHandler, auth: false },
+
+  // Secure Internal Owner Reporting
+  { method: "GET", path: "/internal/owner/students", handler: internalOwnerStudentsHandler, auth: false },
+  { method: "DELETE", path: "/internal/tenants/:tenantId", handler: internalTenantDeleteHandler, auth: false },
 
   // Phase 7: App Bootstrap
   { method: "GET", path: "/app/bootstrap", handler: (event) => import("./handlers/bootstrap.js").then(m => m.appBootstrapHandler(event)), auth: true },
@@ -113,35 +173,11 @@ export const ROUTES = [
   { method: "POST", path: "/users/:userId/credits", handler: usersAddCreditsHandler, auth: true },
   { method: "POST", path: "/users/import", handler: usersImportHandler, auth: true },
 
-  { method: "GET", path: "/roles", handler: rolesListHandler, auth: true },
-  { method: "GET", path: "/roles/:roleId", handler: rolesGetHandler, auth: true },
-  { method: "POST", path: "/roles", handler: rolesCreateHandler, auth: true },
-  { method: "PATCH", path: "/roles/:roleId", handler: rolesUpdateHandler, auth: true },
-  { method: "DELETE", path: "/roles/:roleId", handler: rolesDeleteHandler, auth: true },
 
 
-
-
-
-
-
-
-
-  // Labs 
-  
+  // Labs (Read-only for VLab Platform; Write/Management belongs exclusively to Owner Platform)
   { method: "GET", path: "/admin/labs", handler: labsAdminListHandler, auth: true },
   { method: "GET", path: "/admin/labs/:labId", handler: labsGetHandler, auth: true },
-  { method: "POST", path: "/admin/labs", handler: labsCreateHandler, auth: true },
-  { method: "PUT", path: "/admin/labs/:labId", handler: labsUpdateHandler, auth: true },
-  { method: "DELETE", path: "/admin/labs/:labId", handler: labsDeleteHandler, auth: true },
-  { method: "PATCH", path: "/admin/labs/:labId/status", handler: labsUpdateStatusHandler, auth: true },
-  
-
-
-
-
-
-
   { method: "GET", path: "/labs", handler: labsListHandler, auth: true },
   { method: "GET", path: "/labs/:labId", handler: labsGetHandler, auth: true },
   { method: "GET", path: "/sub-labs", handler: subLabsHandler, auth: true },
@@ -149,6 +185,8 @@ export const ROUTES = [
   { method: "GET", path: "/admin/runtime-types", handler: runtimeTypesListHandler, auth: true },
 
   { method: "POST", path: "/lab-sessions", handler: sessionsStartHandler, auth: true },
+  { method: "POST", path: "/lab-sessions/start", handler: sessionsStartHandler, auth: true },
+  { method: "GET", path: "/lab-sessions/active", handler: sessionsListByUserHandler, auth: true },
   {
     method: "GET",
     path: "/lab-sessions/user/:userId",
@@ -162,6 +200,12 @@ export const ROUTES = [
     auth: true,
   },
   { method: "GET", path: "/lab-sessions/:sessionId", handler: sessionsGetHandler, auth: true },
+  {
+    method: "POST",
+    path: "/lab-sessions/:sessionId/extend",
+    handler: sessionsExtendHandler,
+    auth: true,
+  },
   {
     method: "POST",
     path: "/lab-sessions/:sessionId/stop",
@@ -178,7 +222,32 @@ export const ROUTES = [
   { method: "GET", path: "/files/content", handler: filesContentHandler, auth: true },
   { method: "GET", path: "/files/download", handler: filesDownloadHandler, auth: true },
   { method: "POST", path: "/save", handler: filesSaveHandler, auth: true },
+  { method: "POST", path: "/files/rename", handler: filesRenameHandler, auth: true },
   { method: "DELETE", path: "/files", handler: filesDeleteHandler, auth: true },
+
+  // Android build pipeline
+  { method: "POST", path: "/android/build", handler: (event) => import("./handlers/android.js").then(m => m.androidBuildHandler(event)), auth: true },
+  { method: "GET", path: "/android/build/status", handler: (event) => import("./handlers/android.js").then(m => m.androidBuildStatusHandler(event)), auth: true },
+  { method: "GET", path: "/android/download", handler: (event) => import("./handlers/android.js").then(m => m.androidDownloadHandler(event)), auth: true },
+
+  // Owner Token Package Pricing Routes
+  { method: "POST", path: "/owner/lab-token-packages", handler: ownerCreatePackageHandler, auth: true },
+  { method: "GET", path: "/owner/lab-token-packages", handler: ownerListPackagesHandler, auth: true },
+  { method: "PUT", path: "/owner/lab-token-packages/:id", handler: ownerUpdatePackageHandler, auth: true },
+  { method: "PATCH", path: "/owner/lab-token-packages/:id/status", handler: ownerSetPackageStatusHandler, auth: true },
+
+  // Combined Multi-Lab Token Purchase Orders (Razorpay)
+  { method: "POST", path: "/token-orders", handler: tokenOrderCreateHandler, auth: true },
+  { method: "POST", path: "/token-orders/webhook", handler: tokenOrderWebhookHandler, auth: false },
+  { method: "POST", path: "/token-orders/:orderId/verify-payment", handler: tokenOrderVerifyPaymentHandler, auth: true },
+  { method: "GET", path: "/token-orders", handler: tokenOrderListHandler, auth: true },
+  { method: "GET", path: "/token-orders/:orderId", handler: tokenOrderGetDetailsHandler, auth: true },
+
+  // Student Lab Token Wallets & Usage
+  { method: "GET", path: "/student/lab-tokens", handler: studentLabTokensSummaryHandler, auth: true },
+  { method: "GET", path: "/student/labs/:labId/tokens", handler: studentLabSingleTokenBalanceHandler, auth: true },
+  { method: "GET", path: "/student/lab-token-packages", handler: studentAvailableTokenPackagesHandler, auth: true },
+  { method: "GET", path: "/student/lab-token-usage", handler: studentLabTokenUsageHandler, auth: true },
 ];
 
 export const lambdaHandlers = Object.fromEntries(

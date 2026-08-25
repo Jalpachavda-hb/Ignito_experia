@@ -95,8 +95,8 @@ export function PaymentGateway({ open, onClose, lab, onPaymentSuccess, initialAm
                   <span className="font-black">{plan}</span>
                 </div>
                 <div className="flex justify-between items-center mb-6">
-                  <span className="text-slate-400 text-sm">Amount</span>
-                  <span className="text-xl font-black text-red-500">₹{Math.round(plan * 0.85)}</span>
+                  <span className="text-slate-400 text-sm">Amount (₹1/credit)</span>
+                  <span className="text-xl font-black text-indigo-400">₹{plan}</span>
                 </div>
                 <div className="border-t border-white/10 mb-6"></div>
                 <div className="flex items-center gap-2 text-emerald-400">

@@ -74,11 +74,7 @@ async function migrate() {
     const schemaPath = path.join(process.cwd(), 'database', 'schema.sql');
     await runSqlFile(schemaPath);
 
-    // 2. Run error logging procedure
-    const logErrPath = path.join(process.cwd(), 'database', 'procedures', 'sp_LogError.sql');
-    await runSqlFile(logErrPath);
-
-    // 3. Run auth stored procedure
+    // 2. Run auth stored procedure
     const authLoginPath = path.join(process.cwd(), 'database', 'procedures', 'auth', 'sp_Owner_Auth_Login.sql');
     await runSqlFile(authLoginPath);
 

@@ -12,25 +12,47 @@ export const Route = createFileRoute('/_authenticated/credits')({
   component: CreditsPage,
 })
 
-const UNIVERSITIES_LEDGER = [
-  { id: '1', name: 'Pune Tech University', balance: 125000, plan: 'Enterprise' },
-  { id: '2', name: 'Mumbai Digital Institute', balance: 78000, plan: 'Standard' },
-  { id: '3', name: 'Bangalore CS Academy', balance: 95000, plan: 'Enterprise' },
-  { id: '4', name: 'Delhi Innovation College', balance: 24000, plan: 'Basic' },
-  { id: '5', name: 'Chennai Engineering College', balance: 62000, plan: 'Standard' },
-]
+import { useQuery } from '@tanstack/react-query'
+import { apiRequest } from '@/services/api'
 
-const CREDIT_HISTORY = [
-  { id: 'TXN-001', university: 'Pune Tech University', amount: 50000, type: 'credit', desc: 'Enterprise annual top-up package', date: '2026-06-28 11:24' },
-  { id: 'TXN-002', university: 'Mumbai Digital Institute', amount: 15000, type: 'credit', desc: 'Standard plan expansion package', date: '2026-06-27 15:40' },
-  { id: 'TXN-003', university: 'Delhi Innovation College', amount: 5000, type: 'debit', desc: 'Semester rollback adjustment', date: '2026-06-25 09:12' },
-  { id: 'TXN-004', university: 'Bangalore CS Academy', amount: 20000, type: 'credit', desc: 'Bonus trial credits conversion', date: '2026-06-22 17:33' },
-]
+interface UniLedgerItem {
+  id: string
+  name: string
+  balance: number
+  plan: string
+}
+
+interface CreditHistoryItem {
+  id: string
+  university: string
+  amount: number
+  type: 'credit' | 'debit'
+  desc: string
+  date: string
+}
 
 export default function CreditsPage() {
-  const [selectedUni, setSelectedUni] = useState<typeof UNIVERSITIES_LEDGER[0] | null>(null)
+  const [selectedUni, setSelectedUni] = useState<UniLedgerItem | null>(null)
   const [amount, setAmount] = useState<number>(10000)
   const [desc, setDesc] = useState('')
+
+  const { data: uniResponse, refetch } = useQuery({
+    queryKey: ['admin-universities'],
+    queryFn: async () => {
+      const res = await apiRequest<any>('/admin/universities')
+      if (!res) return []
+      return res.data || res.tenants || (Array.isArray(res) ? res : [])
+    }
+  })
+
+  const universitiesLedger: UniLedgerItem[] = (uniResponse || []).map((u: any) => ({
+    id: u.tenantId || u.id || String(u.DbId),
+    name: u.name || u.Name || 'University',
+    balance: Number(u.credits || u.CreditBalance || 0),
+    plan: u.integrationMode || u.mode || 'Standard'
+  }))
+
+  const creditHistory: CreditHistoryItem[] = []
 
   const handleTransaction = (type: 'credit' | 'debit') => {
     if (!selectedUni) return
@@ -79,21 +101,29 @@ export default function CreditsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {UNIVERSITIES_LEDGER.map(uni => (
-                        <tr key={uni.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                          <td className="px-4 py-3 text-xs font-semibold text-foreground">{uni.name}</td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground">{uni.plan}</td>
-                          <td className="px-4 py-3 text-right text-xs font-bold font-mono text-foreground">{formatNumber(uni.balance)}</td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              onClick={() => setSelectedUni(uni)}
-                              className="px-2.5 py-1 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-bold transition-colors"
-                            >
-                              Adjust Balance
-                            </button>
+                      {universitiesLedger.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                            No universities onboarded yet.
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        universitiesLedger.map(uni => (
+                          <tr key={uni.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
+                            <td className="px-4 py-3 text-xs font-semibold text-foreground">{uni.name}</td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">{uni.plan}</td>
+                            <td className="px-4 py-3 text-right text-xs font-bold font-mono text-foreground">{formatNumber(uni.balance)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => setSelectedUni(uni)}
+                                className="px-2.5 py-1 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-bold transition-colors"
+                              >
+                                Adjust Balance
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -105,29 +135,35 @@ export default function CreditsPage() {
                   <h3 className="text-sm font-semibold text-foreground">Recent Adjustments Log</h3>
                 </div>
                 <div className="space-y-3">
-                  {CREDIT_HISTORY.map(log => (
-                    <div key={log.id} className="flex items-start justify-between p-3 rounded-xl bg-secondary/30 border border-border/30">
-                      <div className="flex items-start gap-3">
-                        <div className={cn(
-                          'h-7 w-7 rounded-lg flex items-center justify-center border',
-                          log.type === 'credit' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-destructive/10 border-destructive/20 text-destructive'
-                        )}>
-                          {log.type === 'credit' ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold text-foreground">{log.university}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{log.desc}</p>
-                          <p className="text-[9px] text-muted-foreground font-mono mt-1">{log.date} · {log.id}</p>
-                        </div>
-                      </div>
-                      <span className={cn(
-                        'text-xs font-bold font-mono',
-                        log.type === 'credit' ? 'text-emerald-400' : 'text-destructive'
-                      )}>
-                        {log.type === 'credit' ? '+' : '-'}{formatNumber(log.amount)}
-                      </span>
+                  {creditHistory.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">
+                      No credit adjustments logged yet.
                     </div>
-                  ))}
+                  ) : (
+                    creditHistory.map(log => (
+                      <div key={log.id} className="flex items-start justify-between p-3 rounded-xl bg-secondary/30 border border-border/30">
+                        <div className="flex items-start gap-3">
+                          <div className={cn(
+                            'h-7 w-7 rounded-lg flex items-center justify-center border',
+                            log.type === 'credit' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-destructive/10 border-destructive/20 text-destructive'
+                          )}>
+                            {log.type === 'credit' ? <Plus className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-foreground">{log.university}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">{log.desc}</p>
+                            <p className="text-[9px] text-muted-foreground font-mono mt-1">{log.date} · {log.id}</p>
+                          </div>
+                        </div>
+                        <span className={cn(
+                          'text-xs font-bold font-mono',
+                          log.type === 'credit' ? 'text-emerald-400' : 'text-destructive'
+                        )}>
+                          {log.type === 'credit' ? '+' : '-'}{formatNumber(log.amount)}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

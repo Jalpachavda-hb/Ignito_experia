@@ -83,16 +83,14 @@ const getDifficultyBadge = (difficulty: string) => {
 export function BadgeGrid({ badges }: BadgeGridProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   
-  const categories = [
-    'All',
-    'Programming',
-    'Database',
-    'Linux',
-    'Cloud',
-    'Data Science',
-    'Software Testing',
-    'Software Engineering'
-  ];
+  const categories = React.useMemo(() => {
+    const cats = new Set<string>();
+    cats.add('All');
+    (badges || []).forEach((b) => {
+      if (b.category) cats.add(b.category);
+    });
+    return Array.from(cats);
+  }, [badges]);
 
   const filteredBadges = selectedCategory === 'All' 
     ? badges 
@@ -119,7 +117,7 @@ export function BadgeGrid({ badges }: BadgeGridProps) {
         </div>
         
         <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest shrink-0">
-          Showing {filteredBadges.length} Badges
+          Showing {filteredBadges.length} Lab Badges
         </div>
       </div>
 
@@ -139,8 +137,12 @@ export function BadgeGrid({ badges }: BadgeGridProps) {
                   {/* Card Header area */}
                   <div className="flex items-start justify-between gap-4">
                     {/* Badge Icon Backdrop */}
-                    <div className={`p-3 rounded-xl border ${themeColors.border} ${themeColors.bg} shrink-0 group-hover:rotate-6 transition-transform duration-300`}>
-                      <IconComponent className={`h-6 w-6 ${themeColors.text}`} />
+                    <div className={`w-12 h-12 p-2 rounded-xl border ${themeColors.border} ${themeColors.bg} shrink-0 group-hover:rotate-6 transition-transform duration-300 flex items-center justify-center`}>
+                      {badge.iconUrl ? (
+                        <img src={badge.iconUrl} alt={badge.name} className="max-w-full max-h-full object-contain" />
+                      ) : (
+                        <IconComponent className={`h-6 w-6 ${themeColors.text}`} />
+                      )}
                     </div>
                     {/* Difficulty Badge */}
                     <UIPropsBadge variant="outline" className={`text-[10px] font-bold uppercase tracking-wider ${getDifficultyBadge(badge.difficulty)}`}>

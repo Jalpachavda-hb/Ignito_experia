@@ -84,7 +84,7 @@ export function UserProfileDrawer({ user, open, onOpenChange }: UserProfileDrawe
                       <p className="font-semibold mt-1">{user.PhoneNumber || 'N/A'}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-muted-foreground">Available Credits</p>
+                      <p className="text-sm font-medium text-muted-foreground">Available Tokens</p>
                       <div className="text-2xl font-bold mt-1 text-amber-600 flex items-center">
                         <Database className="h-4 w-4 mr-1.5" />
                         {Intl.NumberFormat('en-US').format(Number(user.CreditBalance))}

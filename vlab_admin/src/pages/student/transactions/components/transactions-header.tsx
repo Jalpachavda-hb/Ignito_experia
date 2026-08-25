@@ -1,52 +1,88 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ArrowDownRight, ArrowUpRight, Activity, Wallet, Calendar } from 'lucide-react';
-import { Transaction } from '@/pages/student/dashboard/types';
+import { useAuthStore } from '@/stores/auth-store';
+import { useTransactionStore } from '@/stores/transactionStore';
+import { useLabTokenStore } from '@/stores/labTokenStore';
 
-interface TransactionsHeaderProps {
-  transactions: Transaction[];
-  totalCredits: number;
-}
+export function TransactionsHeader() {
+  const { auth } = useAuthStore();
+  const { user } = auth;
+  const { transactions: liveTransactions } = useTransactionStore();
+  const { summary, labWallets } = useLabTokenStore();
 
-export function TransactionsHeader({ transactions, totalCredits }: TransactionsHeaderProps) {
-  const creditsAdded = transactions
-    .filter(t => t.type === 'Credit')
-    .reduce((sum, t) => sum + t.amount, 0);
+  const currentStudentEmail = user?.email?.toLowerCase();
 
-  const creditsConsumed = transactions
-    .filter(t => t.type === 'Debit')
-    .reduce((sum, t) => sum + t.amount, 0);
+  const studentTransactions = liveTransactions || [];
 
-  const currentMonthTransactions = transactions.filter(t => {
+  const creditsAdded = useMemo(() => {
+    if (summary && typeof summary.totalPurchased === 'number' && summary.totalPurchased > 0) {
+      return summary.totalPurchased;
+    }
+    return studentTransactions
+      .filter(t => t.type === 'Credit' && (t.status === 'Completed' || !t.status))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  }, [summary, studentTransactions]);
+
+  const creditsConsumed = useMemo(() => {
+    if (summary && typeof summary.totalUsed === 'number') {
+      return summary.totalUsed;
+    }
+    const walletUsed = (labWallets || []).reduce((sum, w) => sum + (Number(w.usedTokens || 0)), 0);
+    if (walletUsed > 0) return walletUsed;
+
+    return studentTransactions
+      .filter(t => t.type === 'Debit' && (t.status === 'Completed' || !t.status))
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  }, [summary, labWallets, studentTransactions]);
+
+  const availableCredits = useMemo(() => {
+    if (summary && typeof summary.totalRemaining === 'number') {
+      return summary.totalRemaining;
+    }
+    if (typeof user?.tokens === 'number' && user.tokens > 0) {
+      return Math.max(0, Math.round(user.tokens));
+    }
+    if (typeof user?.credits === 'number' && user.credits !== 1000) {
+      return Math.max(0, Math.round(user.credits));
+    }
+    if (studentTransactions && studentTransactions.length > 0) {
+      return Math.max(0, Math.round(creditsAdded - creditsConsumed));
+    }
+    return 0;
+  }, [summary, user, studentTransactions, creditsAdded, creditsConsumed]);
+
+  const now = new Date();
+  const currentMonthTransactions = studentTransactions.filter(t => {
+    if (!t.date) return false;
     const txDate = new Date(t.date);
-    const now = new Date('2024-03-20'); // Mocking current date for demo
     return txDate.getMonth() === now.getMonth() && txDate.getFullYear() === now.getFullYear();
   }).length;
 
   const cards = [
     {
       title: 'Total Transactions',
-      value: transactions.length,
+      value: studentTransactions.length,
       icon: Activity,
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-100 dark:bg-indigo-900/30',
       description: 'Lifetime record'
     },
     {
-      title: 'Credits Added',
+      title: 'Tokens Added',
       value: `+${creditsAdded}`,
       icon: ArrowUpRight,
       color: 'text-emerald-600',
       bgColor: 'bg-emerald-100 dark:bg-emerald-900/30',
-      description: 'Purchases & Rewards'
+      description: 'Purchases & Top-ups'
     },
     {
-      title: 'Credits Consumed',
+      title: 'Tokens Consumed',
       value: `-${creditsConsumed}`,
       icon: ArrowDownRight,
       color: 'text-rose-600',
       bgColor: 'bg-rose-100 dark:bg-rose-900/30',
-      description: 'Lab usage'
+      description: 'Lab session usage'
     },
     {
       title: 'Current Month',
@@ -57,12 +93,12 @@ export function TransactionsHeader({ transactions, totalCredits }: TransactionsH
       description: 'Transactions this month'
     },
     {
-      title: 'Total Value',
-      value: totalCredits,
+      title: 'Available Tokens',
+      value: availableCredits,
       icon: Wallet,
       color: 'text-amber-600',
       bgColor: 'bg-amber-100 dark:bg-amber-900/30',
-      description: 'Net allocated credits'
+      description: 'Active wallet balance'
     }
   ];
 

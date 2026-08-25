@@ -2,303 +2,285 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { GraduationCap, MonitorPlay, CreditCard, Minus, Plus, Ticket, CheckCircle2, Loader2 } from 'lucide-react';
+import { MonitorPlay, Ticket, CheckCircle2, Loader2, CreditCard, Clock, Coins, Info, Minus, Plus, HelpCircle, Check, Zap, Sparkles } from 'lucide-react';
 import { Lab } from '../../my-labs/types';
+import { PaymentGateway } from '../../my-labs/components/payment-gateway';
+import { initiateRazorpayPayment, detectPaymentMethod } from '@/Utils/razorpayHandler';
+import { useAuthStore } from '@/stores/auth-store';
+import { useTransactionStore } from '@/stores/transactionStore';
 
-export interface LabCreditInfo {
-  allocated: number;
-  used: number;
-  remaining: number;
+export interface LabTokenInfo {
+  availableTokens: number;
+  reservedTokens: number;
 }
 
 interface LabCreditCardProps {
   lab: Lab;
-  creditInfo: LabCreditInfo;
-  onTopUp: (labId: string, amount: number) => void;
-  onApplyCoupon: (labId: string, code: string) => void;
+  tokenInfo: LabTokenInfo;
+  effectivePricePer60Tokens?: number;
+  isSelectedForCart?: boolean;
+  onToggleSelectForCart?: () => void;
+  onTokensChange?: (tokens: number) => void;
+  onTopUp?: (labId: string, amount: number) => void;
+  onApplyCoupon?: (labId: string, code: string) => void;
   view?: 'grid' | 'list';
 }
 
-export function LabCreditCard({ lab, creditInfo, onTopUp, onApplyCoupon, view = 'grid' }: LabCreditCardProps) {
-  const [topUpAmount, setTopUpAmount] = useState(100);
-  const [couponCode, setCouponCode] = useState('');
-  const [isApplying, setIsApplying] = useState(false);
-  const [couponSuccess, setCouponSuccess] = useState('');
-  const [showCoupon, setShowCoupon] = useState(false);
+const colorThemes = [
+  {
+    name: 'indigo',
+    iconBg: 'bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200/60 text-indigo-600 dark:text-indigo-400',
+    pillActive: 'border-2 border-red-500 text-red-600 dark:text-red-400 font-black bg-red-50/50 dark:bg-red-950/30 shadow-xs',
+    pillInactive: 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 font-bold',
+  },
+  {
+    name: 'blue',
+    iconBg: 'bg-sky-50 dark:bg-sky-950/40 border border-sky-200/60 text-sky-600 dark:text-sky-400',
+    pillActive: 'border-2 border-red-500 text-red-600 dark:text-red-400 font-black bg-red-50/50 dark:bg-red-950/30 shadow-xs',
+    pillInactive: 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 font-bold',
+  },
+  {
+    name: 'emerald',
+    iconBg: 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 text-emerald-600 dark:text-emerald-400',
+    pillActive: 'border-2 border-red-500 text-red-600 dark:text-red-400 font-black bg-red-50/50 dark:bg-red-950/30 shadow-xs',
+    pillInactive: 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 font-bold',
+  },
+  {
+    name: 'violet',
+    iconBg: 'bg-violet-50 dark:bg-violet-950/40 border border-violet-200/60 text-violet-600 dark:text-violet-400',
+    pillActive: 'border-2 border-red-500 text-red-600 dark:text-red-400 font-black bg-red-50/50 dark:bg-red-950/30 shadow-xs',
+    pillInactive: 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800 font-bold',
+  },
+];
 
+const getTheme = (idOrName: string) => {
+  let hash = 0;
+  for (let i = 0; i < idOrName.length; i++) {
+    hash = idOrName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colorThemes[Math.abs(hash) % colorThemes.length];
+};
+
+export function LabCreditCard({
+  lab,
+  tokenInfo,
+  effectivePricePer60Tokens = 100,
+  isSelectedForCart = false,
+  onToggleSelectForCart,
+  onTokensChange,
+  onTopUp,
+  onApplyCoupon,
+  view = 'grid'
+}: LabCreditCardProps) {
+  const { auth } = useAuthStore();
+  const user = auth?.user;
+  const { addTransaction } = useTransactionStore();
+
+  const [selectedTokens, setSelectedTokens] = useState<number>(60);
+  const labId = lab.id || lab.labId || lab.name || 'lab';
   const name = lab.title || lab.name || 'Unnamed Lab';
   const imageUrl = lab.logo || lab.image || lab.icon || null;
-  const semester = lab.semester || 'Semester 1';
-  const category = (lab.category || 'General').toUpperCase();
-  
-  const { remaining } = creditInfo;
-  
-  // Muted, light shadcn color tokens
-  let statusText = 'Sufficient';
-  let statusColor = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
-  let amountColor = 'text-emerald-600 dark:text-emerald-400';
-  let buttonStyle = 'border-emerald-600/30 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 dark:border-emerald-900/40 dark:text-emerald-400';
-  
-  if (remaining === 0) {
-    statusText = 'Exhausted';
-    statusColor = 'bg-destructive/10 text-destructive border-destructive/20';
-    amountColor = 'text-destructive';
-    buttonStyle = 'border-destructive/30 text-destructive hover:text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20 dark:border-destructive/40';
-  } else if (remaining <= 20) {
-    statusText = 'Low Credits';
-    statusColor = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
-    amountColor = 'text-amber-600 dark:text-amber-400';
-    buttonStyle = 'border-amber-600/30 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20 dark:border-amber-900/40 dark:text-amber-400';
+  const theme = getTheme(labId + name);
+
+  const availableTokens = tokenInfo?.availableTokens ?? 0;
+  const pricePer60 = lab.baseTokenPrice ?? effectivePricePer60Tokens ?? 100;
+  const pricePerToken = pricePer60 / 60;
+  const totalPaymentRupees = Math.round(selectedTokens * pricePerToken);
+
+  let statusText = `${availableTokens} Tokens Ready`;
+  let statusColor = 'bg-emerald-50 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/40';
+
+  if (availableTokens === 0) {
+    statusText = '0 Tokens';
+    statusColor = 'bg-slate-100 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800';
+  } else if (availableTokens <= 30) {
+    statusText = 'Low Tokens';
+    statusColor = 'bg-amber-50 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40';
   }
 
-  const handleIncrement = () => setTopUpAmount(prev => prev + 50);
-  const handleDecrement = () => setTopUpAmount(prev => Math.max(50, prev - 50));
-
-  const handleBuy = () => {
-    onTopUp(lab.id, topUpAmount);
+  const handleSetTokens = (val: number) => {
+    const tokens = Math.max(30, val);
+    setSelectedTokens(tokens);
+    onTokensChange?.(tokens);
   };
-
-  const handleApplyCoupon = () => {
-    if (!couponCode.trim()) return;
-    setIsApplying(true);
-    setTimeout(() => {
-      setIsApplying(false);
-      onApplyCoupon(lab.id, couponCode);
-      setCouponSuccess('Applied!');
-      setCouponCode('');
-      setTimeout(() => setCouponSuccess(''), 3000);
-    }, 1000);
-  };
-
-  // Shared balance box layout
-  const BalanceDisplay = () => (
-    <div className="bg-slate-50/50 dark:bg-slate-900/50 border border-slate-200/40 dark:border-border/20 p-3 rounded-xl flex justify-between items-center transition-colors">
-      <div>
-        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-0.5">Available Balance</p>
-        <div className="flex items-baseline gap-1">
-          <span className={`text-xl font-black ${amountColor}`}>{remaining}</span>
-          <span className="text-[10px] font-semibold text-muted-foreground">Credits</span>
-        </div>
-      </div>
-      <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700"></div>
-    </div>
-  );
 
   if (view === 'list') {
     return (
-      <Card className="flex flex-col lg:flex-row bg-white dark:bg-card border border-border/60 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-4 gap-4 items-center">
-        {/* Left: Icon & Title */}
-        <div className="flex items-center gap-3.5 flex-1 min-w-0 w-full">
-          <div className="w-10 h-10 shrink-0 rounded-xl bg-slate-50 dark:bg-slate-900 border border-border/80 flex items-center justify-center p-1.5 shadow-sm">
-            {imageUrl ? (
-              <img src={imageUrl} alt={name} className="max-w-full max-h-full object-contain" />
-            ) : (
-              <MonitorPlay className="w-4 h-4 text-muted-foreground" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
-              <Badge variant="outline" className={`px-1.5 py-0.5 text-[8px] font-bold tracking-wider ${statusColor}`}>
-                {statusText}
-              </Badge>
-              <Badge variant="outline" className="px-1.5 py-0.5 text-[7px] font-semibold tracking-wider text-muted-foreground border-border/50">
-                {category}
-              </Badge>
-            </div>
-            <h3 className="text-sm font-bold text-foreground leading-snug truncate">
-              {name}
-            </h3>
-            <div className="flex items-center gap-1 mt-0.5 text-muted-foreground text-[10px] font-medium">
-              <GraduationCap className="w-3 h-3 text-muted-foreground/80" />
-              <span className="uppercase tracking-wider font-extrabold">{semester}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Center: Balance Display */}
-        <div className="w-[200px] shrink-0 w-full lg:w-auto">
-          <BalanceDisplay />
-        </div>
-
-        {/* Right: Actions */}
-        <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full lg:w-auto shrink-0">
-          <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-900 border border-border/80 rounded-xl p-0.5 w-24 shrink-0">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="w-6 h-6 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white dark:hover:bg-slate-800 transition-all active:scale-95"
-              onClick={handleDecrement}
-            >
-              <Minus className="w-2.5 h-2.5" />
-            </Button>
-            <span className="text-[11px] font-bold text-foreground">{topUpAmount}</span>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="w-6 h-6 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white dark:hover:bg-slate-800 transition-all active:scale-95"
-              onClick={handleIncrement}
-            >
-              <Plus className="w-2.5 h-2.5" />
-            </Button>
-          </div>
-
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Button 
-              variant="outline"
-              className={`flex-1 sm:w-24 font-semibold text-[11px] h-8 rounded-lg shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1 ${buttonStyle}`}
-              onClick={handleBuy}
-            >
-              <CreditCard className="w-3 h-3" /> Top Up
-            </Button>
-
-            {/* Coupon Button */}
-            <div className="relative">
-              <Button 
-                variant="outline"
-                className="h-8 w-8 p-0 rounded-lg border-border hover:bg-muted text-muted-foreground flex items-center justify-center"
-                onClick={() => setShowCoupon(!showCoupon)}
-              >
-                <Ticket className="w-3.5 h-3.5" />
-              </Button>
-
-              {showCoupon && (
-                <div className="absolute right-0 top-10 bg-card border border-border rounded-xl p-2.5 shadow-xl z-50 flex gap-1.5 w-52 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <Input 
-                    placeholder="Code" 
-                    value={couponCode}
-                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                    className="h-7 text-[10px] rounded-md bg-slate-50 dark:bg-slate-900 border-border font-bold"
-                  />
-                  <Button 
-                    className="h-7 px-2 text-[10px] font-bold rounded-md bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border border-indigo-100 transition-colors"
-                    onClick={handleApplyCoupon}
-                    disabled={isApplying || !couponCode.trim()}
-                  >
-                    {isApplying ? <Loader2 className="w-3 h-3 animate-spin" /> : "Apply"}
-                  </Button>
-                  {couponSuccess && (
-                    <div className="absolute -bottom-4 right-2 flex items-center gap-0.5 text-[8px] font-bold text-emerald-600">
-                      <CheckCircle2 className="w-2 h-2" /> {couponSuccess}
-                    </div>
-                  )}
-                </div>
+      <>
+        <Card className={`flex flex-col lg:flex-row bg-white dark:bg-card border rounded-2xl transition-all duration-300 p-4.5 gap-4 items-center ${isSelectedForCart ? 'border-red-500 ring-2 ring-red-500/20 shadow-md bg-red-50/10' : 'border-slate-200/70 hover:shadow-md hover:border-slate-300'}`}>
+          {/* Left: Icon & Lab Name */}
+          <div className="flex items-center gap-3.5 flex-1 min-w-0 w-full">
+            <div className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center p-2 shadow-2xs ${theme.iconBg}`}>
+              {imageUrl ? (
+                <img src={imageUrl} alt={name} className="max-w-full max-h-full object-contain" />
+              ) : (
+                <MonitorPlay className="w-5 h-5" />
               )}
             </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug truncate">
+                {name}
+              </h3>
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                Lab Rate: <span className="text-slate-800 dark:text-slate-200 font-extrabold">₹{pricePer60} / 60 Tokens</span>
+              </p>
+            </div>
           </div>
-        </div>
 
-      </Card>
+          {/* Available Token Balance */}
+          <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 rounded-xl px-4 py-2 shrink-0">
+            <div>
+              <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider block">Student Token Balance</span>
+              <span className="text-sm font-black text-slate-900 dark:text-white">{availableTokens} Tokens <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">({availableTokens} Mins)</span></span>
+            </div>
+          </div>
+
+          {/* Token Preset Stepper */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {[30, 60, 120, 180].map((tokenQty) => {
+              const isSelected = selectedTokens === tokenQty;
+              return (
+                <button
+                  key={tokenQty}
+                  type="button"
+                  onClick={() => handleSetTokens(tokenQty)}
+                  className={`h-8 px-3 rounded-xl text-xs font-black transition-all border ${isSelected ? theme.pillActive : theme.pillInactive}`}
+                >
+                  +{tokenQty} Tokens
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Unique Action Button */}
+          <div className="shrink-0 w-full lg:w-auto">
+            <Button 
+              variant="outline"
+              size="sm"
+              onClick={onToggleSelectForCart}
+              className={`h-10 px-5 text-xs font-extrabold rounded-xl border-2 flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 shadow-none ${
+                isSelectedForCart 
+                  ? 'border-emerald-600 text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white' 
+                  : 'border-red-500/80 text-red-600 bg-red-50/30 hover:bg-red-600 hover:text-white'
+              }`}
+            >
+              {isSelectedForCart ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Tokens Allocated ✓ (₹{totalPaymentRupees})
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4 text-red-500" />
+                  Select Tokens (₹{totalPaymentRupees})
+                </>
+              )}
+            </Button>
+          </div>
+        </Card>
+      </>
     );
   }
 
   return (
-    <Card className="flex flex-col bg-white dark:bg-card border border-border/60 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-4 h-full">
-      {/* Header */}
-      <div className="flex justify-between items-start mb-3">
-        <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-900 border border-border/80 flex items-center justify-center p-1.5 shadow-sm">
-          {imageUrl ? (
-            <img src={imageUrl} alt={name} className="max-w-full max-h-full object-contain" />
-          ) : (
-            <MonitorPlay className="w-4 h-4 text-muted-foreground" />
-          )}
-        </div>
-        <Badge variant="outline" className={`px-1.5 py-0.5 text-[8px] font-bold tracking-wider ${statusColor}`}>
-          {statusText}
-        </Badge>
-      </div>
-
-      {/* Info Block */}
-      <div className="mb-3">
-        <Badge variant="outline" className="px-1.5 py-0.5 text-[7px] font-semibold tracking-wider text-muted-foreground border-border/50 uppercase mb-0.5">
-          {category}
-        </Badge>
-        <h3 className="text-sm font-bold text-foreground leading-snug line-clamp-1">
-          {name}
-        </h3>
-        <div className="flex items-center gap-1 mt-0.5 text-muted-foreground text-[10px] font-medium">
-          <GraduationCap className="w-3 h-3 text-muted-foreground/80" />
-          <span className="uppercase tracking-wider font-extrabold">{semester}</span>
-        </div>
-      </div>
-
-      {/* Balance Display */}
-      <div className="mb-4">
-        <BalanceDisplay />
-      </div>
-
-      {/* Action Zone (Counter + Top Up Button) */}
-      <div className="mt-auto flex flex-col gap-2.5">
-        <div className="flex items-center gap-2">
-          {/* Top-up adjustments */}
-          <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-900 border border-border/80 rounded-xl p-0.5 w-24 shrink-0 shadow-inner">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="w-6 h-6 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white dark:hover:bg-slate-800 transition-all active:scale-95"
-              onClick={handleDecrement}
-            >
-              <Minus className="w-2.5 h-2.5" />
-            </Button>
-            <span className="text-[11px] font-bold text-foreground">{topUpAmount}</span>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="w-6 h-6 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white dark:hover:bg-slate-800 transition-all active:scale-95"
-              onClick={handleIncrement}
-            >
-              <Plus className="w-2.5 h-2.5" />
-            </Button>
-          </div>
-
-          {/* Buy Button */}
-          <Button 
-            variant="outline"
-            className={`flex-1 font-semibold text-[11px] h-8 rounded-lg shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1 ${buttonStyle}`}
-            onClick={handleBuy}
-          >
-            <CreditCard className="w-3 h-3" /> Top Up
-          </Button>
-        </div>
-
-        {/* Coupon Collapsible trigger link */}
-        <div className="flex flex-col items-center">
-          <button 
-            onClick={() => setShowCoupon(!showCoupon)}
-            className="text-[8px] font-bold text-muted-foreground hover:text-foreground transition-colors uppercase tracking-wider flex items-center gap-1 mt-0.5"
-          >
-            <Ticket className="w-3 h-3" />
-            {showCoupon ? "Close Coupon" : "Apply Coupon"}
-          </button>
-
-          {showCoupon && (
-            <div className="w-full flex gap-1 mt-2.5 animate-in fade-in slide-in-from-top-2 duration-200 relative">
-              <div className="relative flex-1">
-                <Input 
-                  placeholder="Coupon Code" 
-                  value={couponCode}
-                  onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                  className="h-8 text-[10px] pl-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 border-border font-bold placeholder:font-medium placeholder:text-muted-foreground"
-                />
-              </div>
-              <Button 
-                variant="outline" 
-                className="h-8 px-2.5 text-[10px] font-bold rounded-lg border-border hover:bg-muted text-muted-foreground transition-colors"
-                onClick={handleApplyCoupon}
-                disabled={isApplying || !couponCode.trim()}
-              >
-                {isApplying ? <Loader2 className="w-3 h-3 animate-spin" /> : "Apply"}
-              </Button>
-              {couponSuccess && (
-                <div className="absolute -bottom-4 left-0 right-0 flex items-center justify-center gap-0.5 text-[8px] font-bold text-emerald-600 dark:text-emerald-400 animate-in fade-in slide-in-from-bottom-1">
-                  <CheckCircle2 className="w-2.5 h-2.5" />
-                  {couponSuccess}
-                </div>
+    <>
+      <Card className={`flex flex-col bg-white dark:bg-card border rounded-2xl transition-all duration-300 p-5 h-full relative group ${isSelectedForCart ? 'border-red-500 ring-2 ring-red-500/20 shadow-md bg-red-50/10' : 'border-slate-200/80 hover:shadow-lg hover:border-slate-300 hover:-translate-y-0.5'}`}>
+        {/* Top Header: Icon, Name & Status Badge */}
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center p-2 shrink-0 shadow-2xs ${theme.iconBg}`}>
+              {imageUrl ? (
+                <img src={imageUrl} alt={name} className="max-w-full max-h-full object-contain" />
+              ) : (
+                <MonitorPlay className="w-5 h-5" />
               )}
             </div>
-          )}
+            <div className="min-w-0">
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate leading-snug">
+                {name}
+              </h3>
+              <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 mt-0.5">
+                Rate: ₹{pricePer60} / 60 Tokens
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className={`px-2.5 py-0.5 text-[9px] font-extrabold tracking-wider rounded-full shrink-0 ${statusColor}`}>
+            {statusText}
+          </Badge>
         </div>
-      </div>
-    </Card>
+
+        {/* Current Available Token Balance Box */}
+        <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 rounded-2xl p-3.5 mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+              Student Token Balance
+            </span>
+            <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md flex items-center gap-1">
+              <Zap className="w-3 h-3 text-indigo-500 fill-indigo-500" />
+              1 Token = 1 Min
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between mt-1">
+            <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+              {availableTokens} <span className="text-xs font-bold text-slate-400">Tokens</span>
+            </span>
+            <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-200/50">
+              {availableTokens} Mins Runtime
+            </span>
+          </div>
+        </div>
+
+        {/* Token Quantity Selector */}
+        <div className="space-y-2 mb-5">
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-400">
+            <span>Select Runtime Tokens:</span>
+            <span className="text-slate-900 dark:text-white font-extrabold">+{selectedTokens} Mins (₹{totalPaymentRupees})</span>
+          </div>
+
+          {/* Preset Pills */}
+          <div className="grid grid-cols-4 gap-1.5">
+            {[30, 60, 120, 180].map((tokenQty) => {
+              const isSelected = selectedTokens === tokenQty;
+              return (
+                <button
+                  key={tokenQty}
+                  type="button"
+                  onClick={() => handleSetTokens(tokenQty)}
+                  className={`h-8.5 rounded-xl text-xs font-black transition-all active:scale-95 border ${isSelected ? theme.pillActive : theme.pillInactive}`}
+                >
+                  +{tokenQty}T
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Unique Action Button */}
+        <div className="mt-auto pt-2">
+          <Button 
+            variant="outline"
+            size="lg"
+            onClick={onToggleSelectForCart}
+            className={`w-full h-11 text-xs font-extrabold rounded-xl border-2 flex items-center justify-center gap-2 transition-all duration-200 active:scale-95 shadow-none ${
+              isSelectedForCart 
+                ? 'border-emerald-600 text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white' 
+                : 'border-red-500/80 text-red-600 bg-red-50/30 hover:bg-red-600 hover:text-white'
+            }`}
+          >
+            {isSelectedForCart ? (
+              <>
+                <Check className="w-4 h-4" />
+                Tokens Allocated ✓ (₹{totalPaymentRupees})
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 text-red-500" />
+                Select Tokens (₹{totalPaymentRupees})
+              </>
+            )}
+          </Button>
+        </div>
+      </Card>
+    </>
   );
 }

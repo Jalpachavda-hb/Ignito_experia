@@ -1,7 +1,11 @@
 import dotenv from "dotenv";
 import { isPrivateMode } from "../lib/ipManager.js";
 
-dotenv.config();
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const port = Number(process.env.PORT || 8080);
 const apiPrefix = process.env.API_PREFIX || "/api";
@@ -48,10 +52,20 @@ export const ENV = {
   testCasesBucket: process.env.TEST_CASES_BUCKET || "vlab-dev-lab-files-0kdrg0q8",
   labBootstrapPresignTtlSeconds: Number(process.env.LAB_BOOTSTRAP_PRESIGN_TTL_SECONDS || 3600),
   executeCommandMaxRetries: Number(process.env.EXECUTE_COMMAND_MAX_RETRIES || 6),
-  executeCommandTimeout: Number(process.env.EXECUTE_COMMAND_TIMEOUT || 120000),
+  executeCommandTimeout: Number(process.env.EXECUTE_COMMAND_TIMEOUT || 360000),
   executeCommandInitialDelay: Number(process.env.EXECUTE_COMMAND_INITIAL_DELAY || 2000),
   executeCommandMaxDelay: Number(process.env.EXECUTE_COMMAND_MAX_DELAY || 30000),
   executeCommandBackoffFactor: Number(process.env.EXECUTE_COMMAND_BACKOFF_FACTOR || 1.5),
+  awsCliPath: process.env.AWS_CLI_PATH || "aws",
+  awsPtyPathAdditions: process.env.AWS_PTY_PATH_ADDITIONS || "",
+  ecsContainerName: process.env.ECS_CONTAINER_NAME || "lab-runtime",
+  ecsInteractiveShell: process.env.ECS_INTERACTIVE_SHELL || 'sh -c "[ -x /bin/bash ] && exec bash || exec sh"',
+  internalServiceToken: process.env.INTERNAL_SERVICE_TOKEN || "ignito-internal-service-secret-token",
+  studentProfileApiUrl: process.env.STUDENT_PROFILE_API_URL || "https://verse.ignitolearn.com/api/StudentAPI/GetStudentProfile",
+  redisHost: process.env.REDIS_HOST || "127.0.0.1",
+  redisPort: Number(process.env.REDIS_PORT || 6379),
+  redisPassword: process.env.REDIS_PASSWORD || "",
+  redisTtlSeconds: Number(process.env.REDIS_LMS_PROFILE_TTL || 600), // 10 minutes default
 };
 
 export const useDynamoDb = () => Boolean(ENV.sessionsTable);

@@ -71,7 +71,7 @@ export const buildJupyterProxyUrl = async (session) => {
 
   let targetPath = runtime.path || "";
   if (!targetPath || targetPath === "/" || targetPath === "/lab") {
-    targetPath = "/notebooks/lab.ipynb";
+    targetPath = "/lab";
   }
 
   return `${prefix}${targetPath}?access_token=${encodeURIComponent(token)}`;

@@ -137,3 +137,6 @@ dist
 cursor.md
 Memory.md
 Skill.md
+.tanstack/
+uploads/*
+!uploads/.gitkeep

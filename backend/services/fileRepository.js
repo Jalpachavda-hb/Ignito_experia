@@ -5,22 +5,25 @@ import {
   getFilesFromContainer,
   getFileContentFromContainer,
   saveToContainer,
-  deleteFromContainer
+  deleteFromContainer,
 } from "./containerClient.js";
-import { getAllowedExtensions } from "../lib/labTypeMapper.js";
+import { ENV } from "../config/env.js";
 
 // Dynamically resolve the parent directory of backend as the local workspace root
 const getLocalWorkspaceRoot = () => {
   if (process.env.LAB_WORKSPACE) {
     return path.join(process.env.LAB_WORKSPACE, "workspace");
   }
-  return path.resolve(process.cwd(), "..");
+  return path.join(path.resolve(process.cwd(), ".."), "workspace");
 };
 
 const getLocalFilePath = (filePath) => {
   const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
   return path.join(getLocalWorkspaceRoot(), cleanPath);
 };
+
+
+// downloadFile, extractTar, and bootstrapLocalWorkspace helper functions were refactored and moved to WorkspaceBootstrapService.
 
 const scanLocalFiles = (dir, baseDir = dir) => {
   let results = [];
@@ -81,100 +84,291 @@ const scanLocalFiles = (dir, baseDir = dir) => {
       else if (ext === "gradle") language = "groovy";
       else if (ext === "properties") language = "properties";
 
+      let content = "";
+      if (stat.size < 500 * 1024) {
+        try {
+          content = fs.readFileSync(fullPath, "utf8");
+        } catch (_) {}
+      }
+
       results.push({
         name: file,
         path: relPath, // e.g. /workspace/filename.py
         type: "file",
         language,
+        content,
       });
     }
   }
   return results;
 };
 
+const filterDotnetFiles = (files, session) => {
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+
+  if (!isDotnet) return files;
+
+  return files.filter(file => {
+    const pathLower = (file.path || "").toLowerCase();
+    const nameLower = (file.name || "").toLowerCase();
+
+    // 1. Hide build artifacts, binary outputs and IDE metadata
+    if (
+      pathLower.includes("/obj/") ||
+      pathLower.includes("/bin/") ||
+      pathLower.includes("/properties/") ||
+      pathLower.includes("/.vs/") ||
+      pathLower.includes("/.idea/")
+    ) {
+      return false;
+    }
+
+    // 2. Hide static libraries and assets in wwwroot (bootstrap, jquery, etc.)
+    if (
+      pathLower.includes("/wwwroot/lib/") ||
+      pathLower.includes("/wwwroot/favicon.ico")
+    ) {
+      return false;
+    }
+
+    // 3. Hide project files and build configurations
+    if (
+      nameLower.endsWith(".csproj") ||
+      nameLower.endsWith(".sln") ||
+      nameLower.endsWith(".suo") ||
+      nameLower.endsWith(".user")
+    ) {
+      return false;
+    }
+
+    // 4. Hide package restore/build manifests
+    if (
+      nameLower === "appsettings.json" ||
+      nameLower === "appsettings.development.json" ||
+      nameLower === "project.assets.json" ||
+      nameLower.endsWith(".nuget.g.props") ||
+      nameLower.endsWith(".nuget.g.targets") ||
+      nameLower === "project.nuget.cache"
+    ) {
+      return false;
+    }
+
+    // 5. Hide map files
+    if (nameLower.endsWith(".map")) {
+      return false;
+    }
+
+    // 6. Hide licenses and readmes
+    if (
+      nameLower === "license" ||
+      nameLower === "license.txt" ||
+      nameLower === "readme.md"
+    ) {
+      return false;
+    }
+
+    // 7. Hide boilerplate MVC helpers that students do not edit
+    if (
+      nameLower === "_viewimports.cshtml" ||
+      nameLower === "_viewstart.cshtml" ||
+      nameLower === "_validationscriptspartial.cshtml"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+};
+
+// In-memory Workspace Index and File Content Cache (LRU)
+const workspaceIndexCache = new Map();
+const fileContentCache = new Map();
+
+export const invalidateWorkspaceIndex = (sessionId) => {
+  workspaceIndexCache.delete(sessionId);
+};
+
+const getCacheKey = (sessionId, filePath) => `${sessionId}:${filePath}`;
+
 export const listFiles = async (sessionId) => {
+  console.log(`[listFiles] Fetching session details for sessionId: ${sessionId}`);
   const session = await getSession(sessionId);
 
-  // If the file tree is already cached, return it instantly!
-  if (session?.files && session.files.length > 0) {
-    return session.files;
+  // Phase 2: In-memory index hit
+  if (workspaceIndexCache.has(sessionId)) {
+    console.log(`[listFiles] Index hit. Returning cached file tree for session: ${sessionId}`);
+    return workspaceIndexCache.get(sessionId);
   }
 
-  const hasLiveContainer =
-    session?.status === "running" &&
-    Boolean(session.taskArn || session.apiBaseUrl);
+  let result = [];
 
-  // Running ECS lab sessions must list the container workspace, not the dev machine repo.
-  if (hasLiveContainer) {
-    try {
-      const files = await getFilesFromContainer(session);
-      const result = files || [];
-      if (result.length > 0) {
-        const dbFiles = result.map(({ content, ...rest }) => rest);
-        await updateSession(sessionId, { files: dbFiles }).catch(() => {});
-      }
-      return result;
-    } catch (err) {
-      console.error("[listFiles] Container list failed:", err.message);
-      if (session.files?.length) return session.files;
-      return [];
+  const getUnfilteredList = async () => {
+    if (session?.files && session.files.length > 0) {
+      console.log(`[listFiles] DB Cache hit. Returning ${session.files.length} files from session DB cache.`);
+      return session.files;
     }
-  }
 
-  // Local disk fallback only for mock/offline sessions without an ECS task.
-  if (!session?.taskArn) {
-    const root = getLocalWorkspaceRoot();
-    if (fs.existsSync(root)) {
+    const hasLiveContainer =
+      session?.status === "running" &&
+      Boolean(session.taskArn || session.apiBaseUrl);
+
+    if (hasLiveContainer) {
       try {
-        const scanned = scanLocalFiles(root);
-        if (scanned?.length > 0) {
-          return scanned;
+        console.log(`[listFiles] Listing files from live container runtime for session: ${sessionId}`);
+        const files = await getFilesFromContainer(session);
+        const containerFiles = files || [];
+        console.log(`[listFiles] Live container returned ${containerFiles.length} files. Updating session cache...`);
+        const isReady = session?.bootstrapState === "READY" || session?.isBootstrapped === true;
+        if (containerFiles.length > 0 && isReady) {
+          // Keep previously cached file bodies so reopen stays fast when HTTP→SSM is slow
+          const prevByPath = new Map((session.files || []).map((f) => [f.path, f]));
+          const dbFiles = containerFiles.map((file) => {
+            const { content, ...rest } = file;
+            const prev = prevByPath.get(rest.path);
+            if (prev && typeof prev.content === "string") {
+              return { ...rest, content: prev.content };
+            }
+            if (content && content.length < 100000) {
+              return file;
+            }
+            return rest;
+          });
+          await updateSession(sessionId, { files: dbFiles }).catch((e) => {
+            console.warn(`[listFiles] Failed to update session files cache in DB: ${e.message}`);
+          });
         }
+        return containerFiles;
       } catch (err) {
-        console.error("[listFiles] Local scan error:", err.message);
+        console.error("[listFiles] Container list failed:", err.message);
+        return session?.files || [];
       }
     }
-  }
 
-  if (session?.files) return session.files;
-  return [];
+    if (!session?.taskArn) {
+      const root = getLocalWorkspaceRoot();
+      if (fs.existsSync(root)) {
+        try {
+          const scanned = scanLocalFiles(root);
+          if (scanned?.length > 0) return scanned;
+        } catch (err) {
+          console.error("[listFiles] Local scan error:", err.message);
+        }
+      }
+    }
+
+    return session?.files || [];
+  };
+
+  result = await getUnfilteredList();
+  result = result.filter(file => 
+    file.name !== 'run_android_build.sh' &&
+    !file.path.includes('.vlab_tmp') &&
+    !file.path.includes('.tmp') &&
+    !file.path.includes('/build/') &&
+    !file.path.includes('/.gradle/') &&
+    !file.path.includes('/intermediates/') &&
+    !file.path.includes('/generated/')
+  );
+  
+  const finalTree = filterDotnetFiles(result, session);
+  const isReady = session?.bootstrapState === "READY" || session?.isBootstrapped === true;
+  if (finalTree.length > 0 && isReady) {
+    console.log(`[listFiles] Caching complete workspace tree (${finalTree.length} files) for ready session: ${sessionId}`);
+    workspaceIndexCache.set(sessionId, finalTree);
+    finalTree.forEach(file => {
+      if (file.path && file.content !== undefined) {
+        const cacheKey = getCacheKey(sessionId, file.path);
+        fileContentCache.set(cacheKey, file);
+      }
+    });
+  }
+  return finalTree;
+};
+
+const detectLanguageFromPath = (filePath) => {
+  const ext = (filePath.split("/").pop() || "").split(".").pop() || "";
+  if (["js", "jsx"].includes(ext)) return "javascript";
+  if (ext === "java") return "java";
+  if (ext === "cs") return "csharp";
+  if (ext === "cshtml") return "razor";
+  if (ext === "sh") return "shell";
+  if (ext === "gradle") return "groovy";
+  if (ext === "properties") return "properties";
+  if (ext === "xml") return "xml";
+  if (ext === "json") return "json";
+  if (ext === "html") return "html";
+  if (ext === "css") return "css";
+  if (ext === "md") return "markdown";
+  if (["txt", "csv", "log"].includes(ext)) return "text";
+  if (ext === "py") return "python";
+  return "plaintext";
 };
 
 export const getFile = async (sessionId, filePath) => {
+  const cacheKey = getCacheKey(sessionId, filePath);
+  // Phase 4: Fast in-memory cache return (< 50 ms)
+  if (fileContentCache.has(cacheKey)) {
+    return fileContentCache.get(cacheKey);
+  }
+
   const session = await getSession(sessionId);
+
+  // Prefer session content cache for instant opens (avoids hanging on unreachable container HTTP)
+  const cached = session?.files?.find((f) => f.path === filePath);
+  const suspiciousEmptyXml =
+    typeof cached?.content === "string" &&
+    cached.content.trim() === "" &&
+    /\/res\/.+\.xml$/i.test(filePath || "");
+  if (cached && typeof cached.content === "string" && !suspiciousEmptyXml) {
+    return {
+      name: cached.name || filePath.split("/").pop(),
+      path: filePath,
+      type: "file",
+      content: cached.content,
+      language: cached.language || detectLanguageFromPath(filePath),
+    };
+  }
+
   if (session?.status === "running") {
     try {
       const content = await getFileContentFromContainer(session, filePath);
       const name = filePath.split("/").pop();
-      // Detect language from file extension
-      const ext = name.split(".").pop() || "";
-      let language = "python";
-      if (["js", "jsx"].includes(ext)) language = "javascript";
-      else if (ext === "java") language = "java";
-      else if (ext === "cs") language = "csharp";
-      else if (ext === "cshtml") language = "razor";
-      else if (ext === "sh") language = "shell";
-      else if (ext === "gradle") language = "groovy";
-      else if (ext === "properties") language = "properties";
-      else if (ext === "xml") language = "xml";
-      else if (ext === "json") language = "json";
-      else if (ext === "html") language = "html";
-      else if (ext === "css") language = "css";
-      else if (["md", "txt", "csv", "log"].includes(ext)) language = ext === "md" ? "markdown" : "text";
-
-      return {
+      const language = detectLanguageFromPath(filePath);
+      const record = {
         name,
         path: filePath,
         type: "file",
         content,
-        language
+        language,
       };
+      fileContentCache.set(cacheKey, record);
+      await cacheFileContent(sessionId, record).catch(() => {});
+      return record;
     } catch (err) {
-      console.warn("[getFile] Failed to read container file content, using DB cache fallback:", err.message);
+      console.warn("[getFile] Failed to read container file content:", err.message);
     }
   }
   const files = await listFiles(sessionId);
   return files.find((f) => f.path === filePath) || null;
+};
+
+export const cacheFileContent = async (sessionId, fileData) => {
+  const session = await getSession(sessionId);
+  if (!session) return;
+  const record = {
+    name: fileData.name || fileData.path.split("/").pop(),
+    path: fileData.path,
+    type: "file",
+    content: fileData.content ?? "",
+    language: fileData.language || detectLanguageFromPath(fileData.path),
+  };
+  const files = session.files ? [...session.files] : [];
+  const index = files.findIndex((f) => f.path === fileData.path);
+  if (index >= 0) files[index] = { ...files[index], ...record };
+  else files.push(record);
+  await updateSession(sessionId, { files });
 };
 
 export const upsertFile = async (sessionId, fileData) => {
@@ -188,13 +382,16 @@ export const upsertFile = async (sessionId, fileData) => {
     language: fileData.language || "python",
   };
 
+  const cacheKey = getCacheKey(sessionId, fileData.path);
+  fileContentCache.set(cacheKey, record);
+  invalidateWorkspaceIndex(sessionId);
+
   if (session?.status === "running") {
     try {
       await saveToContainer(session, { path: fileData.path, content: fileData.content ?? "" });
     } catch (err) {
       console.warn("[upsertFile] Failed to save to container:", err.message);
     }
-    // Update local files cache list with full content to keep cache working
     const files = session.files ? [...session.files] : [];
     const index = files.findIndex((f) => f.path === fileData.path);
     if (index >= 0) {
@@ -216,6 +413,10 @@ export const upsertFile = async (sessionId, fileData) => {
 };
 
 export const deleteFile = async (sessionId, filePath) => {
+  const cacheKey = getCacheKey(sessionId, filePath);
+  fileContentCache.delete(cacheKey);
+  invalidateWorkspaceIndex(sessionId);
+
   const session = await getSession(sessionId);
   if (session?.status === "running") {
     try {
@@ -223,7 +424,6 @@ export const deleteFile = async (sessionId, filePath) => {
     } catch (err) {
       console.warn("[deleteFile] Failed to delete from container:", err.message);
     }
-    // Update local files cache list without triggering container SSM execution
     if (session.files) {
       const files = session.files.filter((f) => f.path !== filePath);
       await updateSession(sessionId, { files }).catch(() => {});

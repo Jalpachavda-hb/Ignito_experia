@@ -126,7 +126,7 @@ export function Dashboard() {
       {/* ===== Main Dashboard Workspace ===== */}
       <Main className="bg-[#fcfcfc] dark:bg-background min-h-[calc(100vh-3.5rem)]">
         <div className="space-y-6 max-w-[1600px] mx-auto py-6">
-          
+
           {/* Header Area & Quick Actions */}
           <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
             <div>
@@ -139,7 +139,7 @@ export function Dashboard() {
                 <p className="text-sm text-muted-foreground">Real-time metrics for compute, identities, and billing.</p>
               </div>
             </div>
-            
+
             {/* Quick Actions */}
             <div className="flex flex-wrap items-center gap-2 bg-card border border-border/50 p-1.5 rounded-lg shadow-sm">
               <Button variant="ghost" size="sm" className="h-8 text-xs font-medium bg-primary/5 hover:bg-primary/10 text-primary">
@@ -166,15 +166,15 @@ export function Dashboard() {
             <MetricCard title="Total Students" value="12,450" icon={<Users className="h-4 w-4 text-blue-500" />} trend="+4.2%" isPositive={true} />
             <MetricCard title="Total Faculty" value="340" icon={<UserCheck className="h-4 w-4 text-indigo-500" />} trend="+1.1%" isPositive={true} />
             <MetricCard title="Total Admins" value="12" icon={<ShieldAlert className="h-4 w-4 text-rose-500" />} trend="0%" isPositive={true} />
-            <MetricCard title="Total Labs" value="84" icon={<Server className="h-4 w-4 text-slate-500" />} trend="+5" isPositive={true} />            
-            <MetricCard title="Active Sessions" value="1,204" icon={<Activity className="h-4 w-4 text-emerald-500" />} trend="+15%" isPositive={true} highlight={true} />        
-            
+            <MetricCard title="Total Labs" value="84" icon={<Server className="h-4 w-4 text-slate-500" />} trend="+5" isPositive={true} />
+            <MetricCard title="Active Sessions" value="1,204" icon={<Activity className="h-4 w-4 text-emerald-500" />} trend="+15%" isPositive={true} highlight={true} />
+
             <MetricCard title="Credit Pool" value="4.2M" icon={<CreditCard className="h-4 w-4 text-amber-500" />} trend="-1.2%" isPositive={false} />
             <MetricCard title="Consumed Today" value="45,200" icon={<TrendingDown className="h-4 w-4 text-orange-500" />} trend="+8.4%" isPositive={false} />
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            
+
             {/* Daily Lab Launch Trend */}
             <Card className="xl:col-span-2 shadow-sm border-border/50 rounded-lg flex flex-col">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -192,14 +192,14 @@ export function Dashboard() {
                     <AreaChart data={labLaunchData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorLaunch" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
                       <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} dy={10} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px', backgroundColor: 'var(--background)' }}
                         itemStyle={{ color: 'var(--foreground)' }}
                       />
@@ -220,37 +220,37 @@ export function Dashboard() {
               </CardHeader>
               <CardContent className="flex-1 overflow-y-auto">
                 <div className="space-y-4 pr-2 mt-2">
-                  <ActivityItem 
+                  <ActivityItem
                     icon={<UserPlus className="h-4 w-4 text-blue-500" />}
                     title="User Created"
                     description="Admin created student account jane.doe@edu"
                     time="2 mins ago"
                   />
-                  <ActivityItem 
+                  <ActivityItem
                     icon={<Database className="h-4 w-4 text-amber-500" />}
                     title="Credits Allocated"
                     description="5,000 credits allocated to Web Dev Course"
                     time="15 mins ago"
                   />
-                  <ActivityItem 
+                  <ActivityItem
                     icon={<PlayCircle className="h-4 w-4 text-emerald-500" />}
                     title="Lab Started"
                     description="Ubuntu Base instance started by user_482"
                     time="28 mins ago"
                   />
-                  <ActivityItem 
+                  <ActivityItem
                     icon={<StopCircle className="h-4 w-4 text-rose-500" />}
                     title="Lab Terminated"
                     description="Data Science session auto-terminated (Idle)"
                     time="1 hour ago"
                   />
-                  <ActivityItem 
+                  <ActivityItem
                     icon={<CheckCircle2 className="h-4 w-4 text-indigo-500" />}
                     title="User Created"
                     description="Bulk import of 120 students completed"
                     time="3 hours ago"
                   />
-                  <ActivityItem 
+                  <ActivityItem
                     icon={<PlayCircle className="h-4 w-4 text-emerald-500" />}
                     title="Lab Started"
                     description="Cybersec instance started by instructor_01"
@@ -275,7 +275,7 @@ export function Dashboard() {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
                       <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} dy={10} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px', backgroundColor: 'var(--background)' }}
                       />
                       <Line type="monotone" dataKey="credits" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b', strokeWidth: 2, stroke: 'var(--background)' }} activeDot={{ r: 5 }} />
@@ -299,14 +299,14 @@ export function Dashboard() {
                     <AreaChart data={activeUsersData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="colorUsers" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
                       <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} dy={10} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px', backgroundColor: 'var(--background)' }}
                       />
                       <Area type="monotone" dataKey="users" stroke="#8b5cf6" strokeWidth={2} fillOpacity={1} fill="url(#colorUsers)" />
@@ -330,7 +330,7 @@ export function Dashboard() {
                     <BarChart data={mostUsedLabsData} layout="vertical" margin={{ top: 0, right: 20, left: 20, bottom: 0 }}>
                       <XAxis type="number" hide />
                       <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: 'var(--foreground)' }} width={90} />
-                      <Tooltip 
+                      <Tooltip
                         cursor={{ fill: 'var(--muted)' }}
                         contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', fontSize: '12px', backgroundColor: 'var(--background)' }}
                       />
@@ -388,3 +388,6 @@ function ActivityItem({ icon, title, description, time }: any) {
     </div>
   )
 }
+
+export default Dashboard
+

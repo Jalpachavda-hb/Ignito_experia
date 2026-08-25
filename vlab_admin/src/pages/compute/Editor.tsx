@@ -2,15 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
 import { useLocation } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile } from '../../services/ideService';
+import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath, startAndroidBuild, fetchAndroidBuildStatus } from '../../services/ideService';
 import {
-  File, Code2, Plus, Upload, Play, Save, AlignLeft,
+  File, Code2, Plus, Upload, Play, Save,
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RotateCw
+  Folder, FolderOpen, RotateCw, Globe, Pencil, Copy, Check, Coins
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
+import { useLabTokenStore } from '@/stores/labTokenStore';
 import { resolveApiRelativeUrl } from '@/config/env';
+import { TestingWorkspace } from './TestingWorkspace';
+import { SeleniumExecutionDialog } from '@/components/SeleniumExecutionDialog';
 
 const getFileIcon = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
@@ -323,16 +326,61 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const editorRef = useRef<any>(null);
   const mountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadRequestIdRef = useRef(0);
+  const activeFileIndexRef = useRef(-1);
+  const filesRef = useRef<any[]>([]);
+  const lastSavedContentRef = useRef<Map<string, string>>(new Map());
+  const dirtyPathsRef = useRef<Set<string>>(new Set());
   const [files, setFiles] = useState<any[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(-1);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => {
+    activeFileIndexRef.current = activeFileIndex;
+  }, [activeFileIndex]);
   const [labId, setLabId] = useState('');
+
+  const { labWallets, fetchStudentLabTokens } = useLabTokenStore();
+  useEffect(() => {
+    fetchStudentLabTokens();
+  }, [fetchStudentLabTokens]);
+  const activeLabWallet = (labWallets || []).find(w => w.labId === labId);
 
   const labType = propSession?.labType || '';
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
   const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
+  const isSelenium = labType === 'testing';
+
+  const [seleniumRunState, setSeleniumRunState] = useState<{
+    status: 'IDLE' | 'STARTING' | 'CONNECTING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'ERROR' | 'DISCONNECTED';
+    browserUrl: string | null;
+    logStreamUrl: string | null;
+    runId: string | null;
+    errorMsg: string | null;
+  }>({
+    status: 'IDLE',
+    browserUrl: null,
+    logStreamUrl: null,
+    runId: null,
+    errorMsg: null
+  });
+
+  const [showPreview, setShowPreview] = useState(false);
+  const [isPreviewTabActive, setIsPreviewTabActive] = useState(false);
+  const [browserTitle, setBrowserTitle] = useState('Ignito VLab Dashboard');
+  const [extractedUrl, setExtractedUrl] = useState('http://localhost:5173/login');
+  const testingWorkspaceRef = useRef<any>(null);
+  const [isSeleniumDialogOpen, setIsSeleniumDialogOpen] = useState(false);
+  const [seleniumResolve, setSeleniumResolve] = useState<((mode: 'gui' | 'headless') => void) | null>(null);
 
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [selectedFolderPath, setSelectedFolderPath] = useState<string>('/workspace');
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
   const [restrictionMsg, setRestrictionMsg] = useState('');
   const [showRestrictionModal, setShowRestrictionModal] = useState(false);
 
@@ -342,6 +390,32 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       mountedRef.current = false;
     };
   }, []);
+
+  // Automatically close chrome-preview tab and return to the code file after successful run / disconnect
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    if (
+      seleniumRunState.status === 'PASSED' ||
+      seleniumRunState.status === 'FAILED' ||
+      seleniumRunState.status === 'ERROR' ||
+      seleniumRunState.status === 'DISCONNECTED'
+    ) {
+      timeoutId = setTimeout(() => {
+        handleCloseFile({ stopPropagation: () => {} } as any, 'chrome-preview');
+        setSeleniumRunState({
+          status: 'IDLE',
+          browserUrl: null,
+          logStreamUrl: null,
+          runId: null,
+          errorMsg: null
+        });
+      }, 5000);
+    }
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [seleniumRunState.status]);
 
   // Auto-expand all folders when files load for Android
   useEffect(() => {
@@ -371,31 +445,166 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     });
   };
 
+  const startRename = (path: string, currentName: string) => {
+    setRenamingPath(path);
+    setRenameValue(currentName);
+  };
+
+  const cancelRename = () => {
+    setRenamingPath(null);
+    setRenameValue('');
+  };
+
+  const commitRename = async () => {
+    if (!sessionId || !renamingPath) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      toast.error('Name cannot be empty');
+      return;
+    }
+    if (/[\\/]/.test(trimmed) || trimmed === '.' || trimmed === '..') {
+      toast.error('Invalid name');
+      return;
+    }
+    const parent = renamingPath.substring(0, renamingPath.lastIndexOf('/')) || '/workspace';
+    const newPath = `${parent}/${trimmed}`;
+    if (newPath === renamingPath) {
+      cancelRename();
+      return;
+    }
+
+    setIsRenaming(true);
+    try {
+      await renamePath(renamingPath, newPath, sessionId);
+
+      setOpenFilePaths(prev => prev.map(p => {
+        if (p === renamingPath) return newPath;
+        if (p.startsWith(renamingPath + '/')) return newPath + p.slice(renamingPath.length);
+        return p;
+      }));
+      setExpandedFolders(prev => {
+        const next = new Set<string>();
+        prev.forEach(p => {
+          if (p === renamingPath) next.add(newPath);
+          else if (p.startsWith(renamingPath + '/')) next.add(newPath + p.slice(renamingPath.length));
+          else next.add(p);
+        });
+        return next;
+      });
+      if (selectedFolderPath === renamingPath || selectedFolderPath.startsWith(renamingPath + '/')) {
+        setSelectedFolderPath(
+          selectedFolderPath === renamingPath
+            ? newPath
+            : newPath + selectedFolderPath.slice(renamingPath.length)
+        );
+      }
+
+      cancelRename();
+      await handleSync();
+      toast.success(`Renamed to ${trimmed}`);
+    } catch (err: any) {
+      console.error('Rename error:', err);
+      toast.error(`Failed to rename: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const renderRenameInput = () => (
+    <input
+      autoFocus
+      value={renameValue}
+      disabled={isRenaming}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setRenameValue(e.target.value)}
+      onBlur={() => { if (!isRenaming) commitRename(); }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commitRename();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cancelRename();
+        }
+      }}
+      className="flex-1 min-w-0 bg-[#1e1e1e] border border-amber-500/50 rounded px-1.5 py-0.5 text-[12px] text-white outline-none"
+    />
+  );
+
   const renderTreeNode = (node: any, depth: number) => {
     const isExpanded = expandedFolders.has(node.path);
     const isFolderSelected = selectedFolderPath === node.path;
+    const isEditing = renamingPath === node.path;
+
     if (node.type === 'folder') {
       return (
         <div key={node.path}>
           <div
             onClick={() => {
+              if (isEditing) return;
               toggleFolder(node.path);
               setSelectedFolderPath(node.path);
             }}
-            className={`flex items-center gap-1.5 px-4 py-1 hover:bg-[#2a2d2e] cursor-pointer transition-colors border-l-2 ${isFolderSelected ? 'bg-[#37373d] border-red-500 text-white' : 'border-transparent text-slate-300'
+            className={`group relative flex items-center gap-1.5 py-1 pr-2 hover:bg-[#2a2d2e] cursor-pointer transition-colors border-l-2 ${isFolderSelected ? 'bg-[#37373d] border-red-500 text-white' : 'border-transparent text-slate-300'
               }`}
-            style={{ paddingLeft: `${depth * 12 + 16}px` }}
+            style={{ paddingLeft: `${depth * 12 + 12}px` }}
           >
             <ChevronRight
               size={14}
-              className={`text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+              className={`text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
             />
             {isExpanded ? (
               <FolderOpen size={14} className="text-amber-400 shrink-0" />
             ) : (
               <Folder size={14} className="text-amber-500 shrink-0" />
             )}
-            <span className="text-slate-300 text-[12px] font-medium truncate">{node.name}</span>
+            {isEditing ? (
+              renderRenameInput()
+            ) : (
+              <>
+                <span
+                  className="text-slate-300 text-[12px] font-medium truncate min-w-0 flex-1 pr-1"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startRename(node.path, node.name);
+                  }}
+                  title={node.name}
+                >
+                  {node.name}
+                </span>
+                <div className="hidden group-hover:flex absolute right-1 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-[#2a2d2e] pl-1 rounded">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedFolderPath(node.path);
+                      setExpandedFolders(prev => {
+                        const next = new Set(prev);
+                        next.add(node.path);
+                        return next;
+                      });
+                      handleAddFile(node.path);
+                    }}
+                    className="text-slate-400 hover:text-emerald-400 transition-colors p-1 rounded hover:bg-white/10"
+                    title={`New file in ${node.name}`}
+                  >
+                    <Plus size={12} />
+                  </button>
+                  {node.path !== '/workspace' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startRename(node.path, node.name);
+                      }}
+                      className="text-slate-400 hover:text-amber-400 transition-colors p-1 rounded hover:bg-white/10"
+                      title="Rename folder"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
           {isExpanded && node.children?.map((child: any) => renderTreeNode(child, depth + 1))}
         </div>
@@ -409,6 +618,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         <div
           key={node.path}
           onClick={() => {
+            if (isEditing) return;
             if (!openFilePaths.includes(file.path)) {
               if (openFilePaths.length >= 8) {
                 toast.error('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
@@ -420,32 +630,57 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             const parentDir = file.path.substring(0, file.path.lastIndexOf('/'));
             setSelectedFolderPath(parentDir);
           }}
-          className={`group flex items-center gap-2 py-1 cursor-pointer border-l-2 transition-all ${isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
+          className={`group relative flex items-center gap-2 py-1 pr-2 cursor-pointer border-l-2 transition-all ${isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
             }`}
-          style={{ paddingLeft: `${depth * 12 + 30}px`, paddingRight: '16px' }}
+          style={{ paddingLeft: `${depth * 12 + 26}px` }}
         >
           {getFileIcon(file.name)}
-          <span className={`text-[12px] truncate flex-1 ${isActive ? 'text-white font-medium' : 'text-slate-400'}`}>
-            {file.name}
-          </span>
-          <button
-            onClick={async (e) => {
-              e.stopPropagation();
-              if (!window.confirm(`Are you sure you want to delete ${file.name}?`)) return;
-              if (!sessionId) return;
-              try {
-                await deleteFile(file.path, sessionId);
-                await handleSync();
-              } catch (err: any) {
-                console.error('Delete error:', err);
-                toast.error(`Failed to delete file: ${err.message || 'Unknown error'}`);
-              }
-            }}
-            className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
-            title="Delete file"
-          >
-            <Trash2 size={12} />
-          </button>
+          {isEditing ? (
+            renderRenameInput()
+          ) : (
+            <>
+              <span
+                className={`text-[12px] truncate min-w-0 flex-1 pr-1 ${isActive ? 'text-white font-medium' : 'text-slate-400'}`}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startRename(file.path, file.name);
+                }}
+                title={file.name}
+              >
+                {file.name}
+              </span>
+              <div className="hidden group-hover:flex absolute right-1 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-[#2a2d2e] pl-1 rounded">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startRename(file.path, file.name);
+                  }}
+                  className="text-slate-400 hover:text-amber-400 transition-colors p-1 rounded hover:bg-white/10"
+                  title="Rename file"
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!window.confirm(`Are you sure you want to delete ${file.name}?`)) return;
+                    if (!sessionId) return;
+                    try {
+                      await deleteFile(file.path, sessionId);
+                      await handleSync();
+                    } catch (err: any) {
+                      console.error('Delete error:', err);
+                      toast.error(`Failed to delete file: ${err.message || 'Unknown error'}`);
+                    }
+                  }}
+                  className="text-slate-400 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
+                  title="Delete file"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       );
     }
@@ -462,6 +697,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
 
   const [loadedPaths, setLoadedPaths] = useState(new Set<string>());
+  const [contentLoadingPath, setContentLoadingPath] = useState<string | null>(null);
 
   const markPathLoaded = (path: string) => {
     if (!path) return;
@@ -472,7 +708,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       return next;
     });
   };
-  const lastSavedContentRef = useRef<Map<string, string>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
   const [runningAction, setRunningAction] = useState<'build' | 'run' | null>(null);
   const [dotnetBuildReady, setDotnetBuildReady] = useState(false);
@@ -481,12 +716,83 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const [sessionId, setSessionId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('vlab.ide.sidebarWidth'));
+    return Number.isFinite(saved) && saved >= 180 ? saved : 320;
+  });
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('vlab.ide.rightPanelWidth'));
+    return Number.isFinite(saved) && saved >= 240 ? saved : 420;
+  });
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const rightPanelWidthRef = useRef(rightPanelWidth);
+  sidebarWidthRef.current = sidebarWidth;
+  rightPanelWidthRef.current = rightPanelWidth;
+
+  const startPanelResize = (
+    event: React.MouseEvent<HTMLDivElement>,
+    panel: 'sidebar' | 'right'
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    // Size from container edges so left/right panels never invert drag direction
+    const panelEl = event.currentTarget.parentElement;
+    const rowEl = panelEl?.parentElement;
+    const rowRect = () => rowEl?.getBoundingClientRect() ?? {
+      left: 0,
+      right: window.innerWidth,
+    };
+
+    const onMove = (ev: MouseEvent) => {
+      const { left, right } = rowRect();
+      if (panel === 'sidebar') {
+        // Left explorer: width = distance from row left → mouse
+        const next = Math.min(560, Math.max(200, Math.round(ev.clientX - left)));
+        sidebarWidthRef.current = next;
+        setSidebarWidth(next);
+      } else {
+        // Right build/preview: width = distance from mouse → row right
+        // Drag handle left → wider; drag right → narrower
+        const next = Math.min(900, Math.max(280, Math.round(right - ev.clientX)));
+        rightPanelWidthRef.current = next;
+        setRightPanelWidth(next);
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem('vlab.ide.sidebarWidth', String(sidebarWidthRef.current));
+      localStorage.setItem('vlab.ide.rightPanelWidth', String(rightPanelWidthRef.current));
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [consoleSession, setConsoleSession] = useState<ConsoleSessionState | null>(null);
   const [isAndroidBuilding, setIsAndroidBuilding] = useState(false);
   const [androidBuildLogs, setAndroidBuildLogs] = useState<string>('No build logs yet. Click BUILD to start compiling your Android application.');
   const [androidApkUrl, setAndroidApkUrl] = useState<string | null>(null);
+  const [copiedLogs, setCopiedLogs] = useState(false);
+
+  const handleCopyLogs = () => {
+    if (!androidBuildLogs) return;
+    navigator.clipboard.writeText(androidBuildLogs).then(() => {
+      setCopiedLogs(true);
+      toast.success('Build logs copied to clipboard!');
+      setTimeout(() => setCopiedLogs(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy logs:', err);
+      toast.error('Failed to copy build logs');
+    });
+  };
 
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
 
@@ -497,48 +803,42 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     try {
       const response = await fetchFiles(sessionId);
       if (response.success) {
-        // Track the current active file's path to restore index properly after reload
-        const activePath = activeFileIndex >= 0 && files[activeFileIndex] ? files[activeFileIndex].path : null;
+        const activePath =
+          activeFileIndexRef.current >= 0 && filesRef.current[activeFileIndexRef.current]
+            ? filesRef.current[activeFileIndexRef.current].path
+            : null;
 
-        // Merge existing loaded file contents into the refreshed file list to avoid clearing editor contents
-        const mergedFiles = response.files.map((newFile: any) => {
-          const existing = files.find(f => f.path === newFile.path);
-          if (existing && existing.content !== undefined) {
-            return { ...newFile, content: existing.content };
-          }
-          return newFile;
-        });
-
-        setFiles(mergedFiles);
-        mergedFiles.forEach((file: any) => {
-          if (file?.path && file.content !== undefined) {
-            markPathLoaded(file.path);
-            lastSavedContentRef.current.set(file.path, file.content ?? '');
-          }
-        });
-
-        setOpenFilePaths(prev => {
-          const validPaths = response.files.map((f: any) => f.path);
-          return prev.filter(p => validPaths.includes(p));
-        });
-
-        // Clean up loaded paths for deleted files
-        setLoadedPaths(prev => {
-          const next = new Set(prev);
-          const newPaths = response.files.map((f: any) => f.path);
-          prev.forEach(p => {
-            if (!newPaths.includes(p)) {
-              next.delete(p);
+        // Always merge against the latest in-memory files so refreshes never wipe typing
+        setFiles((prev) => {
+          const mergedFiles = response.files.map((newFile: any) => {
+            const existing = prev.find((f) => f.path === newFile.path);
+            if (existing && existing.content !== undefined) {
+              return { ...newFile, content: existing.content, language: existing.language || newFile.language };
             }
+            return newFile;
+          });
+          return mergedFiles;
+        });
+
+        setOpenFilePaths((prev) => {
+          const validPaths = response.files.map((f: any) => f.path);
+          return prev.filter((p) => validPaths.includes(p));
+        });
+
+        setLoadedPaths((prev) => {
+          const next = new Set(prev);
+          const newPaths = new Set(response.files.map((f: any) => f.path));
+          prev.forEach((p) => {
+            if (!newPaths.has(p)) next.delete(p);
           });
           return next;
         });
 
         if (activePath) {
-          const newIdx = mergedFiles.findIndex((f: any) => f.path === activePath);
-          setActiveFileIndex(newIdx);
+          const newIdx = response.files.findIndex((f: any) => f.path === activePath);
+          if (newIdx >= 0) setActiveFileIndex(newIdx);
         }
-        return mergedFiles;
+        return response.files;
       }
     } catch (err) {
       console.error('Refresh files error:', err);
@@ -580,90 +880,83 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
 
 
-  const selectFile = async (newIdx: number, newFilesList?: any[]) => {
-    if (newIdx === activeFileIndex) return;
+  const pendingFetchRef = useRef<Set<string>>(new Set());
 
-    const currentFiles = newFilesList || files;
-
-    // 1. Save current active file first in the background if it exists
-    if (activeFileIndex >= 0 && files[activeFileIndex]) {
-      saveFile(files[activeFileIndex], sessionId).catch(err => {
-        console.error('Failed to save file before switching:', err);
-      });
-    }
-
-    // 2. Set active file index
-    setActiveFileIndex(newIdx);
-
-    // 3. Fetch latest content for the newly selected file if not already loaded
-    if (newIdx >= 0 && currentFiles[newIdx]) {
-      const targetFile = currentFiles[newIdx];
-      // Skip fetching if content is already populated to avoid overwriting edits or newly uploaded/created files
-      if (targetFile.content !== undefined && targetFile.content !== '') {
-        markPathLoaded(targetFile.path);
-        return;
+  const loadFileContent = async (targetPath: string) => {
+    if (!sessionId || !targetPath || pendingFetchRef.current.has(targetPath)) return;
+    pendingFetchRef.current.add(targetPath);
+    setContentLoadingPath(targetPath);
+    try {
+      const res = await fetchFileContent(targetPath, sessionId);
+      if (res && res.success) {
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.path === targetPath ? { ...f, content: res.content } : f
+          )
+        );
+        markPathLoaded(targetPath);
+        lastSavedContentRef.current.set(targetPath, res.content ?? '');
       }
-
-      const targetPath = targetFile.path;
-      try {
-        const response = await fetchFileContent(targetPath, sessionId);
-        if (response.success) {
-          markPathLoaded(targetPath);
-          const content = response.content || '';
-          lastSavedContentRef.current.set(targetPath, content);
-          setFiles(prev => {
-            const updated = [...prev];
-            const currentIdx = updated.findIndex(f => f.path === targetPath);
-            if (currentIdx !== -1) {
-              // Only update if it wasn't edited in the meantime
-              if (updated[currentIdx].content === undefined || updated[currentIdx].content === '') {
-                updated[currentIdx].content = response.content || '';
-              }
-            }
-            return updated;
-          });
-        }
-      } catch (err: any) {
-        console.error('Load files error:', err);
-        toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
-      } finally {
-        if (mountedRef.current) setIsLoading(false);
-      }
+    } catch (err) {
+      console.error('Failed to load file content:', err);
+    } finally {
+      pendingFetchRef.current.delete(targetPath);
+      setContentLoadingPath(null);
     }
   };
 
-  useEffect(() => {
-    let isMounted = true;
-    const loadActiveFile = async () => {
-      if (activeFileIndex < 0 || !files[activeFileIndex] || !sessionId) return;
-      const file = files[activeFileIndex];
-      if (!file) return;
-      if (file.content !== undefined) {
-        markPathLoaded(file.path);
-        return;
-      }
+  const selectFile = async (newIdx: number, newFilesList?: any[]) => {
+    if (newIdx === activeFileIndexRef.current && !isPreviewTabActive) return;
 
-      try {
-        const response = await fetchFileContent(file.path, sessionId);
-        if (isMounted && response.success) {
-          markPathLoaded(file.path);
-          const content = response.content || '';
-          lastSavedContentRef.current.set(file.path, content);
-          setFiles(prev => {
-            const updated = [...prev];
-            const idx = updated.findIndex(f => f.path === file.path);
-            if (idx !== -1) {
-              updated[idx].content = response.content || '';
-            }
-            return updated;
+    const currentFiles = newFilesList || filesRef.current;
+
+    // Save only if we have real loaded content and local edits — never write "" over a file still loading
+    const prevIdx = activeFileIndexRef.current;
+    if (prevIdx >= 0 && filesRef.current[prevIdx] && sessionId) {
+      const prevFile = filesRef.current[prevIdx];
+      const hasBody = typeof prevFile.content === 'string';
+      const isDirty = dirtyPathsRef.current.has(prevFile.path);
+      if (hasBody && isDirty) {
+        saveFile(prevFile, sessionId)
+          .then(() => {
+            lastSavedContentRef.current.set(prevFile.path, prevFile.content ?? '');
+            dirtyPathsRef.current.delete(prevFile.path);
+          })
+          .catch((err) => {
+            console.error('Failed to save file before switching:', err);
           });
-        }
-      } catch (err: any) {
-        console.error('Content load error:', err);
-        toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
       }
-    };
-    loadActiveFile();
+    }
+
+    setActiveFileIndex(newIdx);
+    setIsPreviewTabActive(false);
+
+    if (newIdx < 0 || !currentFiles[newIdx]) return;
+    const targetFile = currentFiles[newIdx];
+    const targetPath = targetFile.path;
+
+    // Already loaded in memory
+    if (loadedPaths.has(targetPath) || typeof targetFile.content === 'string') {
+      markPathLoaded(targetPath);
+      if (typeof targetFile.content !== 'string') {
+        await loadFileContent(targetPath);
+      }
+      return;
+    }
+
+    await loadFileContent(targetPath);
+  };
+
+  useEffect(() => {
+    if (activeFileIndex < 0 || !sessionId) return;
+    const file = files[activeFileIndex];
+    if (!file?.path) return;
+    if (loadedPaths.has(file.path) || typeof file.content === 'string') {
+      markPathLoaded(file.path);
+      return;
+    }
+    loadFileContent(file.path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFileIndex, sessionId]);
 
   const latestSaveRef = useRef<(() => void) | null>(null);
@@ -674,15 +967,21 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const activeFile = files[activeFileIndex];
   const activeFilePath = activeFile?.path;
   const activeFileContent = activeFile?.content;
+  const isContentReady = !!activeFilePath && (loadedPaths.has(activeFilePath) || typeof activeFileContent === 'string');
+  const isContentLoading = !!activeFilePath && contentLoadingPath === activeFilePath && !isContentReady;
 
   useEffect(() => {
     if (activeFileIndex === -1 || !activeFilePath) return;
     if (!loadedPaths.has(activeFilePath) || isSaving) return;
+    if (!dirtyPathsRef.current.has(activeFilePath)) return;
 
     const lastSaved = lastSavedContentRef.current.get(activeFilePath);
-    if (lastSaved === activeFileContent) return;
+    if (lastSaved === activeFileContent) {
+      dirtyPathsRef.current.delete(activeFilePath);
+      return;
+    }
 
-    const timeout = setTimeout(() => handleSave(false), 1500);
+    const timeout = setTimeout(() => handleSave(false), 1200);
     return () => clearTimeout(timeout);
   }, [activeFilePath, activeFileContent, activeFileIndex, loadedPaths, isSaving]);
 
@@ -836,60 +1135,50 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     `);
   };
 
-  const handleFormat = () => {
-    if (!editorRef.current) return;
-    const action = editorRef.current.getAction('editor.action.formatDocument');
-    if (action) action.run();
-  };
-
   const handleSync = async () => {
     if (!sessionId) return;
     setIsLoading(true);
     try {
       const response = await fetchFiles(sessionId);
       if (response.success) {
-        const newFilesList = response.success ? response.files : [];
-        const activeFileBefore = files[activeFileIndex];
-        const activePathBefore = activeFileBefore ? activeFileBefore.path : null;
-
-        // Merge with existing files to preserve in-memory content of loaded files
-        const mergedFiles = newFilesList.map((newFile: any) => {
-          const existing = files.find(f => f.path === newFile.path);
-          if (existing) {
-            return {
-              ...newFile,
-              content: existing.content !== undefined ? existing.content : newFile.content,
-              language: existing.language || newFile.language,
-            };
-          }
-          return newFile;
-        });
-
-        setFiles(mergedFiles);
-
-        // Clean up openFilePaths and loadedPaths for deleted files
+        const newFilesList = response.files || [];
+        const activePathBefore =
+          activeFileIndexRef.current >= 0
+            ? filesRef.current[activeFileIndexRef.current]?.path
+            : null;
         const newPaths = new Set(newFilesList.map((f: any) => f.path));
 
         let newActiveIdx = -1;
         if (activePathBefore && newPaths.has(activePathBefore)) {
-          newActiveIdx = mergedFiles.findIndex((f: any) => f.path === activePathBefore);
+          newActiveIdx = newFilesList.findIndex((f: any) => f.path === activePathBefore);
         } else {
-          // If active file was deleted, try to activate the last remaining open tab
-          const remainingOpen = openFilePaths.filter(p => newPaths.has(p));
+          const remainingOpen = openFilePaths.filter((p) => newPaths.has(p));
           if (remainingOpen.length > 0) {
             const newActivePath = remainingOpen[remainingOpen.length - 1];
-            newActiveIdx = mergedFiles.findIndex((f: any) => f.path === newActivePath);
+            newActiveIdx = newFilesList.findIndex((f: any) => f.path === newActivePath);
           }
         }
-        setActiveFileIndex(newActiveIdx);
 
-        setOpenFilePaths(prev => prev.filter(p => newPaths.has(p)));
-        setLoadedPaths(prev => {
+        setFiles(() =>
+          newFilesList.map((newFile: any) => {
+            const existing = filesRef.current.find((f) => f.path === newFile.path);
+            if (existing && existing.content !== undefined) {
+              return {
+                ...newFile,
+                content: existing.content,
+                language: existing.language || newFile.language,
+              };
+            }
+            return newFile;
+          })
+        );
+
+        setActiveFileIndex(newActiveIdx);
+        setOpenFilePaths((prev) => prev.filter((p) => newPaths.has(p)));
+        setLoadedPaths((prev) => {
           const next = new Set(prev);
           for (const p of next) {
-            if (!newPaths.has(p)) {
-              next.delete(p);
-            }
+            if (!newPaths.has(p)) next.delete(p);
           }
           return next;
         });
@@ -902,13 +1191,25 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   };
 
   const handleSave = async (showFeedback = true) => {
-    if (!activeFile || !sessionId) return;
+    const idx = activeFileIndexRef.current;
+    const file = filesRef.current[idx];
+    if (!file || !sessionId) return;
+    if (typeof file.content !== 'string') {
+      if (showFeedback) toast.error('File is still loading — wait before saving.');
+      return;
+    }
+    const lastSaved = lastSavedContentRef.current.get(file.path);
+    if (!showFeedback && lastSaved === file.content) return;
     setIsSaving(true);
     try {
-      await saveFile(activeFile, sessionId);
-      lastSavedContentRef.current.set(activeFile.path, activeFile.content ?? '');
+      const payload = {
+        ...file,
+        content: file.content,
+      };
+      await saveFile(payload, sessionId);
+      lastSavedContentRef.current.set(file.path, payload.content);
+      dirtyPathsRef.current.delete(file.path);
       if (showFeedback) {
-        await refreshFiles(false);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
       }
@@ -986,8 +1287,78 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     runConsoleInteractive(consoleSession.code, newLines);
   };
 
+  const getExecutionMode = () => new Promise<'gui' | 'headless'>((resolve) => {
+    setSeleniumResolve(() => resolve);
+    setIsSeleniumDialogOpen(true);
+  });
+
   const executeCode = async (dotnetAction?: 'build' | 'run') => {
     if (!sessionId || (!isAndroid && !activeFile)) return;
+
+    if (isSelenium) {
+      setRunningAction('run');
+      try {
+        const mode = await getExecutionMode();
+        if (!mode) return;
+
+        if (!openFilePaths.includes('chrome-preview')) {
+          setOpenFilePaths(prev => [...prev, 'chrome-preview']);
+        }
+        setIsPreviewTabActive(true);
+
+        // Immediately set state to STARTING so the preview panel shows the loader
+        setSeleniumRunState({
+          status: 'STARTING',
+          browserUrl: null,
+          logStreamUrl: null,
+          runId: null,
+          errorMsg: null
+        });
+
+        const runPayload = {
+          path: activeFile.path,
+          language: activeFile.language,
+          content: activeFile.content,
+          labType: 'testing',
+          executionMode: mode
+        };
+        
+        const response = await runFile(runPayload, sessionId);
+        if (response && response.success) {
+          if (response.browser?.title) {
+            setBrowserTitle(response.browser.title);
+          }
+          // Dynamically pass the browserUrl to the TestingWorkspace component
+          const browserUrl = response.viewerUrl || response.browser?.url || null;
+          setSeleniumRunState(prev => ({
+            ...prev,
+            browserUrl,
+            logStreamUrl: response.logs?.streamUrl || prev.logStreamUrl,
+            runId: response.runId || prev.runId,
+            status: browserUrl ? 'RUNNING' : prev.status
+          }));
+        } else {
+          const errorMsg = response?.error || 'Failed to start Selenium environment';
+          setSeleniumRunState(prev => ({
+            ...prev,
+            status: 'ERROR',
+            errorMsg
+          }));
+          toast.error(errorMsg);
+        }
+        await refreshFiles(false);
+        return response;
+      } catch (err: any) {
+        setSeleniumRunState(prev => ({
+          ...prev,
+          status: 'ERROR',
+          errorMsg: err.message || 'Error executing test script'
+        }));
+        toast.error(err.message || 'Error executing test script');
+      } finally {
+        setRunningAction(null);
+      }
+    }
 
     const previewMode: 'build' | 'run' | 'execute' =
       isDotnet && dotnetAction === 'build' ? 'build' : isDotnet && dotnetAction === 'run' ? 'run' : 'execute';
@@ -1080,60 +1451,149 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     }
   };
 
-  const handleRun = () => executeCode();
+  const handleRun = () => {
+    if (isSelenium) {
+      let initialUrl = 'http://localhost:5173/login';
+      if (activeFile && activeFile.content) {
+        // Try direct get/navigate matches first
+        const directMatch = activeFile.content.match(/driver\.(?:get|navigate\(\)\.to)\s*\(\s*['"](https?:\/\/[^'"]+)['"]\s*\)/i);
+        if (directMatch) {
+          initialUrl = directMatch[1];
+        } else {
+          // Fallback: extract the first URL literal starting with http anywhere in the code
+          const fallbackMatch = activeFile.content.match(/https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9._]*\.[a-zA-Z]{2,}(?:\/[^'"\s]*)?/);
+          if (fallbackMatch) {
+            initialUrl = fallbackMatch[0];
+          }
+        }
+      }
+      setExtractedUrl(initialUrl);
+      executeCode();
+    } else {
+      executeCode();
+    }
+  };
   const handleBuild = () => executeCode('build');
   const handleDotnetRun = () => executeCode('run');
 
   const handleAndroidBuild = async () => {
     if (!sessionId) return;
+    if (isAndroidBuilding) {
+      toast.info('A build is already running.');
+      return;
+    }
     setIsAndroidBuilding(true);
-    setAndroidBuildLogs('Starting Android build...\nExecuting: ./gradlew assembleDebug\nThis may take a moment...\n');
+    setAndroidBuildLogs(
+      'Starting Android build...\n' +
+      'First build in a new session downloads Gradle + dependencies (often 3–8 min).\n' +
+      'Later builds reuse the cache and are much faster.\n' +
+      'Live logs stream below...\n'
+    );
     setAndroidApkUrl(null);
 
     try {
-      const runPayload = {
-        path: '/workspace/build.sh',
-        language: 'shell',
-        content: 'cd /workspace && chmod +x build.sh && ./build.sh',
-        labType: 'android'
-      };
+      const response = await startAndroidBuild(sessionId);
+      if (response && response.success) {
+        toast.info('Android build started. First build can take several minutes.');
 
-      const response = await runFile(runPayload, sessionId);
-      if (response) {
-        const runSuccess = response.success || response.status === 'COMPLETED';
-        const rawOutput = response.output || '';
-        const rawError = response.error || response.runtimeError || response.syntaxError || '';
+        let offset = 0;
+        let isDone = false;
+        const startedAt = Date.now();
+        const MAX_BUILD_MS = 20 * 60 * 1000; // 20 minutes hard stop
 
-        const fullLogs = `${rawOutput}\n${rawError}`;
-        setAndroidBuildLogs(fullLogs.trim() || (runSuccess ? 'Build Succeeded.' : 'Build Failed. No output.'));
+        const pollInterval = setInterval(async () => {
+          if (isDone) {
+            clearInterval(pollInterval);
+            return;
+          }
 
-        if (runSuccess) {
-          toast.success('Android build completed successfully!');
-          const token = useAuthStore.getState().auth.accessToken;
-          const downloadUrl = `${resolveApiRelativeUrl('/files/download')}?path=/workspace/app/build/outputs/apk/debug/app-debug.apk&sessionId=${sessionId}&token=${encodeURIComponent(token || '')}`;
-          setAndroidApkUrl(downloadUrl);
-        } else {
-          toast.error('Android build failed. Check logs.');
-        }
+          if (Date.now() - startedAt > MAX_BUILD_MS) {
+            isDone = true;
+            clearInterval(pollInterval);
+            setIsAndroidBuilding(false);
+            setAndroidBuildLogs(prev => prev + '\n\nBuild timed out after 20 minutes. Click BUILD to retry.');
+            toast.error('Android build timed out.');
+            return;
+          }
+
+          try {
+            const statusRes = await fetchAndroidBuildStatus(sessionId, offset);
+            if (statusRes) {
+              if (statusRes.logs) {
+                setAndroidBuildLogs(prev => prev + statusRes.logs);
+              }
+              offset = statusRes.offset;
+
+              if (statusRes.status === 'SUCCESS') {
+                isDone = true;
+                clearInterval(pollInterval);
+                setIsAndroidBuilding(false);
+                toast.success('Android build completed successfully!');
+                const token = useAuthStore.getState().auth.accessToken;
+                const downloadUrl = `${resolveApiRelativeUrl('/api/android/download')}?sessionId=${sessionId}&token=${encodeURIComponent(token || '')}`;
+                setAndroidApkUrl(downloadUrl);
+              } else if (statusRes.status === 'FAILED') {
+                isDone = true;
+                clearInterval(pollInterval);
+                setIsAndroidBuilding(false);
+                toast.error('Android build failed. Check logs.');
+              }
+            }
+          } catch (pollErr: any) {
+            console.error('Error polling android build status:', pollErr);
+          }
+        }, window.location.hostname === 'localhost' ? 5000 : 2000);
       } else {
-        setAndroidBuildLogs(prev => prev + '\nError: No response received from the build engine.');
-        toast.error('Android build failed. No response received.');
+        setAndroidBuildLogs(prev => prev + '\nError: No response received or build failed to trigger.');
+        toast.error('Android build failed to start.');
+        setIsAndroidBuilding(false);
       }
     } catch (err: any) {
-      const errMsg = err.message || 'Failed to call the build execution service.';
+      const errMsg = err.message || 'Failed to start build.';
+      const isConflict = /already running|409/i.test(errMsg);
       setAndroidBuildLogs(prev => prev + `\nError: ${errMsg}`);
-      toast.error(`Android build failed: ${errMsg}`);
-    } finally {
+      toast.error(isConflict ? 'A build is already running. Wait for it to finish.' : `Android build failed: ${errMsg}`);
       setIsAndroidBuilding(false);
     }
   };
 
   const handleDownloadApk = () => {
     if (!androidApkUrl) return;
-    window.open(androidApkUrl, '_blank');
+    const link = document.createElement('a');
+    link.href = androidApkUrl;
+    link.setAttribute('download', 'app-debug.apk');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const handleAddFile = async () => {
+  const resolveCreateFolderPath = (explicitPath?: string) => {
+    const folderPaths = new Set<string>();
+    files.forEach((f) => {
+      const parts = String(f.path || '').split('/').filter(Boolean);
+      // /workspace/a/b/c.java → folders: /workspace, /workspace/a, /workspace/a/b
+      let acc = '';
+      for (let i = 0; i < parts.length - 1; i++) {
+        acc += `/${parts[i]}`;
+        folderPaths.add(acc);
+      }
+    });
+    folderPaths.add('/workspace');
+
+    const candidates = [
+      explicitPath,
+      selectedFolderPath,
+      activeFile?.path ? activeFile.path.substring(0, activeFile.path.lastIndexOf('/')) : '',
+      '/workspace',
+    ].filter(Boolean) as string[];
+
+    for (const candidate of candidates) {
+      if (folderPaths.has(candidate)) return candidate;
+    }
+    return '/workspace';
+  };
+
+  const handleAddFile = async (targetFolderPath?: string) => {
     if (openFilePaths.length >= 8) {
       toast.error('Maximum of 8 files can be open in the tabs at the same time. Please close some tabs first.');
       return;
@@ -1153,9 +1613,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     } else if (rules.extensions.length > 0) {
       defaultExt = rules.extensions[0];
     }
-    const defaultName = isDotnet ? 'Program.cs' : isAndroid ? 'SecondActivity.java' : `script.${defaultExt}`;
+    const defaultName = isDotnet ? 'Program.cs' : isAndroid ? 'MainActivity.java' : `script.${defaultExt}`;
 
-    const fileName = window.prompt(`Enter file name:`, defaultName);
+    const createIn = resolveCreateFolderPath(targetFolderPath);
+    setSelectedFolderPath(createIn);
+
+    const folderLabel = createIn.replace(/^\/workspace\/?/, '') || 'workspace root';
+    const fileName = window.prompt(`Create file in:\n${folderLabel}\n\nEnter file name:`, defaultName);
     if (!fileName) return;
 
     const hasExtension = fileName.includes('.') && fileName.split('.').pop() !== '';
@@ -1169,13 +1633,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
     const newFile = {
       name: fileName,
-      path: `${selectedFolderPath}/${fileName}`,
+      path: `${createIn}/${fileName}`,
       type: 'file',
       language: detectLanguage(fileName),
       content: isDotnet && fileName === 'Program.cs' ? DOTNET_CONSOLE_STARTER : '',
     };
     if (sessionId) {
-      // Optimistically add to files, open tab, and select it
       setFiles(prev => {
         if (prev.some(f => f.path === newFile.path)) return prev;
         return [...prev, newFile];
@@ -1192,13 +1655,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       setActiveFileIndex(files.length);
       try {
         await saveFile(newFile, sessionId);
+        toast.success(`Created ${fileName} in ${folderLabel}`);
       } catch (err) {
         console.error('Failed to save newly added file on backend:', err);
+        toast.error('Failed to create file');
       }
-      // Select the newly created file (best-effort; file list is async state)
       selectFile(files.length, [...files, newFile]).catch(() => { });
 
-      // Save to backend and refresh in background
       (async () => {
         try {
           await saveFile(newFile, sessionId);
@@ -1295,10 +1758,10 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
   const handleCloseFile = (e: React.MouseEvent, path: string) => {
     e.stopPropagation();
-    setOpenFilePaths(prev => {
-      const next = prev.filter(p => p !== path);
-      const closedFileIdx = files.findIndex(f => f.path === path);
-      if (activeFileIndex === closedFileIdx) {
+    if (path === 'chrome-preview') {
+      setOpenFilePaths(prev => {
+        const next = prev.filter(p => p !== 'chrome-preview');
+        setIsPreviewTabActive(false);
         if (next.length > 0) {
           const newActivePath = next[next.length - 1];
           const newActiveIdx = files.findIndex(f => f.path === newActivePath);
@@ -1306,19 +1769,50 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         } else {
           setActiveFileIndex(-1);
         }
+        return next;
+      });
+      return;
+    }
+
+    setOpenFilePaths(prev => {
+      const next = prev.filter(p => p !== path);
+      const closedFileIdx = files.findIndex(f => f.path === path);
+      if (activeFileIndex === closedFileIdx) {
+        if (next.length > 0) {
+          const newActivePath = next[next.length - 1];
+          if (newActivePath === 'chrome-preview') {
+            setIsPreviewTabActive(true);
+          } else {
+            const newActiveIdx = files.findIndex(f => f.path === newActivePath);
+            setActiveFileIndex(newActiveIdx);
+            setIsPreviewTabActive(false);
+          }
+        } else {
+          setActiveFileIndex(-1);
+          setIsPreviewTabActive(false);
+        }
       }
       return next;
     });
   };
 
   const handleEditorChange = (value: string | undefined) => {
-    if (activeFileIndex !== -1 && value !== undefined) {
-      const path = files[activeFileIndex]?.path;
-      if (path) markPathLoaded(path);
-      const newFiles = [...files];
-      newFiles[activeFileIndex].content = value;
-      setFiles(newFiles);
-    }
+    if (value === undefined) return;
+    const idx = activeFileIndexRef.current;
+    const path = filesRef.current[idx]?.path;
+    if (idx < 0 || !path) return;
+
+    markPathLoaded(path);
+    dirtyPathsRef.current.add(path);
+
+    setFiles((prev) => {
+      const currentIdx = prev[idx]?.path === path ? idx : prev.findIndex((f) => f.path === path);
+      if (currentIdx < 0) return prev;
+      if (prev[currentIdx].content === value) return prev;
+      const updated = [...prev];
+      updated[currentIdx] = { ...updated[currentIdx], content: value };
+      return updated;
+    });
   };
 
   if (isLoading && !sessionId) {
@@ -1336,7 +1830,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       {/* Sidebar Explorer */}
       {isSidebarOpen && (
         <div
-          className="w-[260px] bg-[#252526] border-r border-[#1f1f1f] flex flex-col shrink-0"
+          className="bg-[#252526] border-r border-[#1f1f1f] flex flex-col shrink-0 relative"
+          style={{ width: sidebarWidth }}
         >
           <div className="h-12 px-4 flex items-center justify-between border-b border-[#1f1f1f]">
             <span className="text-[10px] text-white/60 uppercase font-bold tracking-widest">Explorer</span>
@@ -1344,7 +1839,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               <button onClick={handleSync} className="text-white/70 hover:text-white transition-colors mr-1" title="Sync Workspace">
                 <RotateCw size={14} className={isLoading ? 'animate-spin text-red-500' : ''} />
               </button>
-              <button onClick={handleAddFile} className="text-white/70 hover:text-white transition-colors" title="Add File">
+              <button onClick={() => handleAddFile()} className="text-white/70 hover:text-white transition-colors" title="Add File">
                 <Plus size={16} />
               </button>
               <button onClick={() => fileInputRef.current?.click()} className="text-white/70 hover:text-white transition-colors" title="Upload File">
@@ -1358,7 +1853,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             <span className="text-[10px] text-white/40 uppercase font-bold tracking-widest">Workspace</span>
           </div>
 
-          <div className="flex-1 overflow-y-auto py-2">
+          <div className="flex-1 overflow-y-auto overflow-x-auto py-2">
             {isAndroid ? (
               buildFileTree(files).map(node => renderTreeNode(node, 0))
             ) : (
@@ -1405,6 +1900,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               ))
             )}
           </div>
+
+          <div
+            onMouseDown={(e) => startPanelResize(e, 'sidebar')}
+            className="absolute top-0 right-0 h-full w-2 cursor-col-resize z-20 hover:bg-white/10 active:bg-amber-500/50"
+            title="Drag to resize explorer"
+          />
         </div>
       )}
 
@@ -1422,10 +1923,31 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             <div className="flex-1 flex items-center ml-2 overflow-x-auto scrollbar-none h-full min-w-0">
               <div className="flex items-center space-x-1 h-full py-1">
                 {openFilePaths.map((path) => {
+                  if (path === 'chrome-preview') {
+                    const isActive = isPreviewTabActive;
+                    return (
+                      <div
+                        key={path}
+                        onClick={() => setIsPreviewTabActive(true)}
+                        className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[120px] max-w-[180px] transition-colors shrink-0 ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
+                          }`}
+                      >
+                        <Globe size={12} className="text-emerald-400 shrink-0" />
+                        <span className="text-[11px] truncate flex-1 font-medium">{browserTitle}</span>
+                        <button
+                          onClick={(e) => handleCloseFile(e, 'chrome-preview')}
+                          className={`p-0.5 rounded-full hover:bg-white/10 ${isActive ? 'text-white/60 hover:text-white' : 'text-transparent group-hover:text-white/40'}`}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    );
+                  }
+
                   const file = files.find(f => f.path === path);
                   if (!file) return null;
                   const idx = files.findIndex(f => f.path === path);
-                  const isActive = activeFileIndex === idx;
+                  const isActive = activeFileIndex === idx && !isPreviewTabActive;
                   return (
                     <div
                       key={path}
@@ -1516,6 +2038,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                 TIME REMAINING: {remainingTime}
               </div>
             )}
+            {activeLabWallet && (
+              <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[10px] font-black bg-emerald-950/40 border border-emerald-500/20 px-2.5 py-1 rounded shrink-0 ml-2">
+                <Coins size={12} className="text-emerald-400" />
+                <span>{activeLabWallet.remainingTokens} TOKENS ({activeLabWallet.remainingTokens} MINS)</span>
+              </div>
+            )}
             <button
               onClick={onBack}
               className="text-red-500 hover:text-red-400 transition-colors p-1 ml-2"
@@ -1535,40 +2063,60 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 flex overflow-hidden">
-            {activeFileIndex !== -1 && activeFile ? (
-              <div className="flex-1 flex flex-col relative border-r border-[#1f1f1f]">
+            {isPreviewTabActive ? (
+              <div className="flex-1 flex flex-col relative bg-[#0c0c0c] min-h-0">
+                <TestingWorkspace
+                  ref={testingWorkspaceRef}
+                  session={propSession}
+                  sessionId={sessionId}
+                  runState={seleniumRunState}
+                  setRunState={setSeleniumRunState}
+                  onRun={executeCode}
+                  onClose={() => handleCloseFile(new MouseEvent('click') as any, 'chrome-preview')}
+                  initialAddressUrl={extractedUrl}
+                />
+              </div>
+            ) : activeFileIndex !== -1 && activeFile ? (
+              <div className="flex-1 flex flex-col relative border-r border-[#1f1f1f] select-text">
                 <div className="absolute top-4 right-6 z-10 flex gap-2">
                   <button
-                    onClick={handleFormat}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors"
-                  >
-                    <AlignLeft size={12} /> Format
-                  </button>
-                  <button
                     onClick={() => handleSave(true)}
-                    disabled={isSaving || !loadedPaths.has(activeFile.path)}
+                    disabled={isSaving || !isContentReady}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Save size={12} /> {isSaving ? 'Saving...' : (saveSuccess ? 'Saved!' : 'Save')}
                   </button>
                 </div>
 
-                <Editor
-                  height="100%"
-                  language={activeFile.language}
-                  path={activeFile.path}
-                  value={activeFile.content}
-                  onChange={handleEditorChange}
-                  theme="vs-dark"
-                  onMount={(editor) => { editorRef.current = editor; }}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    wordWrap: 'on',
-                    scrollBeyondLastLine: false,
-                    padding: { top: 16 }
-                  }}
-                />
+                {isContentLoading ? (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3 bg-[#1e1e1e] text-white/50">
+                    <div className="w-8 h-8 border-2 border-white/10 border-t-amber-500 rounded-full animate-spin" />
+                    <p className="text-[11px] uppercase tracking-widest font-bold">Loading {activeFile.name}...</p>
+                  </div>
+                ) : (
+                  <Editor
+                    height="100%"
+                    language={activeFile.language}
+                    path={activeFile.path}
+                    value={activeFile.content ?? ''}
+                    onChange={handleEditorChange}
+                    theme="vs-dark"
+                    keepCurrentModel
+                    onMount={(editor) => {
+                      editorRef.current = editor;
+                      editor.focus();
+                    }}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 14,
+                      wordWrap: 'on',
+                      scrollBeyondLastLine: false,
+                      padding: { top: 16 },
+                      automaticLayout: true,
+                      readOnly: !isContentReady,
+                    }}
+                  />
+                )}
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-[#1e1e1e]">
@@ -1579,7 +2127,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   Select a file to begin coding
                 </h2>
                 <button
-                  onClick={handleAddFile}
+                  onClick={() => handleAddFile()}
                   className="flex items-center gap-2 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 text-white/60 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-all hover:bg-white/5"
                 >
                   <Plus size={14} /> Create New File
@@ -1589,17 +2137,44 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
             {/* Right Preview Panel */}
             {isAndroid ? (
-              <div className="w-[40%] bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col shrink-0">
-                <div className="h-10 bg-[#1e1e1e] flex justify-center items-center border-b border-amber-500/20 relative">
+              <div
+                className="bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col shrink-0 min-w-0 relative"
+                style={{ width: rightPanelWidth, minWidth: 280, maxWidth: 900 }}
+              >
+                <div
+                  onMouseDown={(e) => startPanelResize(e, 'right')}
+                  className="absolute top-0 -left-1 h-full w-3 cursor-col-resize z-30 hover:bg-amber-500/40 active:bg-amber-500/60"
+                  title="Drag left to widen build logs"
+                />
+                <div className="h-10 bg-[#1e1e1e] flex justify-between items-center px-4 border-b border-amber-500/20 relative">
                   <span className="text-[#f59e0b] text-[10px] font-black uppercase tracking-widest">Build Logs</span>
-                  <div className="absolute bottom-0 w-full h-[2px] bg-[#f59e0b]" />
+                  <button
+                    type="button"
+                    onClick={handleCopyLogs}
+                    title="Copy Build Logs"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#2a2d2e] hover:bg-[#37373d] text-slate-300 hover:text-white text-[11px] font-medium transition-all cursor-pointer"
+                  >
+                    {copiedLogs ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    <span>{copiedLogs ? 'Copied!' : 'Copy'}</span>
+                  </button>
+                  <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#f59e0b]" />
                 </div>
-                <div className="flex-1 w-full p-4 bg-[#111] font-mono text-[12px] text-slate-300 overflow-y-auto whitespace-pre-wrap selection:bg-amber-500/30">
+                <div className="flex-1 w-full min-w-0 p-4 bg-[#111] font-mono text-[12px] text-slate-300 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words select-text selection:bg-amber-500/30">
                   {androidBuildLogs}
                 </div>
               </div>
+            ) : isSelenium ? (
+              null // Selenium preview is now opened in the Editor Tab bar instead of a split layout
             ) : (
-              <div className="w-[40%] bg-white flex flex-col shrink-0">
+              <div
+                className="bg-white flex flex-col shrink-0 relative"
+                style={{ width: rightPanelWidth, minWidth: 280, maxWidth: 900 }}
+              >
+                <div
+                  onMouseDown={(e) => startPanelResize(e, 'right')}
+                  className="absolute top-0 -left-1 h-full w-3 cursor-col-resize z-30 hover:bg-red-500/40 active:bg-red-500/60"
+                  title="Drag left to widen preview"
+                />
                 <div className="h-10 bg-white flex justify-center items-center border-b border-red-500/20 relative">
                   <span className="text-[#dc2626] text-[10px] font-black uppercase tracking-widest">Preview</span>
                   <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
@@ -1625,6 +2200,25 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         </div>
       </div>
 
+      <SeleniumExecutionDialog
+        open={isSeleniumDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsSeleniumDialogOpen(false);
+            if (seleniumResolve) {
+              seleniumResolve(null as any);
+              setSeleniumResolve(null);
+            }
+          }
+        }}
+        onConfirm={(mode) => {
+          setIsSeleniumDialogOpen(false);
+          if (seleniumResolve) {
+            seleniumResolve(mode);
+            setSeleniumResolve(null);
+          }
+        }}
+      />
     </div>
   );
 };

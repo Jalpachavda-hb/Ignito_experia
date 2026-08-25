@@ -23,7 +23,7 @@ const resolveToolUrl = (url: string | null | undefined) => resolveApiRelativeUrl
 const normalizeRuntimeType = (value?: string | null) => {
   const rt = (value || '').toLowerCase().trim();
   if (!rt) return '';
-  if (rt === 'ide' || rt.includes('custom ide')) return 'ide';
+  if (rt === 'ide' || rt.includes('custom ide') || rt === 'testing' || rt.includes('testing')) return 'ide';
   if (rt === 'jupyter' || rt === 'datascience') return 'jupyter';
   if (rt === 'terminal') return 'terminal';
   if (rt === 'emulator' || rt === 'android emulator' || rt.includes('emulator')) return 'emulator';

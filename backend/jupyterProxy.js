@@ -110,7 +110,10 @@ const rewriteJupyterHtml = (body, proxyBase) => {
 };
 
 export const setupJupyterProxy = (app, apiPrefix) => {
-  const mountPath = `${apiPrefix}/lab-sessions/:sessionId/jupyter`;
+  const mountPaths = [
+    `${apiPrefix}/lab-sessions/:sessionId/jupyter`,
+    `${apiPrefix}/lab/sessions/:sessionId/jupyter`
+  ];
 
   const skipNonProxyPaths = (req, res, next) => {
     const path = req.originalUrl || req.url || "";
@@ -146,7 +149,9 @@ export const setupJupyterProxy = (app, apiPrefix) => {
 
       const runtime = await getLabRuntime(session.labId);
       req.jupyterTarget = `http://${host}:${runtime.port || 8888}`;
-      req.jupyterProxyBase = `${apiPrefix}/lab-sessions/${sessionId}/jupyter`;
+      const matchedPath = req.originalUrl || req.url || "";
+      const pathType = matchedPath.includes("/lab/sessions/") ? "lab/sessions" : "lab-sessions";
+      req.jupyterProxyBase = `${apiPrefix}/${pathType}/${sessionId}/jupyter`;
       return next();
     } catch (err) {
       console.error("[jupyterProxy auth]", err);
@@ -265,25 +270,25 @@ export const setupJupyterProxy = (app, apiPrefix) => {
 
   global.jupyterWsProxy = proxyMiddleware;
 
-  app.use(mountPath, skipNonProxyPaths, authMiddleware, proxyMiddleware);
+  app.use(mountPaths, skipNonProxyPaths, authMiddleware, proxyMiddleware);
 
-  return mountPath;
+  return mountPaths[0];
 };
 
 export const attachJupyterProxyUpgrade = (httpServer, apiPrefix) => {
   httpServer.on("upgrade", async (req, socket, head) => {
     const url = req.url || "";
-    if (!url.includes("/lab-sessions/") || !url.includes("/jupyter")) {
+    if (!url.includes("/jupyter") || (!url.includes("/lab-sessions/") && !url.includes("/lab/sessions/"))) {
       return;
     }
 
-    const sessionIdMatch = url.match(/\/lab-sessions\/([^/]+)\/jupyter/);
+    const sessionIdMatch = url.match(/\/(lab-sessions|lab\/sessions)\/([^/]+)\/jupyter/);
     if (!sessionIdMatch) {
       return;
     }
 
     try {
-      const session = await getSession(sessionIdMatch[1]);
+      const session = await getSession(sessionIdMatch[2]);
       if (!session) {
         socket.destroy();
         return;

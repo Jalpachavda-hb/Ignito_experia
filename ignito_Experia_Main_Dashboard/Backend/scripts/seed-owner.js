@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import pool from "../config/db.js";
 
 const OWNER_EMAIL = "owner@ignito.com";
-const OWNER_PASSWORD = "Owner@1234";
+const OWNER_PASSWORD = "Owner123!";
 const OWNER_NAME = "Platform Owner";
 
 async function seedOwner() {

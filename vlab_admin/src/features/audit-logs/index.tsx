@@ -9,7 +9,7 @@ import { AuditLogsProvider } from './context/audit-logs-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Activity, ShieldAlert, KeyRound } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { apiRequest } from '@/lib/apiClient'
+import { fetchAdminAuditStatistics, fetchAdminAuditLogs } from '@/Utils/GetApiHandler'
 import { type AuditLog } from './data/schema'
 
 function AuditLogsViewContent() {
@@ -23,7 +23,7 @@ function AuditLogsViewContent() {
 
       // Fetch Stats
       try {
-        const statsRes = await apiRequest('/admin/audit/statistics');
+        const statsRes: any = await fetchAdminAuditStatistics();
         if (statsRes?.success) {
           const statsData = statsRes.statistics;
           setStats({
@@ -38,7 +38,7 @@ function AuditLogsViewContent() {
 
       // Fetch Logs
       try {
-        let logsRes = await apiRequest('/admin/audit');
+        let logsRes: any = await fetchAdminAuditLogs();
         if (typeof logsRes === 'string') {
           try {
             logsRes = JSON.parse(logsRes);

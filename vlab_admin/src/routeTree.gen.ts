@@ -19,6 +19,7 @@ import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors401RouteImport } from './routes/(errors)/401'
+import { Route as authSsoCallbackRouteImport } from './routes/(auth)/sso-callback'
 import { Route as authSignUpRouteImport } from './routes/(auth)/sign-up'
 import { Route as authSignIn2RouteImport } from './routes/(auth)/sign-in-2'
 import { Route as authSignInRouteImport } from './routes/(auth)/sign-in'
@@ -28,7 +29,6 @@ import { Route as AuthenticatedTransactionsRouteRouteImport } from './routes/_au
 import { Route as AuthenticatedSettingsRouteRouteImport } from './routes/_authenticated/settings/route'
 import { Route as AuthenticatedSessionsRouteRouteImport } from './routes/_authenticated/sessions/route'
 import { Route as AuthenticatedSemestersRouteRouteImport } from './routes/_authenticated/semesters/route'
-import { Route as AuthenticatedRolesRouteRouteImport } from './routes/_authenticated/roles/route'
 import { Route as AuthenticatedReportsRouteRouteImport } from './routes/_authenticated/reports/route'
 import { Route as AuthenticatedProgramsRouteRouteImport } from './routes/_authenticated/programs/route'
 import { Route as AuthenticatedLabsRouteRouteImport } from './routes/_authenticated/labs/route'
@@ -67,9 +67,6 @@ const AuthenticatedSessionsIndexLazyRouteImport = createFileRoute(
 )()
 const AuthenticatedSemestersIndexLazyRouteImport = createFileRoute(
   '/_authenticated/semesters/',
-)()
-const AuthenticatedRolesIndexLazyRouteImport = createFileRoute(
-  '/_authenticated/roles/',
 )()
 const AuthenticatedReportsIndexLazyRouteImport = createFileRoute(
   '/_authenticated/reports/',
@@ -151,6 +148,11 @@ const errors401Route = errors401RouteImport.update({
   path: '/401',
   getParentRoute: () => rootRouteImport,
 } as any)
+const authSsoCallbackRoute = authSsoCallbackRouteImport.update({
+  id: '/(auth)/sso-callback',
+  path: '/sso-callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const authSignUpRoute = authSignUpRouteImport.update({
   id: '/(auth)/sign-up',
   path: '/sign-up',
@@ -200,11 +202,6 @@ const AuthenticatedSemestersRouteRoute =
     path: '/semesters',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedRolesRouteRoute = AuthenticatedRolesRouteRouteImport.update({
-  id: '/roles',
-  path: '/roles',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedReportsRouteRoute =
   AuthenticatedReportsRouteRouteImport.update({
     id: '/reports',
@@ -265,14 +262,6 @@ const AuthenticatedSemestersIndexLazyRoute =
     getParentRoute: () => AuthenticatedSemestersRouteRoute,
   } as any).lazy(() =>
     import('./routes/_authenticated/semesters/index.lazy').then((d) => d.Route),
-  )
-const AuthenticatedRolesIndexLazyRoute =
-  AuthenticatedRolesIndexLazyRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedRolesRouteRoute,
-  } as any).lazy(() =>
-    import('./routes/_authenticated/roles/index.lazy').then((d) => d.Route),
   )
 const AuthenticatedReportsIndexLazyRoute =
   AuthenticatedReportsIndexLazyRouteImport.update({
@@ -550,7 +539,6 @@ export interface FileRoutesByFullPath {
   '/labs': typeof AuthenticatedLabsRouteRouteWithChildren
   '/programs': typeof AuthenticatedProgramsRouteRouteWithChildren
   '/reports': typeof AuthenticatedReportsRouteRouteWithChildren
-  '/roles': typeof AuthenticatedRolesRouteRouteWithChildren
   '/semesters': typeof AuthenticatedSemestersRouteRouteWithChildren
   '/sessions': typeof AuthenticatedSessionsRouteRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
@@ -560,6 +548,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof authSignInRoute
   '/sign-in-2': typeof authSignIn2Route
   '/sign-up': typeof authSignUpRoute
+  '/sso-callback': typeof authSsoCallbackRoute
   '/401': typeof errors401Route
   '/403': typeof errors403Route
   '/404': typeof errors404Route
@@ -593,7 +582,6 @@ export interface FileRoutesByFullPath {
   '/labs/': typeof AuthenticatedLabsIndexLazyRoute
   '/programs/': typeof AuthenticatedProgramsIndexLazyRoute
   '/reports/': typeof AuthenticatedReportsIndexLazyRoute
-  '/roles/': typeof AuthenticatedRolesIndexLazyRoute
   '/semesters/': typeof AuthenticatedSemestersIndexLazyRoute
   '/sessions/': typeof AuthenticatedSessionsIndexLazyRoute
   '/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
@@ -614,6 +602,7 @@ export interface FileRoutesByTo {
   '/sign-in': typeof authSignInRoute
   '/sign-in-2': typeof authSignIn2Route
   '/sign-up': typeof authSignUpRoute
+  '/sso-callback': typeof authSsoCallbackRoute
   '/401': typeof errors401Route
   '/403': typeof errors403Route
   '/404': typeof errors404Route
@@ -640,7 +629,6 @@ export interface FileRoutesByTo {
   '/labs': typeof AuthenticatedLabsIndexLazyRoute
   '/programs': typeof AuthenticatedProgramsIndexLazyRoute
   '/reports': typeof AuthenticatedReportsIndexLazyRoute
-  '/roles': typeof AuthenticatedRolesIndexLazyRoute
   '/semesters': typeof AuthenticatedSemestersIndexLazyRoute
   '/sessions': typeof AuthenticatedSessionsIndexLazyRoute
   '/transactions': typeof AuthenticatedTransactionsIndexLazyRoute
@@ -664,7 +652,6 @@ export interface FileRoutesById {
   '/_authenticated/labs': typeof AuthenticatedLabsRouteRouteWithChildren
   '/_authenticated/programs': typeof AuthenticatedProgramsRouteRouteWithChildren
   '/_authenticated/reports': typeof AuthenticatedReportsRouteRouteWithChildren
-  '/_authenticated/roles': typeof AuthenticatedRolesRouteRouteWithChildren
   '/_authenticated/semesters': typeof AuthenticatedSemestersRouteRouteWithChildren
   '/_authenticated/sessions': typeof AuthenticatedSessionsRouteRouteWithChildren
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteRouteWithChildren
@@ -674,6 +661,7 @@ export interface FileRoutesById {
   '/(auth)/sign-in': typeof authSignInRoute
   '/(auth)/sign-in-2': typeof authSignIn2Route
   '/(auth)/sign-up': typeof authSignUpRoute
+  '/(auth)/sso-callback': typeof authSsoCallbackRoute
   '/(errors)/401': typeof errors401Route
   '/(errors)/403': typeof errors403Route
   '/(errors)/404': typeof errors404Route
@@ -708,7 +696,6 @@ export interface FileRoutesById {
   '/_authenticated/labs/': typeof AuthenticatedLabsIndexLazyRoute
   '/_authenticated/programs/': typeof AuthenticatedProgramsIndexLazyRoute
   '/_authenticated/reports/': typeof AuthenticatedReportsIndexLazyRoute
-  '/_authenticated/roles/': typeof AuthenticatedRolesIndexLazyRoute
   '/_authenticated/semesters/': typeof AuthenticatedSemestersIndexLazyRoute
   '/_authenticated/sessions/': typeof AuthenticatedSessionsIndexLazyRoute
   '/_authenticated/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
@@ -733,7 +720,6 @@ export interface FileRouteTypes {
     | '/labs'
     | '/programs'
     | '/reports'
-    | '/roles'
     | '/semesters'
     | '/sessions'
     | '/settings'
@@ -743,6 +729,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-2'
     | '/sign-up'
+    | '/sso-callback'
     | '/401'
     | '/403'
     | '/404'
@@ -776,7 +763,6 @@ export interface FileRouteTypes {
     | '/labs/'
     | '/programs/'
     | '/reports/'
-    | '/roles/'
     | '/semesters/'
     | '/sessions/'
     | '/transactions/'
@@ -797,6 +783,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-in-2'
     | '/sign-up'
+    | '/sso-callback'
     | '/401'
     | '/403'
     | '/404'
@@ -823,7 +810,6 @@ export interface FileRouteTypes {
     | '/labs'
     | '/programs'
     | '/reports'
-    | '/roles'
     | '/semesters'
     | '/sessions'
     | '/transactions'
@@ -846,7 +832,6 @@ export interface FileRouteTypes {
     | '/_authenticated/labs'
     | '/_authenticated/programs'
     | '/_authenticated/reports'
-    | '/_authenticated/roles'
     | '/_authenticated/semesters'
     | '/_authenticated/sessions'
     | '/_authenticated/settings'
@@ -856,6 +841,7 @@ export interface FileRouteTypes {
     | '/(auth)/sign-in'
     | '/(auth)/sign-in-2'
     | '/(auth)/sign-up'
+    | '/(auth)/sso-callback'
     | '/(errors)/401'
     | '/(errors)/403'
     | '/(errors)/404'
@@ -890,7 +876,6 @@ export interface FileRouteTypes {
     | '/_authenticated/labs/'
     | '/_authenticated/programs/'
     | '/_authenticated/reports/'
-    | '/_authenticated/roles/'
     | '/_authenticated/semesters/'
     | '/_authenticated/sessions/'
     | '/_authenticated/transactions/'
@@ -913,6 +898,7 @@ export interface RootRouteChildren {
   authSignInRoute: typeof authSignInRoute
   authSignIn2Route: typeof authSignIn2Route
   authSignUpRoute: typeof authSignUpRoute
+  authSsoCallbackRoute: typeof authSsoCallbackRoute
   errors401Route: typeof errors401Route
   errors403Route: typeof errors403Route
   errors404Route: typeof errors404Route
@@ -978,6 +964,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof errors401RouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/(auth)/sso-callback': {
+      id: '/(auth)/sso-callback'
+      path: '/sso-callback'
+      fullPath: '/sso-callback'
+      preLoaderRoute: typeof authSsoCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/(auth)/sign-up': {
       id: '/(auth)/sign-up'
       path: '/sign-up'
@@ -1039,13 +1032,6 @@ declare module '@tanstack/react-router' {
       path: '/semesters'
       fullPath: '/semesters'
       preLoaderRoute: typeof AuthenticatedSemestersRouteRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/roles': {
-      id: '/_authenticated/roles'
-      path: '/roles'
-      fullPath: '/roles'
-      preLoaderRoute: typeof AuthenticatedRolesRouteRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/reports': {
@@ -1110,13 +1096,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/semesters/'
       preLoaderRoute: typeof AuthenticatedSemestersIndexLazyRouteImport
       parentRoute: typeof AuthenticatedSemestersRouteRoute
-    }
-    '/_authenticated/roles/': {
-      id: '/_authenticated/roles/'
-      path: '/'
-      fullPath: '/roles/'
-      preLoaderRoute: typeof AuthenticatedRolesIndexLazyRouteImport
-      parentRoute: typeof AuthenticatedRolesRouteRoute
     }
     '/_authenticated/reports/': {
       id: '/_authenticated/reports/'
@@ -1468,20 +1447,6 @@ const AuthenticatedReportsRouteRouteWithChildren =
     AuthenticatedReportsRouteRouteChildren,
   )
 
-interface AuthenticatedRolesRouteRouteChildren {
-  AuthenticatedRolesIndexLazyRoute: typeof AuthenticatedRolesIndexLazyRoute
-}
-
-const AuthenticatedRolesRouteRouteChildren: AuthenticatedRolesRouteRouteChildren =
-  {
-    AuthenticatedRolesIndexLazyRoute: AuthenticatedRolesIndexLazyRoute,
-  }
-
-const AuthenticatedRolesRouteRouteWithChildren =
-  AuthenticatedRolesRouteRoute._addFileChildren(
-    AuthenticatedRolesRouteRouteChildren,
-  )
-
 interface AuthenticatedSemestersRouteRouteChildren {
   AuthenticatedSemestersSemesterIdRoute: typeof AuthenticatedSemestersSemesterIdRoute
   AuthenticatedSemestersIndexLazyRoute: typeof AuthenticatedSemestersIndexLazyRoute
@@ -1678,7 +1643,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedLabsRouteRoute: typeof AuthenticatedLabsRouteRouteWithChildren
   AuthenticatedProgramsRouteRoute: typeof AuthenticatedProgramsRouteRouteWithChildren
   AuthenticatedReportsRouteRoute: typeof AuthenticatedReportsRouteRouteWithChildren
-  AuthenticatedRolesRouteRoute: typeof AuthenticatedRolesRouteRouteWithChildren
   AuthenticatedSemestersRouteRoute: typeof AuthenticatedSemestersRouteRouteWithChildren
   AuthenticatedSessionsRouteRoute: typeof AuthenticatedSessionsRouteRouteWithChildren
   AuthenticatedSettingsRouteRoute: typeof AuthenticatedSettingsRouteRouteWithChildren
@@ -1709,7 +1673,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedLabsRouteRoute: AuthenticatedLabsRouteRouteWithChildren,
   AuthenticatedProgramsRouteRoute: AuthenticatedProgramsRouteRouteWithChildren,
   AuthenticatedReportsRouteRoute: AuthenticatedReportsRouteRouteWithChildren,
-  AuthenticatedRolesRouteRoute: AuthenticatedRolesRouteRouteWithChildren,
   AuthenticatedSemestersRouteRoute:
     AuthenticatedSemestersRouteRouteWithChildren,
   AuthenticatedSessionsRouteRoute: AuthenticatedSessionsRouteRouteWithChildren,
@@ -1753,6 +1716,7 @@ const rootRouteChildren: RootRouteChildren = {
   authSignInRoute: authSignInRoute,
   authSignIn2Route: authSignIn2Route,
   authSignUpRoute: authSignUpRoute,
+  authSsoCallbackRoute: authSsoCallbackRoute,
   errors401Route: errors401Route,
   errors403Route: errors403Route,
   errors404Route: errors404Route,

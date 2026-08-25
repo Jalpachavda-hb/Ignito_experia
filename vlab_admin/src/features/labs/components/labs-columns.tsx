@@ -98,6 +98,13 @@ export const labsColumns: ColumnDef<Lab>[] = [
     },
   },
   {
+    accessorKey: 'course',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Course' />
+    ),
+    cell: ({ row }) => <div className="font-mono text-xs font-semibold">{row.original.course || (row.original as any).courseCode || 'N/A'}</div>,
+  },
+  {
     accessorKey: 'semester',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Semester' />

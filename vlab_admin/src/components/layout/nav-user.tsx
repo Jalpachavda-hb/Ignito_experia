@@ -26,6 +26,17 @@ import {
 } from '@/components/ui/sidebar'
 import { SignOutDialog } from '@/components/sign-out-dialog'
 
+import { BASE_URL } from '@/Utils/Api_path'
+
+const getProfileImgUrl = (imgUrl: string | null | undefined) => {
+  if (!imgUrl) return undefined;
+  if (imgUrl.startsWith('data:') || imgUrl.startsWith('http://') || imgUrl.startsWith('https://')) {
+    return imgUrl;
+  }
+  const backendOrigin = BASE_URL.replace(/\/api\/?$/, '');
+  return `${backendOrigin}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
+};
+
 type NavUserProps = {
   user: {
     name: string
@@ -38,6 +49,16 @@ export function NavUser({ user }: NavUserProps) {
   const { isMobile } = useSidebar()
   const [open, setOpen] = useDialogState()
 
+  const initials = (user.name || 'User')
+    .split(' ')
+    .map(n => n[0])
+    .filter(Boolean)
+    .join('')
+    .toUpperCase()
+    .slice(0, 2) || 'U'
+
+  const avatarUrl = getProfileImgUrl(user.avatar);
+
   return (
     <>
       <SidebarMenu>
@@ -48,10 +69,28 @@ export function NavUser({ user }: NavUserProps) {
                 size='lg'
                 className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
               >
-                <Avatar className='h-8 w-8 rounded-lg'>
-                  <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className='rounded-lg'>SN</AvatarFallback>
-                </Avatar>
+                <div className='h-8 w-8 rounded-lg overflow-hidden relative flex items-center justify-center bg-slate-100 dark:bg-slate-800 shrink-0'>
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={user.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.target as HTMLElement;
+                        target.style.display = 'none';
+                        if (target.nextElementSibling) {
+                          (target.nextElementSibling as HTMLElement).style.display = 'flex';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    className="w-full h-full font-bold text-xs bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300 flex items-center justify-center rounded-lg"
+                    style={{ display: avatarUrl ? 'none' : 'flex' }}
+                  >
+                    {initials}
+                  </div>
+                </div>
                 <div className='grid flex-1 text-start text-sm leading-tight'>
                   <span className='truncate font-semibold'>{user.name}</span>
                   <span className='truncate text-xs'>{user.email}</span>
@@ -67,10 +106,28 @@ export function NavUser({ user }: NavUserProps) {
             >
               <DropdownMenuLabel className='p-0 font-normal'>
                 <div className='flex items-center gap-2 px-1 py-1.5 text-start text-sm'>
-                  <Avatar className='h-8 w-8 rounded-lg'>
-                    <AvatarImage src={user.avatar} alt={user.name} />
-                    <AvatarFallback className='rounded-lg'>SN</AvatarFallback>
-                  </Avatar>
+                  <div className='h-8 w-8 rounded-lg overflow-hidden relative flex items-center justify-center bg-slate-100 dark:bg-slate-800 shrink-0'>
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt={user.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLElement;
+                          target.style.display = 'none';
+                          if (target.nextElementSibling) {
+                            (target.nextElementSibling as HTMLElement).style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <div
+                      className="w-full h-full font-bold text-xs bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-300 flex items-center justify-center rounded-lg"
+                      style={{ display: avatarUrl ? 'none' : 'flex' }}
+                    >
+                      {initials}
+                    </div>
+                  </div>
                   <div className='grid flex-1 text-start text-sm leading-tight'>
                     <span className='truncate font-semibold'>{user.name}</span>
                     <span className='truncate text-xs'>{user.email}</span>

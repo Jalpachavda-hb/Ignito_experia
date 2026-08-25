@@ -1,10 +1,24 @@
-import { apiRequest } from '../lib/apiClient';
+import {
+  fetchLabs,
+  fetchSubLabs,
+  fetchLabDetails,
+  fetchLabSessionStatus,
+  fetchJupyterHealth,
+  fetchUserActiveSession,
+} from '../Utils/GetApiHandler';
+import {
+  startLabSession,
+  extendLabSession,
+  stopLabSession,
+  updateLabCredits,
+} from '../Utils/PostApiHandler';
 
-export type LabStatus = 'pending' | 'starting' | 'running' | 'failed' | 'stopped';
+export type LabStatus = 'pending' | 'starting' | 'running' | 'expiring_soon' | 'failed' | 'stopped' | 'completed' | 'expired';
 
 export interface LabSession {
   sessionId: string;
   labId: string;
+  userId?: string;
   status: LabStatus;
   message?: string;
   publicIp?: string;
@@ -14,6 +28,10 @@ export interface LabSession {
   };
   startedAt?: string;
   expiresAt?: string;
+  remainingSeconds?: number;
+  allocatedCredits?: number;
+  allocatedDurationMinutes?: number;
+  tenMinuteWarningSent?: boolean;
   durationMinutes?: number;
 }
 
@@ -28,35 +46,18 @@ export interface JupyterStatus {
   message?: string;
 }
 
-export async function fetchLabs() {
-  return apiRequest('/labs');
-}
-
-export async function fetchSubLabs() {
-  return apiRequest('/sub-labs');
-}
-
-export async function fetchLabDetails(labId: string) {
-  return apiRequest(`/labs/${labId}`);
-}
-
-export async function startLabSession({ labId, duration, dotnetSubtype }: { labId: string; duration?: number; dotnetSubtype?: string }): Promise<LabLaunchResponse> {
-  if (!labId) {
-    throw new Error('labId is required to start a lab session');
-  }
-  return apiRequest('/lab-sessions', {
-    method: 'POST',
-    body: JSON.stringify({ labId, ...(duration ? { duration } : {}), ...(dotnetSubtype ? { dotnetSubtype } : {}) }),
-  });
-}
-
-export async function fetchLabSessionStatus(sessionId: string): Promise<LabSession> {
-  return apiRequest(`/lab-sessions/${sessionId}`);
-}
-
-export async function fetchJupyterHealth(sessionId: string): Promise<JupyterStatus> {
-  return apiRequest(`/lab-sessions/${sessionId}/jupyter-health`);
-}
+export {
+  fetchLabs,
+  fetchSubLabs,
+  fetchLabDetails,
+  startLabSession,
+  extendLabSession,
+  fetchLabSessionStatus,
+  fetchJupyterHealth,
+  fetchUserActiveSession,
+  stopLabSession,
+  updateLabCredits,
+};
 
 /** Poll until ECS task is running and container URL (public IP) is available. */
 export async function waitForLabSessionReady(
@@ -89,25 +90,3 @@ export async function waitForLabSessionReady(
   throw new Error('Lab environment timed out while starting. Please try again.');
 }
 
-export async function fetchUserActiveSession(userId: string, labId?: string): Promise<{ session: LabSession | null }> {
-  const t = Date.now();
-  const encoded = encodeURIComponent(userId);
-  const url = labId
-    ? `/lab-sessions/user/${encoded}?labId=${encodeURIComponent(labId)}&t=${t}`
-    : `/lab-sessions/user/${encoded}?t=${t}`;
-  return apiRequest(url);
-}
-
-export async function stopLabSession(sessionId: string) {
-  return apiRequest(`/lab-sessions/${sessionId}/stop`, {
-    method: 'POST',
-    body: JSON.stringify({ sessionId }),
-  });
-}
-
-export async function updateLabCredits(labId: string, credits: number) {
-  return apiRequest(`/labs/${labId}/credits`, {
-    method: 'PATCH',
-    body: JSON.stringify({ credits }),
-  });
-}

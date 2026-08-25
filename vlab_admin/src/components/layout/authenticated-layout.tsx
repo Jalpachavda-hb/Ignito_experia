@@ -8,7 +8,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { SkipToMain } from '@/components/skip-to-main'
 import { useAuthStore } from '@/stores/auth-store'
-import { apiRequest } from '@/lib/apiClient'
+import { fetchAuthMe } from '@/Utils/GetApiHandler'
 
 type AuthenticatedLayoutProps = {
   children?: React.ReactNode
@@ -23,22 +23,15 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   // Bootstrap: if token exists but user is null (page refresh), restore from /auth/me
   useEffect(() => {
     if (auth.accessToken && !auth.user) {
-      apiRequest('/auth/me', { auth: true })
-        .then((data: { user?: Record<string, unknown> }) => {
+      fetchAuthMe()
+        .then((data: any) => {
           if (data?.user) {
             const u = data.user
             auth.setUser({
-              userId: Number(u.id),
-              fullName: String(u.fullName || u.name || ''),
-              email: String(u.email || ''),
-              role: String(u.role || ''),
-              roleId: u.roleId != null ? Number(u.roleId) : undefined,
-              status: String(u.status || ''),
-              programId: u.programId != null ? Number(u.programId) : null,
-              semesterId: u.semesterId != null ? Number(u.semesterId) : null,
-              permissions: u.permissions as
-                | Record<string, { create: boolean; read: boolean; update: boolean; delete: boolean }>
-                | undefined,
+              ...u,
+              userId: u.id || u.userId,
+              fullName: u.fullName || u.name,
+              name: u.fullName || u.name,
               exp: Date.now() + 24 * 60 * 60 * 1000,
             })
           }

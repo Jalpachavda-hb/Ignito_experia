@@ -39,6 +39,7 @@ export const parseApiEvent = (event) => {
     pathParameters,
     queryStringParameters,
     body,
+    files: event.files || [],
     headers,
     raw: event,
   };
@@ -88,13 +89,14 @@ export const expressRoute = (app, route, apiPrefix) => {
       pathParameters: req.params,
       queryStringParameters: req.query,
       body: req.body,
+      files: req.files || [],
       headers: req.headers,
     };
 
     try {
       if (route.auth) {
         const { requireAuth } = await import("./jwt.js");
-        event.auth = requireAuth({ headers: req.headers });
+        event.auth = requireAuth({ headers: req.headers, queryStringParameters: req.query });
       }
       const parsed = parseApiEvent(event);
       if (route.auth) parsed.auth = event.auth;

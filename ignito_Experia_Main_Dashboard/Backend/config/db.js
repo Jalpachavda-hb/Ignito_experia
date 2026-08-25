@@ -133,20 +133,17 @@ export async function verifyDbConnection() {
       }
       console.log("[DB] Schema tables created.");
 
-      // Seed default owner user with hashed password (Owner@1234) and default phone number
-      const hash = await bcrypt.hash("Owner@1234", 10);
+      // Seed default owner user with hashed password (Owner123!) and default phone number
+      const hash = await bcrypt.hash("Owner123!", 10);
       await conn.query(
         `INSERT INTO owner_users (Email, PhoneNumber, PasswordHash, Role, Status)
          VALUES (?, ?, ?, 'owner', 'active')
          ON DUPLICATE KEY UPDATE PasswordHash = VALUES(PasswordHash)`,
         ["owner@ignito.com", "1234567890", hash]
       );
-      console.log("[DB] Default owner user seeded: owner@ignito.com (password: Owner@1234, phone: 1234567890)");
+      console.log("[DB] Default owner user seeded: owner@ignito.com (password: Owner123!, phone: 1234567890)");
 
       // Install procedures
-      const logErrorPath = path.join(process.cwd(), "database", "procedures", "sp_LogError.sql");
-      await runSqlProcedure(conn, logErrorPath);
-
       const labsProceduresDir = path.join(process.cwd(), "database", "procedures", "labs");
       if (fs.existsSync(labsProceduresDir)) {
         const procFiles = fs.readdirSync(labsProceduresDir).filter(f => f.endsWith(".sql"));
@@ -171,16 +168,21 @@ export async function verifyDbConnection() {
       INSERT IGNORE INTO \`runtime_types\` (\`Value\`, \`Label\`) VALUES
           ('ide',        'IDE'),
           ('terminal',   'Terminal'),
-          ('jupyter',    'Jupyter Notebook'),
-          ('codeserver', 'Code Server');
+          ('jupyter',    'Jupyter Notebook');
     `);
+    await conn.query("DELETE FROM `runtime_types` WHERE `Value` = 'codeserver';");
+    await conn.query("UPDATE `labs` SET `RuntimeType` = 'ide' WHERE `RuntimeType` = 'codeserver';");
 
     // Ensure owner_users table exists and is migrated to the new schema (has PhoneNumber column)
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`owner_users\` (
           \`OwnerId\`      BIGINT AUTO_INCREMENT PRIMARY KEY,
+          \`FullName\`     VARCHAR(255) NOT NULL DEFAULT 'Platform Owner',
           \`Email\`        VARCHAR(255) NOT NULL UNIQUE,
-          \`PhoneNumber\`  VARCHAR(50)  NOT NULL,
+          \`PhoneNumber\`  VARCHAR(50)  NOT NULL DEFAULT '1234567890',
+          \`Designation\`  VARCHAR(255) NULL DEFAULT 'Platform Owner',
+          \`Organization\` VARCHAR(255) NULL DEFAULT 'Ignito Experia Owner',
+          \`AvatarUrl\`    VARCHAR(500) NULL,
           \`PasswordHash\` VARCHAR(255) NOT NULL,
           \`Role\`         VARCHAR(50)  NOT NULL DEFAULT 'owner',
           \`Status\`       VARCHAR(20)  NOT NULL DEFAULT 'active',
@@ -191,38 +193,67 @@ export async function verifyDbConnection() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    const [columns] = await conn.query("SHOW COLUMNS FROM `owner_users`;");
-    const hasPhoneNumber = columns.some(c => c.Field === "PhoneNumber");
-    if (!hasPhoneNumber) {
-      console.log("[DB] Migrating `owner_users` table: dropping old table and recreating with PhoneNumber...");
-      await conn.query("DROP TABLE IF EXISTS `owner_users`;");
-      await conn.query(`
-        CREATE TABLE \`owner_users\` (
-            \`OwnerId\`      BIGINT AUTO_INCREMENT PRIMARY KEY,
-            \`Email\`        VARCHAR(255) NOT NULL UNIQUE,
-            \`PhoneNumber\`  VARCHAR(50)  NOT NULL,
-            \`PasswordHash\` VARCHAR(255) NOT NULL,
-            \`Role\`         VARCHAR(50)  NOT NULL DEFAULT 'owner',
-            \`Status\`       VARCHAR(20)  NOT NULL DEFAULT 'active',
-            \`CreatedDate\`  DATETIME DEFAULT CURRENT_TIMESTAMP,
-            \`UpdatedDate\`  DATETIME NULL,
-            INDEX \`IDX_owner_users_Email\` (\`Email\`),
-            INDEX \`IDX_owner_users_Status\` (\`Status\`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-      `);
+    const ownerUserMigrations = [
+      "ALTER TABLE `owner_users` ADD COLUMN `FullName` VARCHAR(255) NOT NULL DEFAULT 'Platform Owner'",
+      "ALTER TABLE `owner_users` ADD COLUMN `Designation` VARCHAR(255) NULL DEFAULT 'Platform Owner'",
+      "ALTER TABLE `owner_users` ADD COLUMN `Organization` VARCHAR(255) NULL DEFAULT 'Ignito Experia Owner'",
+      "ALTER TABLE `owner_users` ADD COLUMN `AvatarUrl` VARCHAR(500) NULL",
+    ];
+    for (const sql of ownerUserMigrations) {
+      try {
+        await conn.query(sql);
+      } catch (err) {
+        if (err.code !== "ER_DUP_FIELDNAME") {
+          console.warn(`[DB] owner_users column migration skipped: ${err.message}`);
+        }
+      }
     }
 
     // Seed default owner user if table is empty
     const [ownerRows] = await conn.query("SELECT COUNT(*) as count FROM `owner_users`;");
     if (ownerRows[0].count === 0) {
-      const hash = await bcrypt.hash("Owner@1234", 10);
+      const hash = await bcrypt.hash("Owner123!", 10);
       await conn.query(
-        `INSERT INTO owner_users (Email, PhoneNumber, PasswordHash, Role, Status)
-         VALUES (?, ?, ?, 'owner', 'active')`,
-        ["owner@ignito.com", "1234567890", hash]
+        `INSERT INTO owner_users (FullName, Email, PhoneNumber, Designation, Organization, PasswordHash, Role, Status)
+         VALUES ('Platform Owner', 'owner@ignito.com', '1234567890', 'Platform Owner', 'Ignito Experia Owner', ?, 'owner', 'active')`,
+        [hash]
       );
-      console.log("[DB] Seeded default owner user: owner@ignito.com (password: Owner@1234, phone: 1234567890)");
+      console.log("[DB] Seeded default owner user: owner@ignito.com (password: Owner123!, phone: 1234567890)");
     }
+
+    // Ensure Phase 1 Tenant Provisioning tables exist
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`tenants\` (
+          \`DbId\`              BIGINT AUTO_INCREMENT PRIMARY KEY,
+          \`TenantId\`          VARCHAR(50)  NOT NULL UNIQUE,
+          \`Name\`              VARCHAR(300) NOT NULL UNIQUE,
+          \`Slug\`              VARCHAR(100) NOT NULL UNIQUE,
+          \`OfficialDomain\`    VARCHAR(255) NULL,
+          \`LogoUrl\`           VARCHAR(500) NULL,
+          \`IntegrationMode\`   VARCHAR(50)  NOT NULL DEFAULT 'LMS',
+          \`AdminFullName\`     VARCHAR(200) NULL,
+          \`AdminEmail\`        VARCHAR(255) NULL,
+          \`AdminPasswordHash\` VARCHAR(255) NULL,
+          \`AdminPhone\`       VARCHAR(50)  NULL,
+          \`Status\`            VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
+          \`SettingsJson\`      JSON         NULL,
+          \`CreatedBy\`         BIGINT NULL,
+          \`CreatedDate\`       DATETIME     DEFAULT CURRENT_TIMESTAMP,
+          \`UpdatedDate\`       DATETIME NULL,
+          INDEX \`IDX_tenants_TenantId\` (\`TenantId\`),
+          INDEX \`IDX_tenants_Slug\`     (\`Slug\`),
+          INDEX \`IDX_tenants_Status\`   (\`Status\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    try { await conn.query("ALTER TABLE `tenants` ADD COLUMN `AdminFullName` VARCHAR(200) NULL;"); } catch (e) {}
+    try { await conn.query("ALTER TABLE `tenants` ADD COLUMN `AdminEmail` VARCHAR(255) NULL;"); } catch (e) {}
+    try { await conn.query("ALTER TABLE `tenants` ADD COLUMN `AdminPasswordHash` VARCHAR(255) NULL;"); } catch (e) {}
+    try { await conn.query("ALTER TABLE `tenants` ADD COLUMN `AdminPhone` VARCHAR(50) NULL;"); } catch (e) {}
+
+    console.log("[DB] Tenant tables verified/created successfully.");
+
+    console.log("[DB] Tenant tables verified/created successfully.");
   } catch (err) {
     console.error("[DB] Failed to initialize database:", err.message);
     try {
@@ -281,4 +312,9 @@ async function runSqlProcedure(conn, filePath) {
   }
 }
 
+export function getDbPool() {
+  return pool;
+}
+
+export { pool };
 export default pool;

@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import { hasPermission } from '@/lib/permissions'
 
 const pathPermissions: Record<string, string> = {
-  '/roles': 'ROLE_MANAGEMENT',
   '/users': 'USER_MANAGEMENT',
   '/labs': 'LAB_MANAGEMENT',
   '/programs': 'PROGRAM_MANAGEMENT',
@@ -22,29 +21,63 @@ const pathPermissions: Record<string, string> = {
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ location }) => {
     let { accessToken, user } = useAuthStore.getState().auth
-    
-    // If we have an access token but no user (page refresh), try to restore the user state before deciding to redirect.
-    if (accessToken && !user) {
+
+    // If user token is expired, clear user state
+    if (user && user.exp) {
+      const expMs = user.exp < 10000000000 ? user.exp * 1000 : user.exp
+      if (expMs < Date.now()) {
+        useAuthStore.getState().auth.reset()
+        user = null
+        accessToken = ''
+      }
+    }
+
+    // 1. Verify tenant subdomain validity if on custom subdomain
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname
+      const parts = host.split('.')
+      if (parts.length > 1 && parts[0] !== 'www' && parts[0] !== 'localhost') {
+        try {
+          const { fetchTenantResolve } = await import('@/Utils/GetApiHandler')
+          const resData: any = await fetchTenantResolve(host)
+          let data = resData
+          if (resData?.payload) {
+            try { data = JSON.parse(atob(resData.payload)) } catch (e) {}
+          }
+          if (data && data.success === false && (data.code === 'TENANT_NOT_FOUND' || data.code === 'TENANT_INACTIVE')) {
+            useAuthStore.getState().auth.reset()
+            throw redirect({
+              to: '/sign-in',
+              search: { redirect: location.pathname }
+            })
+          }
+        } catch (err: any) {
+          if (err?.to) throw err
+        }
+      }
+    }
+
+    // 2. Validate session & user token against backend DB
+    if (accessToken) {
       try {
-        const { apiRequest } = await import('@/lib/apiClient')
-        const data = await apiRequest('/auth/me', { auth: true })
+        const { fetchAuthMe } = await import('@/Utils/GetApiHandler')
+        const data: any = await fetchAuthMe()
         if (data?.user) {
           useAuthStore.getState().auth.setUser({
-            userId: data.user.id,
+            ...data.user,
+            userId: data.user.id || data.user.userId,
             fullName: data.user.fullName || data.user.name,
-            email: data.user.email,
-            role: data.user.role,
-            roleId: data.user.roleId,
-            status: data.user.status,
-            programId: data.user.programId,
-            semesterId: data.user.semesterId,
-            permissions: data.user.permissions,
-            exp: Date.now() + 24 * 60 * 60 * 1000,
+            exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
           })
           user = useAuthStore.getState().auth.user
         }
-      } catch (err) {
-        // API client might handle token refresh. If it fails, user will be redirected.
+      } catch (err: any) {
+        // Only reset if backend explicitly rejects authentication with 401
+        if (err?.status === 401 || err?.statusCode === 401 || err?.message?.includes('unauthorized')) {
+          useAuthStore.getState().auth.reset()
+          user = null
+          accessToken = ''
+        }
       }
     }
 
@@ -52,19 +85,27 @@ export const Route = createFileRoute('/_authenticated')({
       throw redirect({
         to: '/sign-in',
         search: {
-          redirect: location.href,
+          redirect: location.pathname,
         },
       })
     }
-    
-    const userRole = user.role;
+
+    const userRole = (user.role || '').toLowerCase();
+    const isStudent = userRole === 'student';
     const path = location.pathname;
 
     const isStudentPath = path.startsWith('/student');
     const isComputePath = path.startsWith('/admin/compute');
 
-    if (userRole === 'Student') {
+    if (isStudent) {
       if (path === '/') {
+        throw redirect({ to: '/student/dashboard' })
+      }
+      const isDirectUser = Boolean(
+        user.createdFrom === 'DIRECT' || 
+        (user.authType === 'DIRECT' && !user.studentDegreeAdmissionId && !(user as any).externalStudentId && user.createdFrom !== 'LMS')
+      );
+      if (isDirectUser && path.startsWith('/student/academic-progress')) {
         throw redirect({ to: '/student/dashboard' })
       }
       if (!isStudentPath && !isComputePath && path !== '/403' && path !== '/404') {
@@ -81,7 +122,7 @@ export const Route = createFileRoute('/_authenticated')({
       const matchedPrefix = Object.keys(pathPermissions).find(
         (prefix) => path === prefix || path.startsWith(prefix + '/')
       )
-      
+
       if (matchedPrefix) {
         const requiredModule = pathPermissions[matchedPrefix]
         if (!hasPermission(requiredModule, 'read')) {

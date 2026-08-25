@@ -2,18 +2,55 @@ import { create } from 'zustand'
 import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
 
 const ACCESS_TOKEN = 'thisisjustarandomstring'
+const REFRESH_TOKEN = 'thisisjustarandomrefreshstring'
 
 interface AuthUser {
-  userId: number
+  userId: number | string
   fullName: string
+  name?: string
+  avatar?: string
   email: string
   role: string
   roleId?: number
+  tenantId?: string
+  tenantSlug?: string
+  tenantName?: string
+  collegeName?: string
   status: string
   programId?: number | null
   semesterId?: number | null
+  programName?: string
+  currentSemester?: string | number
+  enrollmentNumber?: string
+  programmesList?: Array<{
+    programmeName?: string
+    currentSemester?: string | number
+    enrollmentNumber?: string
+    admissionDate?: string
+    programmeId?: number | string
+  }>
+  hasPassword?: boolean
   exp: number
   credits?: number
+  mobile?: string
+  phoneNumber?: string
+  organization?: string
+  profileImage?: string
+  studentId?: number | string
+  authType?: string
+  createdFrom?: string
+  applicantFullName?: string
+  studentCode?: string
+  alternateMobile?: string
+  address?: string
+  gender?: string
+  dateOfBirth?: string
+  twoFactorEnabled?: boolean
+  passwordLastChanged?: string
+  StudentDegreeAdmissionId?: string
+  studentDegreeAdmissionId?: string
+  tokens?: number
+  externalStudentId?: string
   permissions?: Record<string, {
     create: boolean;
     read: boolean;
@@ -30,14 +67,20 @@ interface AuthState {
     accessToken: string
     setAccessToken: (accessToken: string) => void
     resetAccessToken: () => void
+    refreshToken: string
+    setRefreshToken: (refreshToken: string) => void
+    resetRefreshToken: () => void
     reset: () => void
   }
 }
 
 
 export const useAuthStore = create<AuthState>()((set) => {
-  const cookieState = getCookie(ACCESS_TOKEN)
-  const initToken = cookieState ? JSON.parse(cookieState) : ''
+  const cookieAccess = getCookie(ACCESS_TOKEN)
+  const initToken = cookieAccess ? JSON.parse(cookieAccess) : ''
+
+  const cookieRefresh = getCookie(REFRESH_TOKEN)
+  const initRefreshToken = cookieRefresh ? JSON.parse(cookieRefresh) : ''
 
   let initUser = null
   if (typeof window !== 'undefined') {
@@ -46,7 +89,7 @@ export const useAuthStore = create<AuthState>()((set) => {
       if (storedUser) {
         initUser = JSON.parse(storedUser)
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   return {
@@ -55,7 +98,7 @@ export const useAuthStore = create<AuthState>()((set) => {
       setUser: (user) =>
         set((state) => {
           if (user) {
-            const u = { credits: 1000, ...user };
+            const u = { ...user };
             if (typeof window !== 'undefined') localStorage.setItem('auth-user', JSON.stringify(u));
             return { ...state, auth: { ...state.auth, user: u } };
           } else {
@@ -88,13 +131,25 @@ export const useAuthStore = create<AuthState>()((set) => {
           removeCookie(ACCESS_TOKEN)
           return { ...state, auth: { ...state.auth, accessToken: '' } }
         }),
+      refreshToken: initRefreshToken,
+      setRefreshToken: (refreshToken) =>
+        set((state) => {
+          setCookie(REFRESH_TOKEN, JSON.stringify(refreshToken))
+          return { ...state, auth: { ...state.auth, refreshToken } }
+        }),
+      resetRefreshToken: () =>
+        set((state) => {
+          removeCookie(REFRESH_TOKEN)
+          return { ...state, auth: { ...state.auth, refreshToken: '' } }
+        }),
       reset: () =>
         set((state) => {
           removeCookie(ACCESS_TOKEN)
+          removeCookie(REFRESH_TOKEN)
           if (typeof window !== 'undefined') localStorage.removeItem('auth-user');
           return {
             ...state,
-            auth: { ...state.auth, user: null, accessToken: '' },
+            auth: { ...state.auth, user: null, accessToken: '', refreshToken: '' },
           }
         }),
     },

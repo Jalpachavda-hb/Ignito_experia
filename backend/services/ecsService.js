@@ -180,6 +180,9 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
     { name: "LAB_TYPE", value: labType },
     { name: "LAB_SERVER_PORT", value: String(port) },
     { name: "LAB_WORKSPACE", value: "/tmp/workspace" },
+    { name: "EXECUTE_TIMEOUT_MS", value: "360000" },
+    { name: "EXECUTION_TIMEOUT_MS", value: "360000" },
+    { name: "TIMEOUT", value: "360" },
   ];
 
   const rt = (lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide").toLowerCase();
