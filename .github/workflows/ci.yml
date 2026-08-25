@@ -117,6 +117,7 @@ jobs:
       - name: Install Playwright Browsers (for Vitest)
         run: npx playwright install chromium --with-deps
         working-directory: vlab_admin
+        continue-on-error: true
 
       - name: Run Vitest Headless Browser Tests
         run: npm run test

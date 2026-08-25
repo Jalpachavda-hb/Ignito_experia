@@ -6,7 +6,6 @@ import {
   ReceiptText,
   Activity,
   Award,
-  Trophy,
   User,
   BookOpen
 } from 'lucide-react'

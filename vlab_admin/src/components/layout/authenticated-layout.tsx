@@ -24,18 +24,21 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   useEffect(() => {
     if (auth.accessToken && !auth.user) {
       apiRequest('/auth/me', { auth: true })
-        .then((data: any) => {
+        .then((data: { user?: Record<string, unknown> }) => {
           if (data?.user) {
+            const u = data.user
             auth.setUser({
-              userId: data.user.id,
-              fullName: data.user.fullName || data.user.name,
-              email: data.user.email,
-              role: data.user.role,
-              roleId: data.user.roleId,
-              status: data.user.status,
-              programId: data.user.programId,
-              semesterId: data.user.semesterId,
-              permissions: data.user.permissions,
+              userId: Number(u.id),
+              fullName: String(u.fullName || u.name || ''),
+              email: String(u.email || ''),
+              role: String(u.role || ''),
+              roleId: u.roleId != null ? Number(u.roleId) : undefined,
+              status: String(u.status || ''),
+              programId: u.programId != null ? Number(u.programId) : null,
+              semesterId: u.semesterId != null ? Number(u.semesterId) : null,
+              permissions: u.permissions as
+                | Record<string, { create: boolean; read: boolean; update: boolean; delete: boolean }>
+                | undefined,
               exp: Date.now() + 24 * 60 * 60 * 1000,
             })
           }
