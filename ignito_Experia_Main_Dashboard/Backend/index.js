@@ -8,6 +8,7 @@ import { setupRoutes } from "./router.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 // Verify DB connection on startup
 verifyDbConnection();
