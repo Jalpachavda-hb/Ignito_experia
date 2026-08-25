@@ -1,0 +1,110 @@
+name: Ignito Experia CI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  backend-main:
+    name: Backend (Main) - Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: backend
+
+  backend-saas:
+    name: Backend (SaaS Owner) - Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: ignito_Experia_Main_Dashboard/Backend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: ignito_Experia_Main_Dashboard/Backend
+
+  frontend-saas:
+    name: Frontend (SaaS Admin) - Build & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: ignito_Experia_Main_Dashboard/ignito_experia_admin/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: ignito_Experia_Main_Dashboard/ignito_experia_admin
+
+      - name: Run Lint
+        run: npm run lint
+        working-directory: ignito_Experia_Main_Dashboard/ignito_experia_admin
+        continue-on-error: true # Advisory linting to prevent pre-existing warnings from blocking builds
+
+      - name: Run Build
+        run: npm run build
+        working-directory: ignito_Experia_Main_Dashboard/ignito_experia_admin
+
+  frontend-vlab-admin:
+    name: Frontend (VLab Admin) - Build, Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: vlab_admin/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: vlab_admin
+
+      - name: Verify Code Formatting
+        run: npm run format:check
+        working-directory: vlab_admin
+        continue-on-error: true # Advisory formatting checks
+
+      - name: Run Lint
+        run: npm run lint
+        working-directory: vlab_admin
+        continue-on-error: true # Advisory linting for pre-existing ESLint issues
+
+      - name: Run Build
+        run: npm run build
+        working-directory: vlab_admin
+
+      - name: Install Playwright Browsers (for Vitest)
+        run: npx playwright install chromium --with-deps
+        working-directory: vlab_admin
+
+      - name: Run Vitest Headless Browser Tests
+        run: npm run test
+        working-directory: vlab_admin
