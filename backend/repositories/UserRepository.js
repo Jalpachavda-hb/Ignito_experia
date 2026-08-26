@@ -2,10 +2,10 @@ import pool from "../lib/mysql.js";
 import { ROLES } from "../constants/roles.js";
 
 class UserRepository {
-  async findByEmail(email) {
+  async findByEmail(email, connection = pool) {
     const params = [email.toLowerCase()];
-    const [rows] = await pool.query(
-      "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
+    const [rows] = await connection.query(
+      "SELECT * FROM users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
       params
     );
     if (!rows || !rows.length) return null;
@@ -156,6 +156,8 @@ class UserRepository {
       passwordHash,
       role = 'STUDENT',
       status = 'Active',
+      createdFrom = 'DIRECT',
+      authType = 'DIRECT',
       createdBy = null,
       profileImage = null
     } = userData;
@@ -166,16 +168,16 @@ class UserRepository {
       : ROLES.STUDENT;
 
     const [result] = await connection.query(
-      `INSERT INTO Users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedBy, CreatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdBy]
+      `INSERT INTO users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedFrom, AuthType, CreatedBy, CreatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdFrom, authType, createdBy]
     );
 
     const newUserId = result.insertId;
 
     if (profileImage && newUserId) {
       await connection.query(
-        "UPDATE Users SET ProfileImage = ?, UpdatedAt = NOW() WHERE UserId = ?",
+        "UPDATE users SET ProfileImage = ?, UpdatedAt = NOW() WHERE UserId = ?",
         [profileImage, newUserId]
       );
     }

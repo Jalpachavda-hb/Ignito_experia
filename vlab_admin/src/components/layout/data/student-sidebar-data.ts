@@ -104,16 +104,12 @@ export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolea
     },
     {
       title: 'Academics',
-      items: academicItems
+      items: [
+        ...academicItems,
+        ...academicCourseItems
+      ]
     }
   ];
-
-  if (!isDirectUser && academicCourseItems.length > 0) {
-    navGroups.push({
-      title: 'Academic Courses',
-      items: academicCourseItems
-    });
-  }
 
   return {
     user: {

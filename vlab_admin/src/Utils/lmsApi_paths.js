@@ -53,9 +53,10 @@ export const getStudentProfile = async () => {
 };
 
 export const getStudentPurchasedProgrammes = async (studentId) => {
+  const body = studentId ? { studentId } : {};
   return executeRequest(LMS_API_PATHS.STUDENT.PURCHASED_PROGRAMMES, {
     method: 'POST',
-    body: { studentId },
+    body,
     auth: true,
     baseUrl: LMS_BASE_URL,
   });
