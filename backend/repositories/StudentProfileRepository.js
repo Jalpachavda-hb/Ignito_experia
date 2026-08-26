@@ -21,20 +21,13 @@ class StudentProfileRepository {
     const {
       UserId,
       ExternalStudentId,
-      UniversityId,
-      FirstName,
-      LastName,
       Email,
-      Mobile,
-      DepartmentId,
-      ProgramId,
-      SemesterId,
-      Batch,
-      Section,
-      AuthenticationSource,
+      PhoneNumber,
       StudentDegreeAdmissionId,
       StudentId,
-      Status
+      AuthType = 'LMS',
+      CreatedFrom = 'LMS',
+      Status = 'Active'
     } = profileData;
 
     await connection.query(
@@ -42,28 +35,18 @@ class StudentProfileRepository {
          ExternalStudentId = ?, 
          StudentDegreeAdmissionId = COALESCE(StudentDegreeAdmissionId, ?),
          StudentId = COALESCE(StudentId, ?),
-         UniversityId = ?, 
-         Mobile = ?, 
-         DepartmentId = ?, 
-         ProgramId = ?, 
-         SemesterId = ?, 
-         Batch = ?, 
-         Section = ?, 
-         AuthenticationSource = ?, 
+         PhoneNumber = COALESCE(PhoneNumber, ?),
+         AuthType = COALESCE(AuthType, ?),
+         CreatedFrom = COALESCE(CreatedFrom, ?),
          Status = ?
        WHERE UserId = ?`,
       [
         ExternalStudentId,
         StudentDegreeAdmissionId || null,
         StudentId || null,
-        UniversityId,
-        Mobile,
-        DepartmentId,
-        ProgramId,
-        SemesterId,
-        Batch,
-        Section,
-        AuthenticationSource,
+        PhoneNumber || null,
+        AuthType,
+        CreatedFrom,
         Status,
         UserId
       ]
@@ -83,20 +66,16 @@ class StudentProfileRepository {
       countQuery += " AND Status = ?";
       values.push(filters.status);
     }
-    if (filters.source) {
-      query += " AND AuthenticationSource = ?";
-      countQuery += " AND AuthenticationSource = ?";
-      values.push(filters.source);
+    if (filters.source || filters.authType) {
+      query += " AND (AuthType = ? OR CreatedFrom = ?)";
+      countQuery += " AND (AuthType = ? OR CreatedFrom = ?)";
+      const src = filters.source || filters.authType;
+      values.push(src, src);
     }
-    if (filters.universityId) {
-      query += " AND UniversityId = ?";
-      countQuery += " AND UniversityId = ?";
-      values.push(filters.universityId);
-    }
-    if (filters.departmentId) {
-      query += " AND DepartmentId = ?";
-      countQuery += " AND DepartmentId = ?";
-      values.push(filters.departmentId);
+    if (filters.tenantId) {
+      query += " AND TenantId = ?";
+      countQuery += " AND TenantId = ?";
+      values.push(filters.tenantId);
     }
     if (filters.semesterId) {
       query += " AND SemesterId = ?";
@@ -189,11 +168,9 @@ class StudentProfileRepository {
     };
 
     const validUserColumns = new Set([
-      'FullName', 'Email', 'PhoneNumber', 'Mobile', 'AlternateMobile',
-      'Gender', 'DateOfBirth', 'Address', 'ProfileImage', 'StudentDegreeAdmissionId',
-      'ProgrammesJson', 'ExternalStudentId', 'UniversityId', 'DepartmentId',
-      'ProgramId', 'SemesterId', 'Batch', 'Section', 'AuthenticationSource',
-      'Status', 'AcademicYear', 'EnrollmentStatus', 'CreatedFrom', 'AuthType', 'TenantId', 'LastLoginAt'
+      'FullName', 'Email', 'PhoneNumber', 'ProfileImage', 'StudentDegreeAdmissionId',
+      'ExternalStudentId', 'StudentId', 'StudentCode',
+      'Status', 'CreatedFrom', 'AuthType', 'TenantId', 'LastLoginAt'
     ]);
 
     let fullNameUpdates = { firstName: '', lastName: '' };

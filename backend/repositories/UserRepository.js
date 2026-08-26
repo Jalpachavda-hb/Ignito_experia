@@ -20,7 +20,6 @@ class UserRepository {
         u.FullName AS Name,
         u.Email, 
         u.PhoneNumber,
-        u.Mobile,
         u.ProfileImage,
         u.Role, 
         u.Status, 

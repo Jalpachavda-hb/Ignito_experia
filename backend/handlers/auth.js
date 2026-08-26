@@ -261,7 +261,8 @@ export const ssoLoginHandler = async ({ body = {}, headers, requestContext }) =>
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      ...corsHeaders(headers) // No frontend cookies trusted or sent for SSO.
+      "Set-Cookie": makeCookieHeader(result.refreshToken, headers),
+      ...corsHeaders(headers)
     },
     body: JSON.stringify({
       success: true,
@@ -452,7 +453,7 @@ export const authMeHandler = async ({ auth }) => {
     }
   }
 
-  const userMobile = profile.PhoneNumber || profile.Mobile || extMobile || tenantAdminPhone || null;
+  const userMobile = profile.PhoneNumber || extMobile || tenantAdminPhone || null;
   const userProfileImage = profile.ProfileImage || extImage || null;
   const finalCreatedFrom = profile.CreatedFrom || profile.createdFrom || (admissionId ? 'LMS' : 'DIRECT');
   const finalAuthType = profile.AuthType || profile.authType || (admissionId ? 'LMS' : 'DIRECT');
@@ -559,11 +560,10 @@ export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
     `UPDATE Users SET 
        FullName = COALESCE(?, FullName),
        PhoneNumber = COALESCE(?, PhoneNumber),
-       Mobile = COALESCE(?, Mobile),
        ProfileImage = COALESCE(?, ProfileImage),
        UpdatedAt = NOW()
      WHERE UserId = ?`,
-    [targetName, targetPhone, targetPhone, finalProfileImage, auth.userId]
+    [targetName, targetPhone, finalProfileImage, auth.userId]
   );
 
   // 2. If user is TENANT_ADMIN or has tenantId, sync to tenants table
@@ -582,7 +582,7 @@ export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
 
   // 3. Return updated user info
   const [userRows] = await pool.query(
-    "SELECT UserId, FullName, Email, Role, PhoneNumber, Mobile, ProfileImage FROM Users WHERE UserId = ?",
+    "SELECT UserId, FullName, Email, Role, PhoneNumber, ProfileImage FROM Users WHERE UserId = ?",
     [auth.userId]
   );
   const user = userRows[0] || {};
@@ -597,8 +597,8 @@ export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
       name: user.FullName,
       email: user.Email,
       role: user.Role,
-      mobile: user.Mobile || user.PhoneNumber || targetPhone,
-      phoneNumber: user.PhoneNumber || user.Mobile || targetPhone,
+      mobile: user.PhoneNumber || targetPhone,
+      phoneNumber: user.PhoneNumber || targetPhone,
       profileImage: user.ProfileImage || profileImage || null,
       organization: organization || 'Acme University',
     }
