@@ -56,20 +56,16 @@ class UserRepository {
     } = params;
 
     const normalizedActorRole = (actorRole || "").toUpperCase().replace(/\s+/g, "_");
-    const isTenantAdmin = ["TENANT_ADMIN", "TENANTADMIN", "SUPER_ADMIN", "SUPERADMIN", "ADMIN"].includes(normalizedActorRole);
+    const isSuperAdmin = ["SUPER_ADMIN", "SUPERADMIN", "SUPER_ADMINISTRATOR", "ADMIN"].includes(normalizedActorRole);
+    const isTenantAdmin = ["TENANT_ADMIN", "TENANTADMIN"].includes(normalizedActorRole);
 
     let effectiveTenantId = null;
-    if (!isTenantAdmin) {
-      if (!actorTenantId) {
-        const err = new Error("TENANT_CONTEXT_MISSING");
-        err.code = "TENANT_CONTEXT_MISSING";
-        throw err;
-      }
+    if (filterTenantId && filterTenantId !== 'ALL') {
+      effectiveTenantId = filterTenantId;
+    } else if (isTenantAdmin) {
       effectiveTenantId = actorTenantId;
-    } else {
-      if (filterTenantId && filterTenantId !== 'ALL') {
-        effectiveTenantId = filterTenantId;
-      }
+    } else if (!isSuperAdmin) {
+      effectiveTenantId = actorTenantId;
     }
 
     const limit = Math.max(1, parseInt(pageSize, 10) || 10);
@@ -79,8 +75,8 @@ class UserRepository {
     const queryParams = [];
 
     if (effectiveTenantId) {
-      whereClause += " AND u.TenantId = ?";
-      queryParams.push(effectiveTenantId);
+      whereClause += " AND (u.TenantId = ? OR EXISTS (SELECT 1 FROM user_tenant_mapping utm WHERE utm.UserId = u.UserId AND utm.TenantId = ?))";
+      queryParams.push(effectiveTenantId, effectiveTenantId);
     }
 
     if (search && search.trim()) {
@@ -120,7 +116,7 @@ class UserRepository {
         u.ExternalStudentId,
         u.StudentDegreeAdmissionId,
         u.StudentId,
-        u.TenantId,
+        COALESCE(u.TenantId, (SELECT utm.TenantId FROM user_tenant_mapping utm WHERE utm.UserId = u.UserId AND utm.Status = 'ACTIVE' ORDER BY utm.MappingId DESC LIMIT 1)) AS TenantId,
         t.Name AS UniversityName,
         t.Slug AS TenantSlug,
         u.Role, 
@@ -131,7 +127,7 @@ class UserRepository {
         u.CreatedAt,
         COUNT(*) OVER() AS TotalRecords
       FROM Users u
-      LEFT JOIN tenants t ON u.TenantId = t.TenantId
+      LEFT JOIN tenants t ON (u.TenantId = t.TenantId OR t.TenantId = (SELECT utm.TenantId FROM user_tenant_mapping utm WHERE utm.UserId = u.UserId AND utm.Status = 'ACTIVE' ORDER BY utm.MappingId DESC LIMIT 1))
       LEFT JOIN StudentCreditWallets w ON u.UserId = w.UserId
       ${whereClause}
       ORDER BY ${orderCol} ${dir}
@@ -159,7 +155,8 @@ class UserRepository {
       createdFrom = 'DIRECT',
       authType = 'DIRECT',
       createdBy = null,
-      profileImage = null
+      profileImage = null,
+      tenantId = null
     } = userData;
 
     const rawRole = (role || "").toUpperCase().replace(/\s+/g, "_");
@@ -168,12 +165,21 @@ class UserRepository {
       : ROLES.STUDENT;
 
     const [result] = await connection.query(
-      `INSERT INTO users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedFrom, AuthType, CreatedBy, CreatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdFrom, authType, createdBy]
+      `INSERT INTO users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, CreatedBy, CreatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdFrom, authType, tenantId, createdBy]
     );
 
     const newUserId = result.insertId;
+
+    if (tenantId && newUserId) {
+      await connection.query(
+        `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
+         VALUES (?, ?, ?, 'ACTIVE')
+         ON DUPLICATE KEY UPDATE Role = VALUES(Role), Status = 'ACTIVE'`,
+        [newUserId, tenantId, normalizedRole]
+      );
+    }
 
     if (profileImage && newUserId) {
       await connection.query(

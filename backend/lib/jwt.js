@@ -5,13 +5,17 @@ import { unauthorized } from "./errors.js";
 export const signAccessToken = (user) =>
   jwt.sign(
     {
-      sub: user.id,
+      sub: user.id || user.userId,
+      userId: user.userId || user.id,
       profileId: user.profileId,
       email: user.email,
       role: user.role,
       name: user.name,
       roleId: user.roleId,
       source: user.source,
+      tenantId: user.tenantId || user.universityId || null,
+      tenantSlug: user.tenantSlug || null,
+      tenantName: user.tenantName || null,
     },
     ENV.jwtSecret,
     { expiresIn: ENV.jwtExpiresIn },
@@ -76,19 +80,28 @@ export const authFromAuthorizerContext = (event) => {
 
 export const requireAuth = (event) => {
   const fromAuthorizer = authFromAuthorizerContext(event);
-  if (fromAuthorizer) return fromAuthorizer;
+  if (fromAuthorizer) {
+    if (!fromAuthorizer.tenantId) {
+      fromAuthorizer.tenantId = event.headers?.['x-tenant-id'] || event.headers?.['X-Tenant-Id'] || null;
+    }
+    return fromAuthorizer;
+  }
 
   const token = getBearerToken(event.headers || {}) || event.queryStringParameters?.token;
   if (!token) throw unauthorized("Missing Authorization Bearer token");
   const claims = verifyAccessToken(token);
+  const headerTenantId = event.headers?.['x-tenant-id'] || event.headers?.['X-Tenant-Id'] || null;
   return {
-    userId: claims.sub,
+    userId: claims.sub || claims.userId,
     profileId: claims.profileId,
     email: claims.email,
     role: claims.role,
     name: claims.name,
     roleId: claims.roleId,
     source: claims.source,
+    tenantId: claims.tenantId || claims.tenant_id || claims.universityId || headerTenantId || null,
+    tenantSlug: claims.tenantSlug || null,
+    tenantName: claims.tenantName || null,
     claims,
   };
 };

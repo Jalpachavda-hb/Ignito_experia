@@ -6,8 +6,10 @@ export { BASE_URL, API_PATHS };
 export async function executeRequest(path, options = {}) {
   const { headers = {}, auth = true, method = 'GET', body, params, signal, baseUrl } = options;
 
-  // Retrieve auth token directly from Zustand auth store
-  const token = auth ? useAuthStore.getState()?.auth?.accessToken : null;
+  // Retrieve auth token and tenant directly from Zustand auth store
+  const authState = useAuthStore.getState()?.auth;
+  const token = auth ? authState?.accessToken : null;
+  const tenantId = authState?.user?.tenantId || authState?.user?.universityId;
 
   // Construct full URL using provided baseUrl or default BASE_URL from Api_path.js
   const activeBaseUrl = baseUrl || BASE_URL;
@@ -33,6 +35,7 @@ export async function executeRequest(path, options = {}) {
   const reqHeaders = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(tenantId ? { 'X-Tenant-Id': String(tenantId) } : {}),
     ...headers,
   };
 

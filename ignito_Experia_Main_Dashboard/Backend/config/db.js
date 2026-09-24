@@ -133,15 +133,15 @@ export async function verifyDbConnection() {
       }
       console.log("[DB] Schema tables created.");
 
-      // Seed default owner user with hashed password (Owner123!) and default phone number
-      const hash = await bcrypt.hash("Owner123!", 10);
+      // Seed default owner user with hashed password (Jalpa@123) and default phone number
+      const hash = await bcrypt.hash("Jalpa@123", 10);
       await conn.query(
         `INSERT INTO owner_users (Email, PhoneNumber, PasswordHash, Role, Status)
          VALUES (?, ?, ?, 'owner', 'active')
          ON DUPLICATE KEY UPDATE PasswordHash = VALUES(PasswordHash)`,
         ["owner@ignito.com", "1234567890", hash]
       );
-      console.log("[DB] Default owner user seeded: owner@ignito.com (password: Owner123!, phone: 1234567890)");
+      console.log("[DB] Default owner user seeded: owner@ignito.com (password: Jalpa@123, phone: 1234567890)");
 
       // Install procedures
       const labsProceduresDir = path.join(process.cwd(), "database", "procedures", "labs");
@@ -212,13 +212,13 @@ export async function verifyDbConnection() {
     // Seed default owner user if table is empty
     const [ownerRows] = await conn.query("SELECT COUNT(*) as count FROM `owner_users`;");
     if (ownerRows[0].count === 0) {
-      const hash = await bcrypt.hash("Owner123!", 10);
+      const hash = await bcrypt.hash("Jalpa@123", 10);
       await conn.query(
         `INSERT INTO owner_users (FullName, Email, PhoneNumber, Designation, Organization, PasswordHash, Role, Status)
          VALUES ('Platform Owner', 'owner@ignito.com', '1234567890', 'Platform Owner', 'Ignito Experia Owner', ?, 'owner', 'active')`,
         [hash]
       );
-      console.log("[DB] Seeded default owner user: owner@ignito.com (password: Owner123!, phone: 1234567890)");
+      console.log("[DB] Seeded default owner user: owner@ignito.com (password: Jalpa@123, phone: 1234567890)");
     }
 
     // Ensure Phase 1 Tenant Provisioning tables exist

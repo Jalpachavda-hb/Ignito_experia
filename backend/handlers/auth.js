@@ -390,8 +390,20 @@ export const authMeHandler = async ({ auth }) => {
     } catch (e) {}
   }
 
-  const admissionId = profile.StudentDegreeAdmissionId || profile.ExternalStudentId;
-  const tenantId = profile.TenantId || profile.UniversityId || auth.tenantId || 'TEN000001';
+  let tenantId = profile.TenantId || profile.UniversityId || auth.tenantId;
+  if (!tenantId && (profile.UserId || auth.userId)) {
+    const lookupId = profile.UserId || auth.userId;
+    const [utmRows] = await pool.query(
+      "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' ORDER BY MappingId DESC LIMIT 1",
+      [lookupId]
+    ).catch(() => [[]]);
+    if (utmRows.length > 0 && utmRows[0].TenantId) {
+      tenantId = utmRows[0].TenantId;
+    }
+  }
+  if (!tenantId) {
+    tenantId = 'TEN000001';
+  }
   
   let cachedLmsProfile = null;
   let cacheSource = 'NONE';

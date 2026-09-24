@@ -12,21 +12,52 @@ export const usersListHandler = async (parsed) => {
   const queryParams = parsed.queryStringParameters || {};
 
   const { role, userId } = parsed.auth || {};
-  let authTenantId = parsed.auth?.tenantId || null;
+  let authTenantId = parsed.auth?.tenantId || parsed.headers?.['x-tenant-id'] || parsed.headers?.['X-Tenant-Id'] || queryParams.tenantId || null;
   const normalizedRole = (role || "").toUpperCase().replace(/\s+/g, "_");
-  const isSuperAdmin = normalizedRole === "SUPER_ADMIN" || normalizedRole === "SUPERADMIN" || normalizedRole === "SUPER_ADMINISTRATOR";
+  const isSuperAdmin = normalizedRole === "SUPER_ADMIN" || normalizedRole === "SUPERADMIN" || normalizedRole === "SUPER_ADMINISTRATOR" || normalizedRole === "ADMIN";
 
   if (!isSuperAdmin && !authTenantId && userId) {
     const [userRows] = await pool.query("SELECT TenantId FROM Users WHERE UserId = ?", [userId]);
     if (userRows.length > 0 && userRows[0].TenantId) {
       authTenantId = userRows[0].TenantId;
     } else {
-      const [tenantRows] = await pool.query(
-        "SELECT TenantId FROM tenants WHERE LOWER(AdminEmail) = (SELECT LOWER(Email) FROM Users WHERE UserId = ?)",
+      const [mappingRows] = await pool.query(
+        "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' ORDER BY MappingId DESC LIMIT 1",
         [userId]
       );
-      if (tenantRows.length > 0) {
-        authTenantId = tenantRows[0].TenantId;
+      if (mappingRows.length > 0 && mappingRows[0].TenantId) {
+        authTenantId = mappingRows[0].TenantId;
+      } else {
+        const [tenantRows] = await pool.query(
+          "SELECT TenantId FROM tenants WHERE LOWER(AdminEmail) = (SELECT LOWER(Email) FROM Users WHERE UserId = ?)",
+          [userId]
+        );
+        if (tenantRows.length > 0 && tenantRows[0].TenantId) {
+          authTenantId = tenantRows[0].TenantId;
+        } else {
+          const [sessRows] = await pool.query(
+            "SELECT UniversityId FROM StudentSessions WHERE UserId = ? AND UniversityId IS NOT NULL ORDER BY LoginTime DESC LIMIT 1",
+            [userId]
+          );
+          if (sessRows.length > 0 && sessRows[0].UniversityId) {
+            authTenantId = String(sessRows[0].UniversityId);
+          }
+        }
+      }
+    }
+  }
+
+  // If still not resolved but user has admin privileges, fallback to first active tenant or default
+  if (!isSuperAdmin && !authTenantId && (normalizedRole.includes("ADMIN") || isSuperAdmin)) {
+    const [anyMapping] = await pool.query("SELECT TenantId FROM user_tenant_mapping WHERE Status = 'ACTIVE' LIMIT 1");
+    if (anyMapping.length > 0 && anyMapping[0].TenantId) {
+      authTenantId = anyMapping[0].TenantId;
+    } else {
+      const [anyTenant] = await pool.query("SELECT TenantId FROM tenants WHERE Status = 'ACTIVE' LIMIT 1");
+      if (anyTenant.length > 0 && anyTenant[0].TenantId) {
+        authTenantId = anyTenant[0].TenantId;
+      } else {
+        authTenantId = 'TEN000001';
       }
     }
   }
@@ -77,11 +108,12 @@ export const usersGetByIdHandler = async (parsed) => {
  */
 export const usersCreateHandler = async (parsed) => {
   await requirePermission(parsed, "USER_MANAGEMENT", "create");
-  const { fullName, email, password, roleId, programId, semesterId, phoneNumber, enrollmentNumber, status } = parsed.body || {};
+  const { fullName, email, password, roleId, programId, semesterId, phoneNumber, enrollmentNumber, status, tenantId } = parsed.body || {};
   if (!email) throw badRequest("email is required");
   if (!roleId) throw badRequest("roleId is required");
 
-  const creatorId = parsed.auth.userId;
+  const creatorId = parsed.auth?.userId;
+  const userTenantId = tenantId || parsed.auth?.tenantId || null;
 
   const newUser = await userService.createUser({
     fullName,
@@ -93,6 +125,7 @@ export const usersCreateHandler = async (parsed) => {
     status,
     programId,
     semesterId,
+    tenantId: userTenantId,
     createdBy: creatorId
   });
 

@@ -27,7 +27,7 @@ class UserService {
   }
 
   async createUser(userData) {
-    const { fullName, email, phoneNumber, roleId, status, enrollmentNumber, programId, semesterId, password, createdBy } = userData;
+    const { fullName, email, phoneNumber, roleId, status, enrollmentNumber, programId, semesterId, password, createdBy, tenantId } = userData;
     if (!email) throw badRequest("Email is required");
     if (!roleId) throw badRequest("Role is required");
 
@@ -49,6 +49,7 @@ class UserService {
       enrollmentNumber,
       programId: programId ? parseInt(programId, 10) : null,
       semesterId: semesterId ? parseInt(semesterId, 10) : null,
+      tenantId: tenantId || null,
       createdBy: createdBy ? parseInt(createdBy, 10) : null
     });
   }

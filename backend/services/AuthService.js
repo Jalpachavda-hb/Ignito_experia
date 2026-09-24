@@ -53,6 +53,10 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
 
     if (userPayload.tenantId) {
       await connection.query(
+        "UPDATE Users SET TenantId = COALESCE(TenantId, ?) WHERE UserId = ?",
+        [userPayload.tenantId, vlabUserId]
+      );
+      await connection.query(
         `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
          VALUES (?, ?, ?, 'ACTIVE')
          ON DUPLICATE KEY UPDATE Role = VALUES(Role), Status = 'ACTIVE'`,
@@ -311,8 +315,21 @@ class AuthService {
       throw unauthorized("Invalid email or password");
     }
 
-    // Tenant Membership Verification for Subdomain Direct Student Login
-    const activeTenant = resolvedTenantId || user.TenantId || 'TEN000001';
+    // Tenant Membership Verification for Direct Login
+    let activeTenant = resolvedTenantId || user.TenantId;
+    if (!activeTenant) {
+      const [mapping] = await pool.query(
+        "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' ORDER BY MappingId DESC LIMIT 1",
+        [user.UserId]
+      );
+      if (mapping.length > 0 && mapping[0].TenantId) {
+        activeTenant = mapping[0].TenantId;
+      }
+    }
+    if (!activeTenant && (user.Role || '').toUpperCase() === 'STUDENT') {
+      activeTenant = 'TEN000001';
+    }
+
     if (activeTenant && (user.Role || '').toUpperCase() === 'STUDENT') {
       const [mapping] = await pool.query(
         "SELECT MappingId FROM user_tenant_mapping WHERE UserId = ? AND TenantId = ?",
@@ -337,7 +354,7 @@ class AuthService {
         email: user.Email,
         role: user.Role || 'Student',
         roleId: user.RoleId || 1,
-        tenantId: resolvedTenantId,
+        tenantId: activeTenant,
         status: user.Status,
         profileImage: user.ProfileImage || null
       },
