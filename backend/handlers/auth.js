@@ -37,6 +37,7 @@ const corsHeaders = (headers = {}) => {
 import { lmsLoginDto, loginDto, refreshDto } from "../dto/auth.dto.js";
 import { ssoService } from "../services/SsoService.js";
 import { badRequest } from "../lib/errors.js";
+import { slugFromHost } from "../lib/tenantSlug.js";
 
 const validate = (schema, data) => {
   const { error, value } = schema.validate(data, { abortEarly: false, stripUnknown: true });
@@ -70,21 +71,11 @@ const obfuscate = (data) => {
 };
 
 export const tenantResolveHandler = async ({ queryStringParameters = {}, headers = {} }) => {
-  const domainHost = (headers['x-tenant-domain'] || headers.host || headers.Host || "").split(":")[0].toLowerCase();
-  let slug = queryStringParameters?.slug || "";
+  const domainHost = headers['x-tenant-domain'] || headers.host || headers.Host || "";
+  let slug = String(queryStringParameters?.slug || "").trim().toLowerCase();
 
-  if (!slug && domainHost) {
-    const parts = domainHost.split(".");
-    if (
-      domainHost !== "localhost" &&
-      domainHost !== "127.0.0.1" &&
-      domainHost !== "experia.ignitolearn.com" &&
-      domainHost !== "www.experia.ignitolearn.com"
-    ) {
-      if (parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost" && parts[0] !== "experia") {
-        slug = parts[0];
-      }
-    }
+  if (!slug) {
+    slug = slugFromHost(domainHost);
   }
 
   if (!slug) {

@@ -55,10 +55,12 @@ export const Route = createFileRoute('/_authenticated')({
     }
 
     if (!accessToken || !user) {
+      const slug = new URLSearchParams(window.location.search).get('slug') || undefined
       throw redirect({
         to: '/sign-in',
         search: {
           redirect: location.pathname,
+          ...(slug ? { slug } : {}),
         },
       })
     }

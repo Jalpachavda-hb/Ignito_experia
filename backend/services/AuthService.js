@@ -11,6 +11,7 @@ import pool from "../lib/mysql.js";
 import { ENV } from "../config/env.js";
 
 import { ROLES } from "../constants/roles.js";
+import { slugFromHost } from "../lib/tenantSlug.js";
 
 const createVLabSession = async ({ userPayload, sessionMeta }) => {
   const connection = await pool.getConnection();
@@ -186,12 +187,9 @@ class AuthService {
     const sessionMeta = { ipAddress, browser, os, device };
 
     // 1. Extract Slug from input or host header
-    let slug = inputSlug || "";
+    let slug = String(inputSlug || "").trim().toLowerCase();
     if (!slug && host) {
-      const parts = host.split(":")[0].split(".");
-      if (parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost" && parts[0] !== "experia") {
-        slug = parts[0];
-      }
+      slug = slugFromHost(host);
     }
 
     // 2. Resolve Tenant from Owner Tenant API over Service-to-Service Auth

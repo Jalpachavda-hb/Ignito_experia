@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { IconFacebook, IconGithub } from '@/assets/brand-icons'
 import { useAuthStore } from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
+import { getTenantSlug } from '@/lib/tenant-slug'
 import { loginWithCredentials } from '@/services/authService'
 import { Button } from '@/components/ui/button'
 import {
@@ -55,14 +56,7 @@ export function UserAuthForm({
   async function onSubmit(data: z.infer<typeof formSchema>) {
     setIsLoading(true)
 
-    let slug = ''
-    if (typeof window !== 'undefined') {
-      const host = window.location.hostname
-      const parts = host.split('.')
-      if (parts.length > 1 && parts[0] !== 'www' && parts[0] !== 'localhost') {
-        slug = parts[0]
-      }
-    }
+    const slug = getTenantSlug()
 
     toast.promise(
       loginWithCredentials({ email: data.email, password: data.password, slug }),

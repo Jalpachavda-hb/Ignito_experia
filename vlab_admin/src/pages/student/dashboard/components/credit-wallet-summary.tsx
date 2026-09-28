@@ -7,8 +7,6 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useLabCreditUsageStore } from '@/stores/labCreditUsageStore';
 import { useLabTokenStore } from '@/stores/labTokenStore';
-import { TokenPackagesModal } from '@/pages/student/my-labs/components/token-packages-modal';
-import { getSavedLabActivities } from '@/Utils/labActivityTracker';
 import { Link } from '@tanstack/react-router';
 
 export function CreditWalletSummary() {
@@ -17,9 +15,6 @@ export function CreditWalletSummary() {
   const { summary, labWallets, fetchStudentLabTokens } = useLabTokenStore();
   const { transactions: rawTransactions, fetchTransactions } = useTransactionStore();
   const { usageRecords } = useLabCreditUsageStore();
-
-  const [buyModalOpen, setBuyModalOpen] = useState(false);
-  const [selectedLabId, setSelectedLabId] = useState<string | undefined>();
 
   useEffect(() => {
     fetchStudentLabTokens();
@@ -122,13 +117,12 @@ export function CreditWalletSummary() {
           <Button
             size="sm"
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
-            onClick={() => {
-              setSelectedLabId(undefined);
-              setBuyModalOpen(true);
-            }}
+            asChild
           >
-            <PlusCircle className="w-3.5 h-3.5 mr-1" />
-            Buy Tokens
+            <Link to="/student/credit-wallet">
+              <PlusCircle className="w-3.5 h-3.5 mr-1" />
+              Buy Tokens
+            </Link>
           </Button>
           <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center">
             <Wallet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -282,12 +276,6 @@ export function CreditWalletSummary() {
           )
         )}
       </div>
-
-      <TokenPackagesModal
-        open={buyModalOpen}
-        onOpenChange={setBuyModalOpen}
-        targetLabId={selectedLabId}
-      />
     </Card>
   );
 }

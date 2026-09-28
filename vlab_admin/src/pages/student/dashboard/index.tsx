@@ -61,9 +61,9 @@ export default function StudentDashboard() {
 
   const studentName = auth.user?.fullName || auth.user?.name || data.student.name
   const studentEmail = auth.user?.email || data.student.email
-  const initials = studentName
+  const initials = (studentName || '')
     .split(' ')
-    .map((n) => n[0])
+    .map((n: string) => n[0])
     .filter(Boolean)
     .join('')
     .substring(0, 2)

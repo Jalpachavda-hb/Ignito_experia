@@ -15,6 +15,7 @@ import { NavGroup } from './nav-group'
 import { NavUser } from './nav-user'
 
 import { fetchTenantResolve } from '@/Utils/GetApiHandler'
+import { getTenantSlug } from '@/lib/tenant-slug'
 import { getStudentPurchasedProgrammes, getSemesterCourseListByProgrammeId } from '@/Utils/lmsApi_paths'
 
 export function AppSidebar() {
@@ -27,7 +28,7 @@ export function AppSidebar() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname
-      fetchTenantResolve(host)
+      fetchTenantResolve(host, getTenantSlug())
         .then((resData: any) => {
           let data = resData
           if (resData?.payload) {

@@ -177,9 +177,10 @@ export const fetchAuthMe = async () => {
   return executeRequest(API_PATHS.AUTH.ME, { auth: true });
 };
 
-export const fetchTenantResolve = async (domain) => {
+export const fetchTenantResolve = async (domain, slug) => {
   return executeRequest(API_PATHS.TENANT.RESOLVE, {
     headers: domain ? { 'X-Tenant-Domain': domain } : {},
+    params: slug ? { slug } : undefined,
     auth: false,
   });
 };
