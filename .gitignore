@@ -137,6 +137,11 @@ dist
 cursor.md
 Memory.md
 Skill.md
+PROJECT_CONTEXT.md
+.cursor/
 .tanstack/
+
+# Local database dumps
+backend/database/backups/
 uploads/*
 !uploads/.gitkeep
