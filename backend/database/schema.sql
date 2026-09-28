@@ -240,4 +240,13 @@ CREATE TABLE IF NOT EXISTS `course_lab_mappings` (
   UNIQUE KEY `uk_tenant_course_lab` (`tenant_id`, `program_id`, `semester_id`, `course_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 11. SSO Replay Store
+CREATE TABLE IF NOT EXISTS `SSOReplayStore` (
+  `ReplayId` VARCHAR(255) PRIMARY KEY,
+  `TenantId` VARCHAR(64) NOT NULL,
+  `ExpiresAt` DATETIME NOT NULL,
+  `CreatedAt` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_replay_expires` (`ExpiresAt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

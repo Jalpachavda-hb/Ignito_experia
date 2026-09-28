@@ -396,6 +396,17 @@ export const verifyDbConnection = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // SSO replay protection (migration 011)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`SSOReplayStore\` (
+        \`ReplayId\` VARCHAR(255) PRIMARY KEY,
+        \`TenantId\` VARCHAR(64) NOT NULL,
+        \`ExpiresAt\` DATETIME NOT NULL,
+        \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX \`idx_replay_expires\` (\`ExpiresAt\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // Re-enable foreign key checks
     await connection.query("SET FOREIGN_KEY_CHECKS = 1;");
     console.log("[MySQL] Core database schema verified successfully.");
