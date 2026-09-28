@@ -3,10 +3,10 @@ import { API_PATHS } from './Api_path';
 
 // POST / PUT / PATCH / DELETE API Handlers
 
-export const loginWithCredentials = async ({ email, password, slug }) => {
+export const loginWithCredentials = async ({ email, password, slug, portalHost }) => {
   return executeRequest(API_PATHS.AUTH.LOGIN, {
     method: 'POST',
-    body: { email, password, slug },
+    body: { email, password, slug, portalHost },
     auth: false,
   });
 };

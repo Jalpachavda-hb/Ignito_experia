@@ -12,13 +12,17 @@ interface ProgramTimelineProps {
 }
 
 export function ProgramTimeline({ program }: ProgramTimelineProps) {
-  const currentSem = Number(program.currentSemester) || 1;
-  const totalSem = Number(program.totalSemesters) || 4;
-  const progress = program.overallProgress ?? 65;
-  const completedCount = Math.max(0, currentSem - 1);
-  const remainingCount = Math.max(0, totalSem - currentSem);
+  const currentSem = program.currentSemester != null && program.currentSemester !== ''
+    ? Number(program.currentSemester)
+    : null;
+  const totalSem = program.totalSemesters != null && Number(program.totalSemesters) > 0
+    ? Number(program.totalSemesters)
+    : null;
+  const progress = program.overallProgress != null ? Number(program.overallProgress) : null;
+  const completedCount = currentSem != null ? Math.max(0, currentSem - 1) : null;
+  const remainingCount = currentSem != null && totalSem != null ? Math.max(0, totalSem - currentSem) : null;
 
-  const semesters = Array.from({ length: totalSem }, (_, i) => i + 1);
+  const semesters = totalSem != null ? Array.from({ length: totalSem }, (_, i) => i + 1) : [];
 
   return (
     <Card className="border-border/50 shadow-sm">
@@ -39,36 +43,40 @@ export function ProgramTimeline({ program }: ProgramTimelineProps) {
         <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-900 px-4 py-2 rounded-lg border border-slate-100 dark:border-slate-800 shrink-0">
           <div className="text-center">
             <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Completed</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{completedCount}</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{completedCount ?? "—"}</p>
           </div>
           <div className="w-px h-8 bg-slate-200 dark:bg-slate-700"></div>
           <div className="text-center">
             <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Remaining</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{remainingCount}</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{remainingCount ?? "—"}</p>
           </div>
         </div>
       </CardHeader>
       <CardContent className="pt-6">
         
-        <div className="mb-8">
-          <div className="flex justify-between text-sm font-bold text-slate-900 dark:text-white mb-2">
-            <span>Overall Degree Completion</span>
-            <span className="text-red-600 dark:text-red-500">{progress}%</span>
+        {progress != null ? (
+          <div className="mb-8">
+            <div className="flex justify-between text-sm font-bold text-slate-900 dark:text-white mb-2">
+              <span>Overall Degree Completion</span>
+              <span className="text-red-600 dark:text-red-500">{progress}%</span>
+            </div>
+            <Progress
+              value={progress}
+              className="h-3 bg-slate-100 dark:bg-slate-800"
+              indicatorColor="bg-gradient-to-r from-red-600 to-rose-500"
+            />
           </div>
-          <Progress
-            value={progress}
-            className="h-3 bg-slate-100 dark:bg-slate-800"
-            indicatorColor="bg-gradient-to-r from-red-600 to-rose-500"
-          />
-        </div>
+        ) : (
+          <p className="mb-8 text-sm text-slate-500">Completion percentage was not returned by the university LMS.</p>
+        )}
 
         <div className="relative">
           <div className="absolute top-5 left-0 w-full h-0.5 bg-slate-100 dark:bg-slate-800 -z-10"></div>
           <div className="flex justify-between relative z-10 w-full overflow-x-auto pb-4 hide-scrollbar">
             {semesters.map((sem) => {
-              const isCompleted = sem < currentSem;
-              const isCurrent = sem === currentSem;
-              const isPending = sem > currentSem;
+              const isCompleted = currentSem != null && sem < currentSem;
+              const isCurrent = currentSem != null && sem === currentSem;
+              const isPending = currentSem == null || sem > currentSem;
 
               return (
                 <div key={sem} className="flex flex-col items-center min-w-[100px]">

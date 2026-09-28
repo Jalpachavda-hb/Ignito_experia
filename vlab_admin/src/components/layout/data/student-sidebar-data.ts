@@ -20,15 +20,15 @@ export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolea
 
   if (!isDirectUser && lmsPrograms && Array.isArray(lmsPrograms) && lmsPrograms.length > 0) {
     academicCourseItems = lmsPrograms.map((prog: any) => {
-      const sems = (prog.semesters && Array.isArray(prog.semesters) && prog.semesters.length > 0)
-        ? prog.semesters.map((s: any) => ({
-          title: `Semester ${s.semesterNumber || s.semesterId || s}`,
-          url: `/student/my-labs?programId=${prog.programId || ''}&semester=${s.semesterNumber || s.semesterId || s}`
-        }))
-        : [{
-          title: `Semester 1`,
-          url: `/student/my-labs?programId=${prog.programId || ''}&semester=1`
-        }];
+      const semesterSource = (prog.semesters && Array.isArray(prog.semesters) && prog.semesters.length > 0)
+        ? prog.semesters
+        : (prog.currentSemester != null && prog.currentSemester !== ''
+            ? [{ semesterNumber: prog.currentSemester }]
+            : []);
+      const sems = semesterSource.map((s: any) => ({
+        title: `Semester ${s.semesterNumber || s.semesterId || s}`,
+        url: `/student/my-labs?programId=${prog.programId || prog.programmeId || ''}&semester=${s.semesterNumber || s.semesterId || s}`
+      }));
 
       return {
         title: prog.programName || prog.programmeNameAndCode || 'Degree Program',

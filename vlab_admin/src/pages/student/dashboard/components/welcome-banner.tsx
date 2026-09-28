@@ -39,14 +39,16 @@ export function WelcomeBanner({
               {auth.user?.fullName || auth.user?.name || student.name}
             </h1>
             {auth.user?.programmesList && auth.user.programmesList.length > 0 ? (
-              <p className="text-sm font-medium text-muted-foreground mb-1">
-                {auth.user.programmesList[0].programmeName} <span className="mx-1">•</span> Semester {auth.user.programmesList[0].currentSemester || '1'}
-                {auth.user.programmesList.length > 1 && (
-                  <span className="ml-2 text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded border border-red-200">
-                    +{auth.user.programmesList.length - 1} More Enrolled
-                  </span>
-                )}
-              </p>
+              <div className="text-sm font-medium text-muted-foreground mb-1 space-y-1">
+                {auth.user.programmesList.map((prog, idx) => (
+                  <p key={idx}>
+                    {prog.programmeName || prog.programName}
+                    {prog.currentSemester != null && prog.currentSemester !== '' ? (
+                      <span> • Semester {prog.currentSemester}</span>
+                    ) : null}
+                  </p>
+                ))}
+              </div>
             ) : auth.user?.programName ? (
               <p className="text-sm font-medium text-muted-foreground mb-1">
                 {auth.user.programName} {auth.user.currentSemester ? `• Semester ${auth.user.currentSemester}` : ''}

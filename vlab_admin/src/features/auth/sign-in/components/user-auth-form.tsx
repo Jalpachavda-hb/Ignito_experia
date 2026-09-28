@@ -59,7 +59,12 @@ export function UserAuthForm({
     const slug = getTenantSlug()
 
     toast.promise(
-      loginWithCredentials({ email: data.email, password: data.password, slug }),
+      loginWithCredentials({
+        email: data.email,
+        password: data.password,
+        slug,
+        portalHost: window.location.host,
+      }),
       {
         loading: 'Signing in...',
         success: async (response: any) => {

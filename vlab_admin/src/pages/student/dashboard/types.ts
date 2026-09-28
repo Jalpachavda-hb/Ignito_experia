@@ -2,11 +2,11 @@
 export interface ProgramInfo {
   id: string
   name: string
-  totalSemesters: number
-  currentSemester: number
-  overallProgress: number // percentage
-  startDate: string
-  expectedEndDate: string
+  totalSemesters: number | null
+  currentSemester: number | null
+  overallProgress: number | null
+  startDate: string | null
+  expectedEndDate: string | null
 }
 
 export interface StudentProfile {
@@ -129,9 +129,9 @@ export interface DashboardData {
   mostPracticedLabs: LabActivity[]
   currentCourses: CurrentCourse[]
   academicOverviewStats: {
-    completedLabs: number
+    completedLabs: number | null
     inProgressLabs: number
     pendingLabs: number
-    totalLabs: number
+    totalLabs: number | null
   }
 }

@@ -14,13 +14,19 @@ interface AcademicOverviewProps {
 
 export function AcademicOverview({ data, activeProgram }: AcademicOverviewProps) {
   const program = activeProgram || data.student.program;
-  const currentSem = Number(program.currentSemester) || 1;
-  const totalSem = Number(program.totalSemesters) || 4;
-  const completedSemesters = Math.max(0, currentSem - 1);
-  const remainingSemesters = Math.max(0, totalSem - currentSem);
-  const progTitle = activeProgram?.shortName || program.name || "MCA";
-  const progressVal = program.overallProgress ?? 65;
+  const currentSem = program.currentSemester != null && program.currentSemester !== ''
+    ? Number(program.currentSemester)
+    : null;
+  const totalSem = program.totalSemesters != null && program.totalSemesters !== ''
+    ? Number(program.totalSemesters)
+    : null;
+  const completedSemesters = currentSem != null ? Math.max(0, currentSem - 1) : null;
+  const remainingSemesters = currentSem != null && totalSem != null ? Math.max(0, totalSem - currentSem) : null;
+  const progTitle = activeProgram?.shortName || program.name || "—";
+  const progressVal = program.overallProgress != null ? program.overallProgress : null;
   const totalEnrolled = activeProgram?.totalEnrolledPrograms || 1;
+  const completedLabs = data.academicOverviewStats?.completedLabs;
+  const totalLabs = data.academicOverviewStats?.totalLabs;
   
   const stats = [
     {
@@ -33,24 +39,26 @@ export function AcademicOverview({ data, activeProgram }: AcademicOverviewProps)
     },
     {
       title: "Current Semester",
-      value: `Sem ${currentSem}`,
-      description: `${completedSemesters} Completed, ${remainingSemesters} Remaining`,
+      value: currentSem != null ? `Sem ${currentSem}` : "—",
+      description: completedSemesters != null && remainingSemesters != null
+        ? `${completedSemesters} Completed, ${remainingSemesters} Remaining`
+        : "From university LMS",
       icon: Clock,
       color: "text-purple-500",
       bgColor: "bg-purple-50 dark:bg-purple-900/20"
     },
     {
       title: "Completed Labs",
-      value: (data.academicOverviewStats?.completedLabs ?? 14).toString(),
-      description: `Out of ${data.academicOverviewStats?.totalLabs ?? 30} Total Labs`,
+      value: completedLabs != null ? String(completedLabs) : "—",
+      description: totalLabs != null ? `Out of ${totalLabs} Total Labs` : "Not returned by LMS",
       icon: BookOpen,
       color: "text-emerald-500",
       bgColor: "bg-emerald-50 dark:bg-emerald-900/20"
     },
     {
       title: "Overall Progress",
-      value: `${progressVal}%`,
-      description: "Degree Completion",
+      value: progressVal != null ? `${progressVal}%` : "—",
+      description: progressVal != null ? "Degree Completion" : "Not returned by LMS",
       icon: Target,
       color: "text-red-500",
       bgColor: "bg-red-50 dark:bg-red-900/20"

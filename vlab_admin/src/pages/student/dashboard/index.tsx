@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useLabStore } from '@/stores/labStore'
 import { useLabSessionStore } from '@/stores/labSessionStore'
 import { PasswordSetupModal } from '@/components/auth/PasswordSetupModal'
+import { isUniversityStudent } from '@/lib/student-kind'
+import { fetchAuthMe } from '@/Utils/GetApiHandler'
 import { useNavigate } from '@tanstack/react-router'
 
 // UI Components for Header Navbar
@@ -138,9 +140,24 @@ export default function StudentDashboard() {
   }, [labs, activeSession, labWallets])
 
   useEffect(() => {
-    // Prompt first-time LMS students to set an optional Experia Password (if not skipped in session)
+    fetchAuthMe()
+      .then((data: any) => {
+        if (data?.user) {
+          useAuthStore.getState().auth.setUser({
+            ...data.user,
+            userId: data.user.id || data.user.userId,
+            fullName: data.user.fullName || data.user.name,
+            exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    // Prompt first-time university students to set a password (if not skipped in this tab)
     const isSkipped = typeof window !== 'undefined' && sessionStorage.getItem('skipPasswordSetup') === 'true'
-    if (auth.user && auth.user.hasPassword === false && !isSkipped) {
+    if (isUniversityStudent(auth.user) && auth.user?.hasPassword === false && !isSkipped) {
       setShowPasswordSetup(true)
     }
   }, [auth.user])
@@ -209,7 +226,7 @@ export default function StudentDashboard() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {auth.user?.hasPassword === false && (
+                {isUniversityStudent(auth.user) && auth.user?.hasPassword === false && (
                   <DropdownMenuItem onClick={() => setShowPasswordSetup(true)} className="text-amber-600 font-medium">
                     <KeyRound className="mr-2 h-4 w-4" />
                     <span>Set Direct Password</span>
@@ -272,6 +289,7 @@ export default function StudentDashboard() {
       <PasswordSetupModal
         isOpen={showPasswordSetup}
         onClose={handleClosePasswordModal}
+        tenantDomain={typeof window !== 'undefined' ? window.location.host : undefined}
       />
     </>
   )

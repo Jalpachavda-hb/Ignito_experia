@@ -23,6 +23,7 @@ import { useLabTokenStore } from '@/stores/labTokenStore';
 import { getSemesterCourseListByProgrammeId, getStudentPurchasedProgrammes } from '@/Utils/lmsApi_paths';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { isDirectStudent } from '@/lib/student-kind';
 
 export default function MyLabs() {
   const { labs, isLoading, error, loadLabs } = useLabStore();
@@ -33,7 +34,7 @@ export default function MyLabs() {
 
   const searchParams = useSearch({ strict: false }) as { semester?: string; programId?: string };
   const hasCourseFilter = Boolean(searchParams.semester || searchParams.programId);
-  const semesterFilterQuery = searchParams.semester || (hasCourseFilter ? '1' : '');
+  const semesterFilterQuery = searchParams.semester || '';
   const programIdQuery = searchParams.programId || (hasCourseFilter ? '1' : '');
 
   const { activeSession, startingLabId, stoppingLabId, elapsedTime, startError, loadActiveSession, startLab, stopLab, clearStartError } = useLabSessionStore();
@@ -56,16 +57,7 @@ export default function MyLabs() {
     fetchTransactions();
   }, [fetchStudentLabTokens, fetchTransactions]);
 
-  const isDirectUser = useMemo(() => {
-    if (!user) return false;
-    if (user.createdFrom === 'DIRECT' || user.authType === 'DIRECT') return true;
-    if (!user.programmesList || !Array.isArray(user.programmesList) || user.programmesList.length === 0) {
-      if (!user.programName && !user.studentId && !(user as any).StudentDegreeAdmissionId) {
-        return true;
-      }
-    }
-    return false;
-  }, [user]);
+  const isDirectUser = useMemo(() => isDirectStudent(user), [user]);
 
   // Dynamic Semester Courses & Mapped Labs State
   const [semesterCourses, setSemesterCourses] = useState<any[]>([]);
@@ -93,44 +85,10 @@ export default function MyLabs() {
     }
 
     setIsCoursesLoading(true);
-    getSemesterCourseListByProgrammeId(programIdQuery)
+    getSemesterCourseListByProgrammeId(programIdQuery, semesterFilterQuery)
       .then((res: any) => {
-        const rawData = res?.rawData || res;
-        const semList = res?.semesterList || rawData?.semesterList || rawData?.semesterCourseList || [];
-        const allCourses = res?.courseList || res?.courses || rawData?.courseList || rawData?.courselist || [];
-
-        let courses: any[] = [];
-
-        if (allCourses && allCourses.length > 0) {
-          const matchedSem = semList.find((s: any) =>
-            String(s.semesterNumber) === String(semesterFilterQuery) ||
-            String(s.semesterId) === String(semesterFilterQuery)
-          );
-
-          const targetSemId = matchedSem ? String(matchedSem.semesterId || matchedSem.semesterNumber) : null;
-
-          courses = allCourses.filter((c: any) => {
-            const cSemId = String(c.semesterId || c.semesterNumber || '');
-            const cSemNum = String(c.semesterNumber || c.semesterId || '');
-            return (
-              (targetSemId && cSemId === targetSemId) ||
-              cSemNum === String(semesterFilterQuery) ||
-              cSemId === String(semesterFilterQuery)
-            );
-          });
-
-          if (courses.length === 0) {
-            courses = allCourses;
-          }
-        } else if (semList && semList.length > 0) {
-          const matchedSem = semList.find((s: any) =>
-            String(s.semesterNumber) === String(semesterFilterQuery) ||
-            String(s.semesterId) === String(semesterFilterQuery)
-          );
-          courses = matchedSem?.courseList || matchedSem?.courselist || semList[0]?.courseList || [];
-        }
-
-        setSemesterCourses(courses);
+        const courses = res?.courseList || res?.courses || [];
+        setSemesterCourses(Array.isArray(courses) ? courses : []);
       })
       .catch(() => {
         setSemesterCourses([]);
@@ -172,10 +130,6 @@ export default function MyLabs() {
         } catch (e) {
           console.warn("Failed to fetch purchased programmes:", e);
         }
-      }
-
-      if (programIds.length === 0) {
-        programIds = ['1', '2', '18'];
       }
 
       programIds = Array.from(new Set(programIds));
@@ -671,13 +625,13 @@ export default function MyLabs() {
                 <span>Course Practical Labs</span>
               </div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
-                <span>Semester {semesterFilterQuery || '1'} Labs</span>
+                <span>{semesterFilterQuery ? `Semester ${semesterFilterQuery} Labs` : 'Course Labs'}</span>
                 <Badge variant="outline" className="text-xs font-semibold bg-red-50 text-red-700 border-red-200">
                   {displayLabs.length} Course Lab(s)
                 </Badge>
               </h1>
               <p className="text-slate-500 text-sm mt-1.5 max-w-2xl">
-                Practical virtual lab environments assigned to your academic courses for Semester {semesterFilterQuery || '1'}.
+                Practical virtual lab environments assigned to your academic courses{semesterFilterQuery ? ` for Semester ${semesterFilterQuery}` : ''}.
               </p>
             </div>
           ) : (

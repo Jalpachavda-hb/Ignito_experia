@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useLabStore } from '@/stores/labStore';
 import { useLabSessionStore } from '@/stores/labSessionStore';
+import { isDirectStudent } from '@/lib/student-kind';
 
 export function SummaryCards() {
   const { auth } = useAuthStore();
@@ -41,7 +42,7 @@ export function SummaryCards() {
   }, [transactions]);
 
   // Real Enrolled Programs Count
-  const isDirect = user?.createdFrom === 'DIRECT' || user?.authType === 'DIRECT';
+  const isDirect = isDirectStudent(user);
   const hasLmsProgrammes = Boolean(user?.programmesList && user.programmesList.length > 0);
   const programCount = hasLmsProgrammes ? user!.programmesList!.length : (user?.programName ? 1 : 0);
   const primaryProgramName = hasLmsProgrammes

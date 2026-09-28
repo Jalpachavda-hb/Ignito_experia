@@ -8,6 +8,7 @@ import { useLabStore } from '@/stores/labStore'
 import { useLabSessionStore } from '@/stores/labSessionStore'
 
 import { useLabTokenStore } from '@/stores/labTokenStore'
+import { isDirectStudent } from '@/lib/student-kind'
 
 export function StatsCards() {
   const { auth } = useAuthStore()
@@ -46,7 +47,7 @@ export function StatsCards() {
   }, [summary, availableCredits]);
 
   // Real Enrolled Programs Count
-  const isDirect = user?.createdFrom === 'DIRECT' || user?.authType === 'DIRECT';
+  const isDirect = isDirectStudent(user);
   const hasLmsProgrammes = Boolean(user?.programmesList && user.programmesList.length > 0);
   const programCount = hasLmsProgrammes ? user!.programmesList!.length : (user?.programName ? 1 : 0);
   const primaryProgramName = hasLmsProgrammes

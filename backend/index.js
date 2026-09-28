@@ -15,6 +15,8 @@ import { setupJupyterProxy, attachJupyterProxyUpgrade } from "./jupyterProxy.js"
 import { cleanupExpiredSessions } from "./services/sessionCleanup.js";
 import { sessionCleanupService } from "./services/SessionCleanupService.js";
 import { verifyDbConnection } from "./lib/mysql.js";
+import { getRedis } from "./lib/redisClient.js";
+import { lmsTokenService } from "./services/lms/LmsTokenService.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 import { auditContextMiddleware } from "./middleware/auditContext.js";
@@ -37,6 +39,9 @@ const httpServer = createServer(app);
 
 // Verify DB on startup
 verifyDbConnection();
+getRedis().then((redis) => {
+  if (redis) lmsTokenService.setRedis(redis);
+});
 
 const io = new Server(httpServer, {
   cors: {

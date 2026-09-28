@@ -4,6 +4,7 @@ import { Layers, PlayCircle, Wallet, GraduationCap } from 'lucide-react';
 import { Lab } from '../types';
 import { useLabTokenStore } from '@/stores/labTokenStore';
 import { useTransactionStore } from '@/stores/transactionStore';
+import { isDirectStudent } from '@/lib/student-kind';
 
 interface MyLabsHeaderProps {
   labs: Lab[];
@@ -65,7 +66,7 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
   }, [labWallets, summary, user, transactions]);
   
   // Real Enrolled Programs Count
-  const isDirect = user?.createdFrom === 'DIRECT' || user?.authType === 'DIRECT' || (!user?.programmesList || user.programmesList.length === 0);
+  const isDirect = isDirectStudent(user);
   const hasLmsProgrammes = Boolean(user?.programmesList && user.programmesList.length > 0);
   const programCount = hasLmsProgrammes ? user!.programmesList!.length : (user?.programName ? 1 : 0);
 

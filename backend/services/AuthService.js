@@ -12,6 +12,13 @@ import { ENV } from "../config/env.js";
 
 import { ROLES } from "../constants/roles.js";
 import { slugFromHost } from "../lib/tenantSlug.js";
+import {
+  PLATFORM_TENANT_ID,
+  assertStudentPortal,
+  isUniversityIdentity,
+  loadTenantById,
+  loadTenantBySlug,
+} from "../lib/studentAccess.js";
 
 const createVLabSession = async ({ userPayload, sessionMeta }) => {
   const connection = await pool.getConnection();
@@ -117,8 +124,12 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
         role: normalizedRole,
         status: userPayload.status || "ACTIVE",
         tenantId: userPayload.tenantId,
-        tenantSlug: userPayload.tenantSlug,
-        tenantName: userPayload.tenantName,
+        tenantSlug: userPayload.tenantSlug || null,
+        tenantName: userPayload.tenantName || null,
+        createdFrom: userPayload.createdFrom || null,
+        authType: userPayload.authType || null,
+        hasPassword: userPayload.hasPassword !== undefined ? Boolean(userPayload.hasPassword) : true,
+        collegeName: userPayload.tenantName || null,
         profileImage: userPayload.profileImage || (vlabUsers[0] ? vlabUsers[0].ProfileImage : null)
       }
     };
@@ -313,35 +324,76 @@ class AuthService {
       throw unauthorized("Invalid email or password");
     }
 
-    // Tenant Membership Verification for Direct Login
-    let activeTenant = resolvedTenantId || user.TenantId;
-    if (!activeTenant) {
-      const [mapping] = await pool.query(
-        "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' ORDER BY MappingId DESC LIMIT 1",
-        [user.UserId]
-      );
-      if (mapping.length > 0 && mapping[0].TenantId) {
-        activeTenant = mapping[0].TenantId;
+    const role = (user.Role || "").toUpperCase();
+    if (role === "STUDENT" || role === "") {
+      let memberTenantId = user.TenantId && user.TenantId !== PLATFORM_TENANT_ID ? user.TenantId : null;
+      if (!memberTenantId) {
+        const [mapping] = await pool.query(
+          "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' AND TenantId <> ? ORDER BY MappingId DESC LIMIT 1",
+          [user.UserId, PLATFORM_TENANT_ID]
+        );
+        if (mapping.length > 0 && mapping[0].TenantId) {
+          memberTenantId = mapping[0].TenantId;
+        }
       }
-    }
-    if (!activeTenant && (user.Role || '').toUpperCase() === 'STUDENT') {
-      activeTenant = 'TEN000001';
-    }
 
-    if (activeTenant && (user.Role || '').toUpperCase() === 'STUDENT') {
-      const [mapping] = await pool.query(
-        "SELECT MappingId FROM user_tenant_mapping WHERE UserId = ? AND TenantId = ?",
+      let tenant = await loadTenantById(memberTenantId);
+      if (!tenant && memberTenantId && resolvedTenantId === memberTenantId && slug) {
+        tenant = {
+          TenantId: resolvedTenantId,
+          Name: resolvedTenantName,
+          Slug: slug,
+          Status: "ACTIVE",
+        };
+      }
+      if (!tenant && !memberTenantId && isUniversityIdentity(user) && slug) {
+        tenant = await loadTenantBySlug(slug);
+        if (!tenant && resolvedTenantId) {
+          tenant = {
+            TenantId: resolvedTenantId,
+            Name: resolvedTenantName,
+            Slug: slug,
+            Status: "ACTIVE",
+          };
+        }
+        if (tenant?.TenantId) {
+          memberTenantId = tenant.TenantId;
+          await pool.query("UPDATE users SET TenantId = ? WHERE UserId = ?", [tenant.TenantId, user.UserId]);
+        }
+      }
+
+      const portal = assertStudentPortal({ user, tenant, slug, host });
+      const activeTenant = portal.kind === "university" ? tenant.TenantId : PLATFORM_TENANT_ID;
+
+      await pool.query(
+        "INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status) VALUES (?, ?, 'STUDENT', 'ACTIVE') ON DUPLICATE KEY UPDATE Status = 'ACTIVE'",
         [user.UserId, activeTenant]
       );
-      if (!mapping.length && user.TenantId !== activeTenant) {
-        // Auto-provision mapping if tenant matches user record
-        await pool.query(
-          "INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status) VALUES (?, ?, 'STUDENT', 'ACTIVE') ON DUPLICATE KEY UPDATE Status = 'ACTIVE'",
-          [user.UserId, activeTenant]
-        );
-      }
+
+      await userRepository.updateLastLogin(user.UserId);
+
+      return await createVLabSession({
+        userPayload: {
+          id: user.UserId,
+          dbUserId: user.UserId,
+          name: user.FullName,
+          email: user.Email,
+          role: user.Role || "Student",
+          roleId: user.RoleId || 1,
+          tenantId: activeTenant,
+          tenantSlug: portal.kind === "university" ? tenant.Slug : null,
+          tenantName: portal.kind === "university" ? tenant.Name : null,
+          createdFrom: user.CreatedFrom || (portal.kind === "university" ? "LMS" : "DIRECT"),
+          authType: user.AuthType || (portal.kind === "university" ? "LMS" : "DIRECT"),
+          hasPassword: Boolean(user.PasswordHash),
+          status: user.Status,
+          profileImage: user.ProfileImage || null
+        },
+        sessionMeta
+      });
     }
 
+    let activeTenant = resolvedTenantId || user.TenantId || null;
     await userRepository.updateLastLogin(user.UserId);
 
     return await createVLabSession({
@@ -350,7 +402,7 @@ class AuthService {
         dbUserId: user.UserId,
         name: user.FullName,
         email: user.Email,
-        role: user.Role || 'Student',
+        role: user.Role || "Student",
         roleId: user.RoleId || 1,
         tenantId: activeTenant,
         status: user.Status,
@@ -393,6 +445,9 @@ class AuthService {
           role: user.Role || 'Student',
           roleId: user.RoleId || 1,
           tenantId: user.TenantId || null,
+          createdFrom: user.CreatedFrom || null,
+          authType: user.AuthType || null,
+          hasPassword: Boolean(user.HasPassword),
           status: user.Status || 'Active'
         };
       } else {

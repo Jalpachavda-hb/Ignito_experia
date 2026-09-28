@@ -62,10 +62,18 @@ export const getStudentPurchasedProgrammes = async (studentId) => {
   });
 };
 
-export const getSemesterCourseListByProgrammeId = async (programmeId) => {
+export const getSemesterCourseListByProgrammeId = async (programmeId, semester) => {
   return executeRequest(LMS_API_PATHS.STUDENT.PROGRAMME_SEMESTERS, {
     method: 'POST',
-    body: { programmeId },
+    body: { programmeId, ...(semester ? { semester } : {}) },
+    auth: true,
+    baseUrl: LMS_BASE_URL,
+  });
+};
+
+export const getStudentAcademicProgress = async () => {
+  return executeRequest('/student/academic-progress', {
+    method: 'GET',
     auth: true,
     baseUrl: LMS_BASE_URL,
   });

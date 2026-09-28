@@ -1,4 +1,5 @@
-import { Link, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { getTenantSlug } from '@/lib/tenant-slug'
 import { Terminal, Cpu, Network, ShieldCheck, CheckCircle2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { SignUpForm } from './components/sign-up-form'
@@ -43,6 +44,13 @@ const TerminalLog = () => {
 
 export function SignUp() {
   const { redirect } = useSearch({ from: '/(auth)/sign-up' } as any)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (getTenantSlug()) {
+      navigate({ to: '/sign-in', replace: true })
+    }
+  }, [navigate])
 
   return (
     <div 

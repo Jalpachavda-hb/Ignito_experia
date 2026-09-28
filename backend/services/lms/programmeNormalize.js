@@ -1,0 +1,115 @@
+export function normalizeProgramme(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const programmeName = raw.programmeName || raw.programName || raw.programmeNameAndCode || raw.name || null;
+  const programmeId = raw.programmeId ?? raw.programId ?? null;
+  const currentSemester = raw.currentSemester ?? raw.semesterNumber ?? null;
+  return {
+    ...raw,
+    programmeName,
+    programName: raw.programName || programmeName,
+    programmeCode: raw.programmeCode || raw.programCode || null,
+    programmeId,
+    programId: raw.programId ?? raw.programmeId ?? null,
+    currentSemester,
+    totalSemesters: raw.totalSemesters ?? null,
+    enrollmentNumber: raw.enrollmentNumber || raw.enrollmentnumber || null,
+    admissionDate: raw.admissionDate || null,
+    status: raw.status || raw.programmeStatus || null,
+  };
+}
+
+function semesterKey(semester) {
+  if (semester == null) return "";
+  if (typeof semester !== "object") return String(semester);
+  return String(semester.semesterNumber ?? semester.semesterId ?? "");
+}
+
+export function dedupeSemesters(list) {
+  const seen = new Set();
+  const out = [];
+  for (const item of list || []) {
+    const key = semesterKey(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (typeof item === "object") {
+      out.push({
+        ...item,
+        semesterNumber: item.semesterNumber ?? item.semesterId ?? null,
+        semesterId: item.semesterId ?? item.semesterNumber ?? null,
+      });
+    } else {
+      out.push({ semesterNumber: item, semesterId: item });
+    }
+  }
+  return out;
+}
+
+export function mergeProgrammes(profileList, purchasedPayload) {
+  const purchased = purchasedPayload?.programmeList || purchasedPayload?.programList || [];
+  const sharedSemesters = purchasedPayload?.semesterList || [];
+  const byKey = new Map();
+
+  for (const raw of [...(profileList || []), ...purchased]) {
+    const programme = normalizeProgramme(raw);
+    if (!programme || !programme.programmeName) continue;
+    const key = String(programme.programmeId ?? programme.programmeName).toLowerCase();
+    const prev = byKey.get(key) || {};
+    byKey.set(key, {
+      ...prev,
+      ...programme,
+      programmeName: programme.programmeName || prev.programmeName,
+      semesters: dedupeSemesters([...(prev.semesters || []), ...(programme.semesters || programme.semesterList || [])]),
+    });
+  }
+
+  for (const programme of byKey.values()) {
+    const pid = programme.programmeId != null ? String(programme.programmeId) : "";
+    const related = sharedSemesters.filter((semester) => {
+      const owner = semester?.programId ?? semester?.programmeId;
+      return !pid || owner == null || String(owner) === pid;
+    });
+    programme.semesters = dedupeSemesters([...(programme.semesters || []), ...related]);
+    if (!programme.semesters.length && programme.currentSemester != null && programme.currentSemester !== "") {
+      programme.semesters = [{ semesterNumber: programme.currentSemester, semesterId: programme.currentSemester }];
+    }
+  }
+
+  return [...byKey.values()];
+}
+
+export function filterSemesterPayload(payload, semester) {
+  const semesterList = payload?.semesterList || payload?.semesterCourseList || [];
+  const flatCourses = payload?.courseList || payload?.courselist || payload?.courses || [];
+
+  if (semester == null || semester === "") {
+    const nested = [];
+    for (const item of semesterList) {
+      nested.push(...(item?.courseList || item?.courselist || []));
+    }
+    return {
+      semesterList,
+      courseList: flatCourses.length ? flatCourses : nested,
+    };
+  }
+
+  const wanted = String(semester);
+  const matchedSemesters = semesterList.filter((item) =>
+    String(item?.semesterNumber ?? "") === wanted || String(item?.semesterId ?? "") === wanted
+  );
+
+  const nestedCourses = [];
+  for (const item of matchedSemesters) {
+    nestedCourses.push(...(item?.courseList || item?.courselist || []));
+  }
+
+  const flatMatches = flatCourses.filter((course) => {
+    const number = String(course?.semesterNumber ?? course?.semester ?? "");
+    const id = String(course?.semesterId ?? "");
+    return number === wanted || id === wanted;
+  });
+
+  return {
+    semesterList: matchedSemesters,
+    courseList: flatMatches.length ? flatMatches : nestedCourses,
+  };
+}

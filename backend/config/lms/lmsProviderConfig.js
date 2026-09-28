@@ -25,5 +25,22 @@ export const LMS_PROVIDER_CONFIG = Object.freeze({
   studentProfileEndpoint:
     process.env.LMS_STUDENT_PROFILE_ENDPOINT || "/api/StudentAPI/GetStudentProfile",
 
+  purchasedProgrammesEndpoint:
+    process.env.LMS_PURCHASED_PROGRAMMES_ENDPOINT ||
+    "/api/ExperiaAPI/GetStudentPurchasedProgrammeSemesterList",
+
+  semesterCoursesEndpoint:
+    process.env.LMS_SEMESTER_COURSES_ENDPOINT ||
+    "/api/ExperiaAPI/GetSemesterCourseListByProgrammeId",
+
+  academicProgressEndpoint:
+    process.env.LMS_ACADEMIC_PROGRESS_ENDPOINT || "",
+
+  attendanceEndpoint:
+    process.env.LMS_ATTENDANCE_ENDPOINT || "",
+
+  resultsEndpoint:
+    process.env.LMS_RESULTS_ENDPOINT || "",
+
   status: "ACTIVE",
 });

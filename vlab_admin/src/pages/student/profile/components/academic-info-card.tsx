@@ -15,14 +15,13 @@ export function AcademicInfoCard({ student }: AcademicInfoCardProps) {
 
   const programmes = (u.programmesList && Array.isArray(u.programmesList) && u.programmesList.length > 0)
     ? u.programmesList
-    : [
-        {
-          programmeName: u.programName || student.program.name,
-          currentSemester: u.currentSemester || String(student.program.currentSemester),
-          enrollmentNumber: u.enrollmentNumber || student.enrollmentNumber,
-          admissionDate: '27-06-2026 10.46.25 AM'
-        }
-      ];
+    : (u.programName
+        ? [{
+            programmeName: u.programName,
+            currentSemester: u.currentSemester || null,
+            enrollmentNumber: u.enrollmentNumber || null,
+          }]
+        : []);
 
   return (
     <Card className="border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-card h-full flex flex-col justify-between">
@@ -36,7 +35,7 @@ export function AcademicInfoCard({ student }: AcademicInfoCardProps) {
           <div>
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400">University / Institute</p>
             <p className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-              {u.collegeName || u.tenantName || u.organization || student.collegeName}
+              {u.collegeName || u.tenantName || '—'}
             </p>
           </div>
           <div className="text-right">
@@ -48,25 +47,35 @@ export function AcademicInfoCard({ student }: AcademicInfoCardProps) {
         </div>
 
         <div className="space-y-4 flex-1">
+          {programmes.length === 0 ? (
+            <p className="text-sm text-slate-500">No programme enrolment is available for this account yet.</p>
+          ) : null}
           {programmes.map((prog: any, idx: number) => (
             <div key={idx} className="p-4 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <GraduationCap className="h-5 w-5 text-slate-600 dark:text-slate-400 shrink-0" />
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white leading-snug">{prog.programmeName}</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">Semester {prog.currentSemester || '1'}</p>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white leading-snug">{prog.programmeName || '—'}</h4>
+                    {prog.programmeCode ? (
+                      <p className="text-xs text-slate-500 mt-0.5">{prog.programmeCode}</p>
+                    ) : null}
+                    {prog.currentSemester != null && prog.currentSemester !== '' ? (
+                      <p className="text-xs text-slate-500 mt-0.5">Semester {prog.currentSemester}</p>
+                    ) : null}
                   </div>
                 </div>
-                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 font-medium shrink-0">
-                  Enrolled
-                </Badge>
+                {prog.status ? (
+                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 font-medium shrink-0">
+                    {prog.status}
+                  </Badge>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-200/60 dark:border-slate-800">
                 <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
                   <Hash className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                  <span>Enrollment: <strong className="font-mono text-slate-800 dark:text-slate-200">{prog.enrollmentNumber || 'N/A'}</strong></span>
+                  <span>Enrollment: <strong className="font-mono text-slate-800 dark:text-slate-200">{prog.enrollmentNumber || '—'}</strong></span>
                 </div>
                 {prog.admissionDate && (
                   <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">

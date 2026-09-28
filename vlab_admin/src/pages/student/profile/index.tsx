@@ -16,15 +16,13 @@ import { AcademicInfoCard } from './components/academic-info-card';
 import { AccountInfoCard } from './components/account-info-card';
 import { SecurityInfoCard } from './components/security-info-card';
 import { ChangePasswordModal } from './components/change-password-modal';
+import { isDirectStudent } from '@/lib/student-kind';
 
 export default function Profile() {
   const { student } = dashboardData;
   const { auth } = useAuthStore();
   const u: any = auth.user || {};
-  const isDirectUser = Boolean(
-    u.createdFrom === 'DIRECT' || 
-    (u.authType === 'DIRECT' && !u.studentDegreeAdmissionId && !u.externalStudentId && u.createdFrom !== 'LMS')
-  );
+  const isDirectUser = isDirectStudent(u);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshSuccess, setRefreshSuccess] = useState(false);
@@ -120,6 +118,12 @@ export default function Profile() {
             </div>
           </div>
           
+          {!isDirectUser && u.profileStatus && u.profileStatus !== 'LIVE' ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              LMS data is temporarily unavailable. Your Experia session is still active.
+            </div>
+          ) : null}
+
           <div className="space-y-6">
             
             {/* Top Header - Summary */}

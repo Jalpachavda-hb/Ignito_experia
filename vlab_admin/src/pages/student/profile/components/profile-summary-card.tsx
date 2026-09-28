@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { uploadProfilePhoto, updateUserProfile } from '@/Utils/PostApiHandler';
 import { toast } from 'sonner';
 import { BASE_URL } from '@/Utils/Api_path';
+import { isDirectStudent } from '@/lib/student-kind';
 
 const getProfileImgUrl = (imgUrl: string | null | undefined) => {
   if (!imgUrl) return null;
@@ -28,7 +29,7 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const name = u.fullName || u.name || student.name || 'Student';
+  const name = u.fullName || u.name || 'Student';
   const initials = name
     .split(' ')
     .map((n: string) => n[0])
@@ -37,16 +38,12 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
     .substring(0, 2)
     .toUpperCase() || 'ST';
 
-  const enrollment = u.enrollmentNumber || u.studentCode || (u.programmesList && u.programmesList[0]?.enrollmentNumber) || null;
-  const programName = (u.programmesList && u.programmesList[0]?.programmeName) || u.programName || null;
-  const semester = (u.programmesList && u.programmesList[0]?.currentSemester) || u.currentSemester || null;
-  const college = u.collegeName || u.organization || null;
-  const rawImg = u.profileImage || u.ProfileImage || u.avatar || u.studentProfileImage || student?.avatar || null;
+  const programmes = Array.isArray(u.programmesList) ? u.programmesList : [];
+  const enrollment = u.enrollmentNumber || u.studentCode || programmes[0]?.enrollmentNumber || null;
+  const college = u.collegeName || u.tenantName || u.organization || null;
+  const isDirectUser = isDirectStudent(u);
+  const rawImg = u.profileImage || u.ProfileImage || u.avatar || u.studentProfileImage || (isDirectUser ? student?.avatar : null) || null;
   const profileImg = getProfileImgUrl(rawImg);
-  const isDirectUser = Boolean(
-    u.createdFrom === 'DIRECT' || 
-    (u.authType === 'DIRECT' && !u.studentDegreeAdmissionId && !u.externalStudentId && u.createdFrom !== 'LMS')
-  );
 
   const handlePhotoClick = () => {
     fileInputRef.current?.click();
@@ -187,25 +184,27 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
           </div>
 
           {/* Right Block: LMS Academic Info (if LMS student) */}
-          {programName && !isDirectUser ? (
+          {programmes.length > 0 && !isDirectUser ? (
             <div className="w-full md:w-auto bg-slate-50 dark:bg-slate-900/60 rounded-xl p-3.5 border border-border/70 flex items-start gap-3 shrink-0">
               <div className="p-2 rounded-lg bg-slate-200/60 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                 <GraduationCap className="h-5 w-5" />
               </div>
-              <div className="text-left">
-                <h4 className="text-xs font-bold text-foreground leading-tight">
-                  {programName}
-                </h4>
-                {semester && (
-                  <p className="text-[11px] text-muted-foreground mt-0.5 font-medium">
-                    Semester {semester}
-                  </p>
-                )}
-                {college && (
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {college}
-                  </p>
-                )}
+              <div className="text-left space-y-2">
+                {programmes.map((prog: any, idx: number) => (
+                  <div key={idx}>
+                    <h4 className="text-xs font-bold text-foreground leading-tight">
+                      {prog.programmeName || prog.programName}
+                    </h4>
+                    {prog.currentSemester != null && prog.currentSemester !== '' ? (
+                      <p className="text-[11px] text-muted-foreground mt-0.5 font-medium">
+                        Semester {prog.currentSemester}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+                {college ? (
+                  <p className="text-[11px] text-muted-foreground">{college}</p>
+                ) : null}
               </div>
             </div>
           ) : null}

@@ -4,6 +4,7 @@ import { Main } from '@/components/layout/main';
 import { dashboardData } from '@/pages/student/dashboard/data';
 import { useAuthStore } from '@/stores/auth-store';
 import { fetchAuthMe } from '@/Utils/GetApiHandler';
+import { getStudentAcademicProgress } from '@/Utils/lmsApi_paths';
 import { GraduationCap, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -21,6 +22,7 @@ export default function AcademicProgress() {
   const { auth } = useAuthStore();
   const u = (auth.user || {}) as any;
   const [selectedProgramIndex, setSelectedProgramIndex] = useState(0);
+  const [progressPayload, setProgressPayload] = useState<any>(null);
 
   useEffect(() => {
     fetchAuthMe()
@@ -35,22 +37,20 @@ export default function AcademicProgress() {
         }
       })
       .catch(() => {});
+    getStudentAcademicProgress()
+      .then((data: any) => setProgressPayload(data))
+      .catch(() => setProgressPayload({ progressStatus: 'LMS_PROFILE_UNAVAILABLE', programmes: [], academicProgress: {} }));
   }, []);
 
-  // Build programmes list dynamically from LMS GetStudentProfile data
-  const rawProgrammes = (u.programmesList && Array.isArray(u.programmesList) && u.programmesList.length > 0)
-    ? u.programmesList
-    : [
-        {
-          programmeName: u.programName || dashboardData.student.program.name,
-          currentSemester: u.currentSemester || String(dashboardData.student.program.currentSemester),
-          enrollmentNumber: u.enrollmentNumber || dashboardData.student.enrollmentNumber,
-          totalSemesters: 4,
-        }
-      ];
+  const academicProgress = progressPayload?.academicProgress || {};
+  const rawProgrammes = (progressPayload?.programmes && progressPayload.programmes.length > 0)
+    ? progressPayload.programmes
+    : ((u.programmesList && Array.isArray(u.programmesList) && u.programmesList.length > 0)
+        ? u.programmesList
+        : []);
 
   const helperGetShortName = (name: string) => {
-    if (!name) return 'MCA';
+    if (!name) return 'Program';
     if (name.toLowerCase().includes('computer applications') || name.toLowerCase().includes('mca')) return 'MCA';
     if (name.toLowerCase().includes('business administration') || name.toLowerCase().includes('mba')) return 'MBA';
     if (name.toLowerCase().includes('bachelor of technology') || name.toLowerCase().includes('b.tech')) return 'B.Tech';
@@ -62,20 +62,17 @@ export default function AcademicProgress() {
   };
 
   const programmes = rawProgrammes.map((prog: any, idx: number) => {
-    const curSem = Number(prog.currentSemester) || 1;
-    const totSem = Number(prog.totalSemesters) || 4;
-    const calcProgress = Math.min(100, Math.max(15, Math.round(((curSem - 0.35) / totSem) * 100)));
-
+    const completion = academicProgress.completionPercentage ?? academicProgress.overallProgress ?? null;
     return {
       id: String(idx + 1),
-      name: prog.programmeName || 'Degree Program',
-      shortName: helperGetShortName(prog.programmeName || ''),
-      totalSemesters: totSem,
-      currentSemester: curSem,
-      overallProgress: calcProgress,
-      startDate: prog.admissionDate || '2026-06-27',
-      expectedEndDate: '2028-06-30',
-      enrollmentNumber: prog.enrollmentNumber || u.enrollmentNumber || 'N/A',
+      name: prog.programmeName || prog.programName || '—',
+      shortName: helperGetShortName(prog.programmeName || prog.programName || ''),
+      totalSemesters: prog.totalSemesters ?? null,
+      currentSemester: prog.currentSemester ?? null,
+      overallProgress: completion,
+      startDate: prog.admissionDate || null,
+      expectedEndDate: prog.expectedEndDate || null,
+      enrollmentNumber: prog.enrollmentNumber || null,
       totalEnrolledPrograms: rawProgrammes.length
     };
   });
@@ -107,6 +104,18 @@ export default function AcademicProgress() {
               </p>
             </div>
           </div>
+
+          {progressPayload?.progressStatus && progressPayload.progressStatus !== 'LIVE' ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              LMS data is temporarily unavailable.
+            </div>
+          ) : null}
+
+          {programmes.length === 0 ? (
+            <div className="bg-white dark:bg-card border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-sm text-slate-500">
+              No academic programme is linked to this account yet. Programme details appear after the university LMS profile is available.
+            </div>
+          ) : null}
 
           {/* Dynamic Program Selector Bar (If student has 2 or more LMS Enrolled Programs) */}
           {programmes.length > 1 && (
@@ -146,11 +155,22 @@ export default function AcademicProgress() {
             </div>
           )}
           
-          {/* Top Row: Academic Overview */}
-          <AcademicOverview data={dashboardData} activeProgram={activeProgram} />
-
-          {/* Second Row: Program Timeline */}
-          <ProgramTimeline program={activeProgram} />
+          {activeProgram ? (
+            <>
+              <AcademicOverview
+                data={{
+                  ...dashboardData,
+                  academicOverviewStats: {
+                    ...dashboardData.academicOverviewStats,
+                    completedLabs: academicProgress.completedLabs ?? null,
+                    totalLabs: academicProgress.totalLabs ?? null,
+                  },
+                }}
+                activeProgram={activeProgram}
+              />
+              <ProgramTimeline program={activeProgram} />
+            </>
+          ) : null}
 
           {/* Third Row: Charts - Commented out as requested */}
           {/* 

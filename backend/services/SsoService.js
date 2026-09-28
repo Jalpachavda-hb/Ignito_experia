@@ -11,11 +11,17 @@ import { signAccessToken } from "../lib/jwt.js";
 import { unauthorized, badRequest } from "../lib/errors.js";
 import { ENV } from "../config/env.js";
 import { lmsProfileCacheService } from "./LmsProfileCacheService.js";
+import {
+  assertStudentPortal,
+  loadLmsProvider,
+  loadTenantById,
+  loadTenantBySlug,
+} from "../lib/studentAccess.js";
 
 const LMS_JWT_SECRET = process.env.LMS_JWT_SECRET || "default_lms_secret";
 
 class SsoService {
-  async verifyLmsToken({ token, studentDegreeAdmissionId, studentId, device, os, browser, ipAddress, correlationId }) {
+  async verifyLmsToken({ token, studentDegreeAdmissionId, studentId, device, os, browser, ipAddress, correlationId, slug, host }) {
     if (!token) {
       throw badRequest("LMS token is required");
     }
@@ -47,9 +53,19 @@ class SsoService {
     if (!providerSubject) throw unauthorized("LMS token must contain a Subject (sub)");
 
     const admissionId = studentDegreeAdmissionId || decodedToken.studentDegreeAdmissionId || decodedToken.admissionId;
-    const resolvedStudentId = studentId || decodedToken.studentId || decodedToken.studentID || decodedToken.student_id || externalProfile?.studentId || externalProfile?.studentID || externalProfile?.student_id || null;
-    const tenantId = decodedToken.tenantId || decodedToken.universityId || decodedToken.university || 'TEN000001';
-    const provider = decodedToken.provider || 'GTU_LMS';
+    const requestSlug = String(slug || decodedToken.tenantSlug || decodedToken.slug || decodedToken.universitySlug || "").trim().toLowerCase();
+    let tenantId = decodedToken.tenantId || decodedToken.universityId || null;
+    let tenant = tenantId ? await loadTenantById(tenantId) : null;
+    if (!tenant && requestSlug) tenant = await loadTenantBySlug(requestSlug);
+    if (tenant) tenantId = tenant.TenantId;
+    assertStudentPortal({
+      user: { CreatedFrom: "LMS", AuthType: "LMS" },
+      tenant,
+      slug: requestSlug,
+      host: host || ""
+    });
+    const provider = await loadLmsProvider(null, tenant, decodedToken.provider || null);
+    const hintedStudentId = studentId || decodedToken.studentId || decodedToken.studentID || decodedToken.student_id || null;
 
     let externalProfile = null;
     if (admissionId) {
@@ -57,7 +73,8 @@ class SsoService {
         const profileResult = await lmsProfileCacheService.getOrFetchProfile({
           tenantId,
           provider,
-          externalStudentId: admissionId,
+          externalStudentId: hintedStudentId || admissionId,
+          admissionId,
           token: token
         });
         if (profileResult && profileResult.data) {
@@ -68,8 +85,13 @@ class SsoService {
       }
     }
 
+    const resolvedStudentId = hintedStudentId || externalProfile?.studentId || externalProfile?.studentID || externalProfile?.student_id || null;
+    const storedStudentId = /^\d+$/.test(String(resolvedStudentId ?? "").trim()) ? String(resolvedStudentId).trim() : null;
+    const storedAdmissionId = /^\d+$/.test(String(admissionId ?? "").trim()) ? String(admissionId).trim() : null;
+    const storedExternalId = storedStudentId || storedAdmissionId;
+
     const replayId = decodedToken.jti || decodedToken.nonce || `${providerSubject}_${decodedToken.iat || Date.now()}`;
-    const email = (externalProfile?.email || decodedToken.email || (decodedToken.nickname ? `${decodedToken.nickname}@lms.edu` : null) || "").trim().toLowerCase();
+    const email = (externalProfile?.email || decodedToken.email || "").trim().toLowerCase();
     const fullName = (externalProfile?.applicantFullName || decodedToken.name || decodedToken.fullName || `${decodedToken.firstName || ''} ${decodedToken.lastName || ''}`.trim() || 'LMS Student').trim();
 
     if (!email) {
@@ -104,7 +126,7 @@ class SsoService {
           const [insertRes] = await connection.query(
             `INSERT INTO users (FullName, Email, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId, StudentDegreeAdmissionId, StudentId, CreatedAt)
              VALUES (?, ?, NULL, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?, ?, ?, NOW())`,
-            [fullName, email, tenantId, String(admissionId || providerSubject), String(admissionId || ''), String(resolvedStudentId || '')]
+            [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId]
           );
           userId = insertRes.insertId;
           userObj = await userRepository.findById(userId, connection);
@@ -112,8 +134,8 @@ class SsoService {
           userId = userObj.UserId;
           try {
             await connection.query(
-              `UPDATE users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = ?, StudentDegreeAdmissionId = ?, StudentId = ?, AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
-              [fullName, email, tenantId, String(admissionId || providerSubject), String(admissionId || ''), String(resolvedStudentId || ''), userId]
+              `UPDATE users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = COALESCE(?, ExternalStudentId), StudentDegreeAdmissionId = COALESCE(?, StudentDegreeAdmissionId), StudentId = COALESCE(?, StudentId), AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
+              [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId, userId]
             );
           } catch (e) {
             console.error("[SsoService] users UPDATE error:", e.message);
@@ -145,8 +167,8 @@ class SsoService {
         userObj = await userRepository.findById(userId, connection);
         try {
           await connection.query(
-            `UPDATE users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = ?, StudentDegreeAdmissionId = ?, StudentId = ?, AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
-            [fullName, email, tenantId, String(admissionId || providerSubject), String(admissionId || ''), String(resolvedStudentId || ''), userId]
+            `UPDATE users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = COALESCE(?, ExternalStudentId), StudentDegreeAdmissionId = COALESCE(?, StudentDegreeAdmissionId), StudentId = COALESCE(?, StudentId), AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
+            [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId, userId]
           );
         } catch (e) {
           console.error("[SsoService] users existing identity UPDATE error:", e.message);
@@ -162,6 +184,8 @@ class SsoService {
         id: userId,
         userId: userId,
         tenantId: tenantId,
+        tenantSlug: tenant?.Slug || null,
+        tenantName: tenant?.Name || null,
           email: email,
         name: fullName,
         role: "Student",
@@ -219,7 +243,12 @@ class SsoService {
       const extGender = externalProfile?.gender || null;
       const extDob = externalProfile?.dateOfBirth || null;
       const extAddress = externalProfile?.address || null;
-      const extImage = externalProfile?.studentProfileImage ? (externalProfile.studentProfileImage.startsWith('http') ? externalProfile.studentProfileImage : "https://verse.ignitolearn.com" + externalProfile.studentProfileImage) : null;
+      const lmsImageBase = (process.env.LMS_API_BASE_URL || "").replace(/\/$/, "");
+      const extImage = externalProfile?.studentProfileImage
+        ? (externalProfile.studentProfileImage.startsWith("http") || !lmsImageBase
+            ? externalProfile.studentProfileImage
+            : lmsImageBase + externalProfile.studentProfileImage)
+        : null;
       const extProgrammes = externalProfile?.enrollmentnumberprogrammenamelist || [];
       const extEnrollment = extProgrammes[0]?.enrollmentNumber || null;
       const extProgramName = extProgrammes[0]?.programmeName || null;
@@ -247,18 +276,22 @@ class SsoService {
           studentCode: extEnrollment,
           programName: extProgramName,
           currentSemester: extCurrentSemester,
-          collegeName: 'Gujarat Technological University',
+          collegeName: tenant?.Name || null,
+          tenantSlug: tenant?.Slug || null,
+          tenantName: tenant?.Name || null,
           role: "Student",
           roleCode: "STUDENT",
           authSource: "LMS",
           createdFrom: userObj?.CreatedFrom || "LMS",
           authType: userObj?.AuthType || "LMS",
           studentDegreeAdmissionId: admissionId,
+          externalStudentId: String(admissionId || providerSubject),
           hasPassword
         },
         tenant: {
           tenantId,
-          slug: 'gtu'
+          slug: tenant?.Slug || null,
+          name: tenant?.Name || null
         },
         authSource: 'LMS',
         accessToken,

@@ -22,3 +22,17 @@ export function slugFromHost(host) {
   if (parts.length > 1 && !RESERVED.has(parts[0])) return parts[0];
   return "";
 }
+
+/** Build `{slug}.{apex}` from the browser host. Apex is taken from the request, never a fixed domain. */
+export function portalHostForSlug(slug, requestHost) {
+  const raw = String(requestHost || "").trim().toLowerCase();
+  const hostname = raw.split(":")[0];
+  const port = raw.includes(":") ? `:${raw.split(":").slice(1).join(":")}` : "";
+  const cleanSlug = String(slug || "").trim().toLowerCase();
+  if (!cleanSlug) return hostname ? `${hostname}${port}` : "";
+  const current = slugFromHost(hostname);
+  let apex = current ? hostname.slice(current.length + 1) : hostname;
+  if (apex.startsWith("www.")) apex = apex.slice(4);
+  if (!apex || apex === "localhost") return `${cleanSlug}.localhost${port}`;
+  return `${cleanSlug}.${apex}${port}`;
+}

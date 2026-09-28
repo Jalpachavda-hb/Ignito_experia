@@ -4,6 +4,8 @@ import { Loader2, AlertCircle, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
 import { getApiOrigin } from '@/config/env'
+import { getTenantSlug } from '@/lib/tenant-slug'
+import { fetchAuthMe } from '@/Utils/GetApiHandler'
 
 export function SsoCallback() {
   const navigate = useNavigate()
@@ -32,17 +34,37 @@ export function SsoCallback() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'x-tenant-domain': window.location.host,
           },
-          body: JSON.stringify({ token, studentDegreeAdmissionId, studentId })
+          body: JSON.stringify({
+            token,
+            studentDegreeAdmissionId,
+            studentId,
+            slug: getTenantSlug(),
+          })
         })
 
         const data = await res.json()
 
         if (res.ok && data.success && data.accessToken) {
           auth.setAccessToken(data.accessToken)
-          if (data.student) {
-            auth.setUser(data.student)
+          if (data.refreshToken) {
+            auth.setRefreshToken?.(data.refreshToken)
+          }
+          try {
+            const meData: any = await fetchAuthMe()
+            if (meData?.user) {
+              auth.setUser({
+                ...meData.user,
+                userId: meData.user.id || meData.user.userId,
+                fullName: meData.user.fullName || meData.user.name,
+                exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+              })
+            } else if (data.student) {
+              auth.setUser(data.student)
+            }
+          } catch {
+            if (data.student) auth.setUser(data.student)
           }
 
           // Instantly replace window location to student dashboard to skip /sso-callback in browser history.

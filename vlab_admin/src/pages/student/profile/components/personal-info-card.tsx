@@ -5,6 +5,7 @@ import { StudentProfile } from '@/pages/student/dashboard/types';
 import { User, Pencil } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { EditProfileModal } from './edit-profile-modal';
+import { isDirectStudent } from '@/lib/student-kind';
 
 interface PersonalInfoCardProps {
   student: StudentProfile;
@@ -13,26 +14,23 @@ interface PersonalInfoCardProps {
 export function PersonalInfoCard({ student }: PersonalInfoCardProps) {
   const { auth } = useAuthStore();
   const u: any = auth.user || {};
-  const isDirectUser = Boolean(
-    u.createdFrom === 'DIRECT' || 
-    (u.authType === 'DIRECT' && !u.studentDegreeAdmissionId && !u.externalStudentId && u.createdFrom !== 'LMS')
-  );
+  const isDirectUser = isDirectStudent(u);
 
   const [showEditModal, setShowEditModal] = useState(false);
 
   const fields = isDirectUser
     ? [
-        { label: 'Full Name', value: u.fullName || u.name || student.name },
-        { label: 'Email Address', value: u.email || student.email },
-        { label: 'Mobile Number', value: u.mobile || u.phoneNumber || student.mobile || 'Not Provided' },
+        { label: 'Full Name', value: u.fullName || u.name || '—' },
+        { label: 'Email Address', value: u.email || '—' },
+        { label: 'Mobile Number', value: u.mobile || u.phoneNumber || '—' },
       ]
     : [
-        { label: 'Full Name', value: u.fullName || u.name || student.name },
-        { label: 'Email Address', value: u.email || student.email },
-        { label: 'Gender', value: u.gender || 'Not Provided' },
-        { label: 'Date of Birth', value: u.dateOfBirth || 'Not Provided' },
-        { label: 'Mobile Number', value: u.mobile || u.phoneNumber || student.mobile || 'Not Provided' },
-        { label: 'Alternate Contact', value: u.alternateMobile || 'Not Provided' },
+        { label: 'Full Name', value: u.fullName || u.name || '—' },
+        { label: 'Email Address', value: u.email || '—' },
+        { label: 'Gender', value: u.gender || '—' },
+        { label: 'Date of Birth', value: u.dateOfBirth || '—' },
+        { label: 'Mobile Number', value: u.mobile || u.phoneNumber || '—' },
+        { label: 'Alternate Contact', value: u.alternateMobile || '—' },
       ];
 
   return (
@@ -69,7 +67,7 @@ export function PersonalInfoCard({ student }: PersonalInfoCardProps) {
             <div className="pt-1">
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Address</p>
               <p className="text-sm font-semibold text-slate-900 dark:text-white mt-1 leading-relaxed">
-                {u.address || 'Not Provided'}
+                {u.address || '—'}
               </p>
             </div>
           )}

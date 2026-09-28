@@ -2,6 +2,11 @@ import { ok } from "../lib/apigw.js";
 import authService from "../services/AuthService.js";
 import userRepository from "../repositories/UserRepository.js";
 import { lmsProfileCacheService } from "../services/LmsProfileCacheService.js";
+import { lmsProgrammeService } from "../services/lms/LmsProgrammeService.js";
+import { lmsCourseService } from "../services/lms/LmsCourseService.js";
+import { lmsAcademicProgressService } from "../services/lms/LmsAcademicProgressService.js";
+import { identityFromUser, loadStudentLmsContext } from "../services/lms/studentLmsContext.js";
+import { mergeProgrammes } from "../services/lms/programmeNormalize.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import { unauthorized } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
@@ -38,6 +43,12 @@ import { lmsLoginDto, loginDto, refreshDto } from "../dto/auth.dto.js";
 import { ssoService } from "../services/SsoService.js";
 import { badRequest } from "../lib/errors.js";
 import { slugFromHost } from "../lib/tenantSlug.js";
+import {
+  PLATFORM_TENANT_ID,
+  isUniversityIdentity,
+  loadLmsProvider,
+  loadTenantById,
+} from "../lib/studentAccess.js";
 
 const validate = (schema, data) => {
   const { error, value } = schema.validate(data, { abortEarly: false, stripUnknown: true });
@@ -47,8 +58,10 @@ const validate = (schema, data) => {
   return value;
 };
 
-export const authRegisterHandler = async ({ body }) => {
-  const user = await authService.register(body || {});
+export const authRegisterHandler = async ({ body, headers = {} }) => {
+  const host = headers.host || headers.Host || headers["x-tenant-domain"] || "";
+  const slug = body?.slug || slugFromHost(host);
+  const user = await authService.register({ ...(body || {}), slug });
   return ok({
     success: true,
     message: "User registered successfully",
@@ -171,8 +184,8 @@ export const authLoginHandler = async ({ body, headers = {}, requestContext }) =
     browser: headers['user-agent'] || 'unknown',
     os: 'unknown',
     device: 'unknown',
-    host: headers.host || headers.Host || '',
-    slug: body?.slug || ''
+    host: body?.portalHost || headers["x-tenant-domain"] || headers.host || headers.Host || "",
+    slug: body?.slug || ""
   });
   const { user, accessToken, refreshToken } = result;
 
@@ -209,6 +222,9 @@ export const ssoLoginHandler = async ({ body = {}, headers, requestContext }) =>
   // Use APIGW request ID or generate one
   const correlationId = requestContext?.requestId || crypto.randomUUID();
 
+  const host = headers["x-tenant-domain"] || headers.host || headers.Host || "";
+  const slug = body?.slug || slugFromHost(host);
+
   const result = await ssoService.verifyLmsToken({
     token,
     studentDegreeAdmissionId: body?.studentDegreeAdmissionId,
@@ -217,7 +233,9 @@ export const ssoLoginHandler = async ({ body = {}, headers, requestContext }) =>
     browser: headers['user-agent'] || 'unknown',
     os: 'unknown',
     device: 'unknown',
-    correlationId
+    correlationId,
+    slug,
+    host
   });
 
   return {
@@ -382,49 +400,93 @@ export const authMeHandler = async ({ auth }) => {
   }
 
   let tenantId = profile.TenantId || profile.UniversityId || auth.tenantId;
-  if (!tenantId && (profile.UserId || auth.userId)) {
+  if (!tenantId || tenantId === PLATFORM_TENANT_ID) {
     const lookupId = profile.UserId || auth.userId;
-    const [utmRows] = await pool.query(
-      "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' ORDER BY MappingId DESC LIMIT 1",
-      [lookupId]
-    ).catch(() => [[]]);
-    if (utmRows.length > 0 && utmRows[0].TenantId) {
-      tenantId = utmRows[0].TenantId;
+    if (lookupId) {
+      const [utmRows] = await pool.query(
+        "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' AND TenantId <> ? ORDER BY MappingId DESC LIMIT 1",
+        [lookupId, PLATFORM_TENANT_ID]
+      ).catch(() => [[]]);
+      if (utmRows.length > 0 && utmRows[0].TenantId) {
+        tenantId = utmRows[0].TenantId;
+      }
     }
   }
+  if (tenantId === PLATFORM_TENANT_ID) tenantId = null;
+  const universityStudent = isUniversityIdentity(profile);
+  const admissionId = universityStudent
+    ? (profile.StudentDegreeAdmissionId || profile.ExternalStudentId || auth.studentDegreeAdmissionId || null)
+    : null;
+  const tenant = universityStudent ? await loadTenantById(tenantId) : null;
   if (!tenantId) {
-    tenantId = 'TEN000001';
+    tenantId = PLATFORM_TENANT_ID;
   }
-  
+
   let cachedLmsProfile = null;
   let cacheSource = 'NONE';
-  if (admissionId) {
+  let profileStatus = universityStudent ? 'LMS_PROFILE_UNAVAILABLE' : null;
+  const lmsProvider = universityStudent && tenant
+    ? await loadLmsProvider(profile.UserId || auth.userId, tenant)
+    : null;
+  const lmsIdentityIds = identityFromUser(profile);
+  const lmsExternalId = lmsIdentityIds.externalStudentId;
+  if (universityStudent && admissionId && tenant) {
     const cachedResult = await lmsProfileCacheService.getOrFetchProfile({
-      tenantId,
-      provider: 'GTU_LMS',
-      externalStudentId: admissionId,
+      tenantId: tenant.TenantId,
+      provider: lmsProvider,
+      externalStudentId: lmsExternalId,
+      admissionId,
       forceRefresh: false
     });
-    if (cachedResult && cachedResult.data) {
+    profileStatus = cachedResult?.profileStatus || 'LMS_PROFILE_UNAVAILABLE';
+    cacheSource = cachedResult?.source || profileStatus;
+    if (profileStatus === 'LIVE' && cachedResult?.data) {
       cachedLmsProfile = cachedResult.data;
-      cacheSource = cachedResult.source;
     }
+  } else if (universityStudent && !admissionId) {
+    profileStatus = 'LMS_STUDENT_NOT_FOUND';
+  }
+
+  let purchasedPayload = null;
+  if (universityStudent && tenant && (profile.StudentId || profile.ExternalStudentId)) {
+    const purchased = await lmsProgrammeService.getPurchased({
+      tenantId: tenant.TenantId,
+      provider: lmsProvider,
+      studentId: lmsIdentityIds.studentId,
+    });
+    if (purchased.lmsStatus === 'LIVE') purchasedPayload = purchased.rawData || purchased;
   }
 
   const fullName = cachedLmsProfile?.applicantFullName || profile.FullName || `${profile.FirstName || ''} ${profile.LastName || ''}`.trim() || 'Student';
 
-  const extMobile = cachedLmsProfile?.mobile || profile.Mobile || null;
-  const extAltMobile = cachedLmsProfile?.alternateMobile || profile.AlternateMobile || null;
-  const extGender = cachedLmsProfile?.gender || profile.Gender || null;
-  const extDob = cachedLmsProfile?.dateOfBirth || profile.DateOfBirth || null;
-  const extAddress = cachedLmsProfile?.address || profile.Address || null;
-  const extImage = cachedLmsProfile?.studentProfileImage ? (cachedLmsProfile.studentProfileImage.startsWith('http') ? cachedLmsProfile.studentProfileImage : "https://verse.ignitolearn.com" + cachedLmsProfile.studentProfileImage) : (profile.ProfileImage || null);
-  const extProgrammes = (cachedLmsProfile?.enrollmentnumberprogrammenamelist && Array.isArray(cachedLmsProfile.enrollmentnumberprogrammenamelist))
+  const extMobile = cachedLmsProfile ? (cachedLmsProfile.mobile || null) : (universityStudent ? null : (profile.PhoneNumber || profile.Mobile || null));
+  const extAltMobile = cachedLmsProfile ? (cachedLmsProfile.alternateMobile || null) : null;
+  const extGender = cachedLmsProfile ? (cachedLmsProfile.gender || null) : null;
+  const extDob = cachedLmsProfile ? (cachedLmsProfile.dateOfBirth || null) : null;
+  const extAddress = cachedLmsProfile ? (cachedLmsProfile.address || null) : null;
+  const lmsImageBase = process.env.LMS_API_BASE_URL || "";
+  const extImage = cachedLmsProfile?.studentProfileImage
+    ? (cachedLmsProfile.studentProfileImage.startsWith('http') || !lmsImageBase
+        ? cachedLmsProfile.studentProfileImage
+        : lmsImageBase.replace(/\/$/, "") + cachedLmsProfile.studentProfileImage)
+    : (universityStudent ? null : (profile.ProfileImage || null));
+  const profileProgrammes = Array.isArray(cachedLmsProfile?.enrollmentnumberprogrammenamelist)
     ? cachedLmsProfile.enrollmentnumberprogrammenamelist
     : [];
-  const extEnrollment = extProgrammes[0]?.enrollmentNumber || profile.StudentCode || profile.ExternalStudentId || null;
-  const extProgramName = extProgrammes[0]?.programmeName || profile.ProgramName || 'Master of Business Administration - International Business';
-  const extCurrentSemester = extProgrammes[0]?.currentSemester || profile.CurrentSemester || '1';
+  const extProgrammes = universityStudent ? mergeProgrammes(profileProgrammes, purchasedPayload) : [];
+  const extEnrollment = universityStudent
+    ? (extProgrammes[0]?.enrollmentNumber || profile.StudentCode || null)
+    : null;
+  const extProgramName = universityStudent
+    ? (extProgrammes[0]?.programmeName || profile.ProgramName || null)
+    : null;
+  const extCurrentSemester = universityStudent
+    ? (extProgrammes[0]?.currentSemester || profile.CurrentSemester || null)
+    : null;
+  const collegeName = universityStudent ? (tenant?.Name || null) : null;
+  const tenantSlug = universityStudent ? (tenant?.Slug || null) : null;
+  const createdFrom = profile.CreatedFrom || (universityStudent ? 'LMS' : 'DIRECT');
+  const authType = profile.AuthType || (universityStudent ? 'LMS' : 'DIRECT');
 
   let walletBalance = 0.00;
   let walletStatus = 'ACTIVE';
@@ -439,20 +501,38 @@ export const authMeHandler = async ({ auth }) => {
   return ok({
     success: true,
     cacheStatus: cacheSource,
+    profileStatus,
+    lmsIdentity: universityStudent ? {
+      provider: lmsProvider,
+      externalStudentId: lmsExternalId || null,
+      studentDegreeAdmissionId: admissionId,
+      studentId: profile.StudentId || null,
+    } : null,
+    profile: universityStudent ? {
+      fullName: cachedLmsProfile?.applicantFullName || null,
+      email: cachedLmsProfile?.email || null,
+      mobile: extMobile,
+      alternateMobile: extAltMobile,
+      gender: extGender,
+      dateOfBirth: extDob,
+      address: extAddress,
+      profileImage: extImage,
+    } : null,
     identity: {
       userId: profile.UserId || profile.StudentProfileId,
       email: profile.Email,
       fullName: fullName,
       hasPassword: Boolean(profile.PasswordHash),
-      authType: profile.AuthType || 'LMS',
-      createdFrom: profile.CreatedFrom || 'LMS',
+      authType,
+      createdFrom,
       status: profile.Status
     },
-    tenant: {
-      tenantId: tenantId,
-      slug: 'gtu'
-    },
-    academic: {
+    tenant: universityStudent && tenant ? {
+      tenantId: tenant.TenantId,
+      slug: tenantSlug,
+      name: collegeName
+    } : null,
+    academic: universityStudent ? {
       program: extProgramName,
       programName: extProgramName,
       semester: extCurrentSemester,
@@ -465,8 +545,10 @@ export const authMeHandler = async ({ auth }) => {
       address: extAddress,
       profileImage: extImage,
       programmesList: extProgrammes,
-      collegeName: 'Gujarat Technological University'
-    },
+      programmes: extProgrammes,
+      collegeName,
+      academicProgress: null,
+    } : null,
     wallet: {
       balance: walletBalance,
       status: walletStatus
@@ -486,9 +568,11 @@ export const authMeHandler = async ({ auth }) => {
       dateOfBirth: extDob,
       address: extAddress,
       profileImage: extImage,
-      studentId: profile.StudentId || profile.ExternalStudentId || profile.StudentDegreeAdmissionId,
-      studentDegreeAdmissionId: admissionId,
-      programmesList: extProgrammes,
+      studentId: universityStudent ? (profile.StudentId || profile.ExternalStudentId || profile.StudentDegreeAdmissionId || null) : null,
+      studentDegreeAdmissionId: universityStudent ? admissionId : null,
+      externalStudentId: universityStudent ? (profile.ExternalStudentId || null) : null,
+      programmesList: universityStudent ? extProgrammes : [],
+      profileStatus,
       tenantId: tenantId,
       universityId: tenantId,
       departmentId: profile.DepartmentId,
@@ -496,9 +580,11 @@ export const authMeHandler = async ({ auth }) => {
       enrollmentNumber: extEnrollment,
       programName: extProgramName,
       currentSemester: extCurrentSemester,
-      collegeName: 'Gujarat Technological University',
-      createdFrom: profile.CreatedFrom || 'LMS',
-      authType: profile.AuthType || 'LMS',
+      collegeName,
+      tenantSlug,
+      tenantName: collegeName,
+      createdFrom,
+      authType,
       hasPassword: Boolean(profile.PasswordHash),
       permissions,
     }
@@ -534,84 +620,140 @@ export const authSetPasswordHandler = async ({ auth, body = {} }) => {
 };
 
 export const authRefreshLmsProfileHandler = async ({ auth }) => {
-  if (!auth || !auth.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || 'TEN000001';
-  let admissionId = auth.studentDegreeAdmissionId;
-  if (!admissionId) {
-    const [uRows] = await pool.query("SELECT StudentDegreeAdmissionId, ExternalStudentId FROM users WHERE UserId = ?", [auth.userId]);
-    if (uRows && uRows.length > 0) admissionId = uRows[0].StudentDegreeAdmissionId || uRows[0].ExternalStudentId;
+  const ctx = await loadStudentLmsContext(auth);
+  if (!ctx.universityStudent) {
+    throw badRequest("Academic profile refresh is only available for university students.");
   }
-  if (!admissionId) admissionId = 1;
+  if (!ctx.tenant) throw badRequest("University portal could not be resolved for this account.");
+  if (!ctx.admissionId) {
+    return ok({
+      success: true,
+      profileStatus: "LMS_STUDENT_NOT_FOUND",
+      profile: null,
+      message: "This account has no university admission id to refresh.",
+    });
+  }
 
   const result = await lmsProfileCacheService.getOrFetchProfile({
-    tenantId,
-    provider: 'GTU_LMS',
-    externalStudentId: admissionId,
-    forceRefresh: true
+    tenantId: ctx.tenant.TenantId,
+    provider: ctx.provider,
+    externalStudentId: ctx.externalStudentId,
+    admissionId: ctx.admissionId,
+    forceRefresh: true,
   });
 
   return ok({
     success: true,
-    message: "LMS profile refreshed and cache updated successfully.",
-    profile: result?.data || null
+    profileStatus: result?.profileStatus || "LMS_PROFILE_UNAVAILABLE",
+    message: result?.profileStatus === "LIVE"
+      ? "LMS profile refreshed and cache updated successfully."
+      : "LMS data is temporarily unavailable.",
+    profile: result?.data || null,
   });
 };
 
 export const studentRefreshProfileHandler = authRefreshLmsProfileHandler;
 
-export const studentPurchasedProgrammesHandler = async ({ auth, body = {} }) => {
-  if (!auth || !auth.userId) throw unauthorized("Authentication required");
-  let realStudentId = null;
-  try {
-    const [uRows] = await pool.query("SELECT StudentId, StudentDegreeAdmissionId, ExternalStudentId FROM users WHERE UserId = ?", [auth.userId]);
-    if (uRows && uRows.length > 0) {
-      realStudentId = uRows[0].StudentId || uRows[0].ExternalStudentId || uRows[0].StudentDegreeAdmissionId;
-    }
-  } catch (e) {}
-
-  const studentId = realStudentId || body.studentId || body.studentDegreeAdmissionId || auth.studentId || auth.studentDegreeAdmissionId || 3;
-  const numericStudentId = Number(studentId);
-
-  const apiUrl = "https://verse.ignitolearn.com/api/ExperiaAPI/GetStudentPurchasedProgrammeSemesterList";
-  try {
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ studentId: numericStudentId })
-    });
-    if (res.ok) {
-      const rawData = await res.json();
-      const list = rawData?.programmeList || rawData?.programList || (Array.isArray(rawData) ? rawData : []);
-      return ok({
-        success: true,
-        isSuccess: rawData?.isSuccess !== false,
-        programmeList: list,
-        programList: list,
-        semesterList: rawData?.semesterList || [],
-        rawData
-      });
-    }
-  } catch (err) {}
-  return ok({ success: false, programmeList: [], programList: [], semesterList: [] });
+export const studentPurchasedProgrammesHandler = async ({ auth }) => {
+  const ctx = await loadStudentLmsContext(auth);
+  if (!ctx.universityStudent || !ctx.tenant) {
+    return ok({ success: true, programmeList: [], programList: [], semesterList: [] });
+  }
+  const result = await lmsProgrammeService.getPurchased({
+    tenantId: ctx.tenant.TenantId,
+    provider: ctx.provider,
+    studentId: ctx.studentId,
+  });
+  return ok(result);
 };
 
 export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
-  if (!auth || !auth.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || 'TEN000001';
-  const programmeId = body.programmeId || body.programId || 1;
-  const apiUrl = "https://verse.ignitolearn.com/api/ExperiaAPI/GetSemesterCourseListByProgrammeId";
-  try {
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({ programmeId: Number(programmeId) })
+  const ctx = await loadStudentLmsContext(auth);
+  if (!ctx.universityStudent || !ctx.tenant) {
+    return ok({ success: true, semesterList: [], courseList: [] });
+  }
+  const programmeId = body.programmeId || body.programId;
+  if (!programmeId) throw badRequest("programmeId is required");
+
+  const profileResult = ctx.admissionId
+    ? await lmsProfileCacheService.getOrFetchProfile({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+        externalStudentId: ctx.externalStudentId,
+        admissionId: ctx.admissionId,
+      })
+    : null;
+  const purchased = ctx.studentId
+    ? await lmsProgrammeService.getPurchased({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+        studentId: ctx.studentId,
+      })
+    : null;
+  const owned = mergeProgrammes(
+    Array.isArray(profileResult?.data?.enrollmentnumberprogrammenamelist) ? profileResult.data.enrollmentnumberprogrammenamelist : [],
+    purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
+  );
+  const ownedIds = owned
+    .map((programme) => String(programme.programmeId ?? programme.programId ?? ""))
+    .filter(Boolean);
+  if (ownedIds.length > 0 && !ownedIds.includes(String(programmeId))) {
+    return ok({ success: true, lmsStatus: "LMS_STUDENT_NOT_FOUND", semesterList: [], courseList: [] });
+  }
+
+  const result = await lmsCourseService.getByProgramme({
+    tenantId: ctx.tenant.TenantId,
+    provider: ctx.provider,
+    programmeId,
+    semester: body.semester ?? body.semesterNumber ?? body.semesterId ?? null,
+  });
+  return ok(result);
+};
+
+export const studentAcademicProgressHandler = async ({ auth }) => {
+  const ctx = await loadStudentLmsContext(auth);
+  if (!ctx.universityStudent || !ctx.tenant) {
+    return ok({ success: true, progressStatus: null, programmes: [], academicProgress: {} });
+  }
+
+  let profile = null;
+  let profileStatus = "LMS_PROFILE_UNAVAILABLE";
+  if (ctx.admissionId) {
+    const cached = await lmsProfileCacheService.getOrFetchProfile({
+      tenantId: ctx.tenant.TenantId,
+      provider: ctx.provider,
+      externalStudentId: ctx.externalStudentId,
+      admissionId: ctx.admissionId,
     });
-    if (res.ok) {
-      const rawData = await res.json();
-      return ok({ success: true, isSuccess: rawData?.isSuccess !== false, semesterList: rawData?.semesterList || [], courseList: rawData?.courseList || [], rawData });
-    }
-  } catch (err) {}
-  return ok({ success: false, semesterList: [] });
+    profileStatus = cached?.profileStatus || profileStatus;
+    profile = cached?.data || null;
+  }
+
+  const purchased = ctx.studentId
+    ? await lmsProgrammeService.getPurchased({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+        studentId: ctx.studentId,
+      })
+    : null;
+  const programmes = mergeProgrammes(
+    Array.isArray(profile?.enrollmentnumberprogrammenamelist) ? profile.enrollmentnumberprogrammenamelist : [],
+    purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
+  );
+
+  const progress = await lmsAcademicProgressService.getProgress({
+    tenantId: ctx.tenant.TenantId,
+    provider: ctx.provider,
+    admissionId: ctx.admissionId,
+    studentId: ctx.studentId,
+    profile: profileStatus === "LIVE" ? profile : null,
+    programmes,
+  });
+
+  if (profileStatus !== "LIVE" && progress.progressStatus === "LIVE") {
+    progress.progressStatus = profileStatus;
+  }
+  return ok(progress);
 };
 
 export const getPracticalAvailableProgramsHandler = async () => ok({ success: true, programList: [] });
