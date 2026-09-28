@@ -12,9 +12,7 @@ interface ProgramTimelineProps {
 }
 
 export function ProgramTimeline({ program }: ProgramTimelineProps) {
-  const currentSem = program.currentSemester != null && program.currentSemester !== ''
-    ? Number(program.currentSemester)
-    : null;
+  const currentSem = program.currentSemester != null ? Number(program.currentSemester) : null;
   const totalSem = program.totalSemesters != null && Number(program.totalSemesters) > 0
     ? Number(program.totalSemesters)
     : null;

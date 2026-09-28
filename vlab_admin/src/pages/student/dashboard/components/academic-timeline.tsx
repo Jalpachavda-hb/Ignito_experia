@@ -4,7 +4,8 @@ import { ProgramInfo } from '../types'
 import { CheckCircle2, CircleDot, Circle } from 'lucide-react'
 
 export function AcademicTimeline({ program }: { program: ProgramInfo }) {
-  const semesters = Array.from({ length: program.totalSemesters }).map((_, i) => i + 1)
+  const currentSemester = program.currentSemester
+  const semesters = Array.from({ length: program.totalSemesters ?? 0 }).map((_, i) => i + 1)
 
   return (
     <Card className="border-border/50 shadow-sm h-full">
@@ -14,8 +15,8 @@ export function AcademicTimeline({ program }: { program: ProgramInfo }) {
       <CardContent>
         <div className="relative pl-6 space-y-6 before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px before:h-full before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
           {semesters.map((sem) => {
-            const isCompleted = sem < program.currentSemester
-            const isCurrent = sem === program.currentSemester
+            const isCompleted = currentSemester != null && sem < currentSemester
+            const isCurrent = currentSemester != null && sem === currentSemester
 
             return (
               <div key={sem} className="relative">

@@ -14,12 +14,8 @@ interface AcademicOverviewProps {
 
 export function AcademicOverview({ data, activeProgram }: AcademicOverviewProps) {
   const program = activeProgram || data.student.program;
-  const currentSem = program.currentSemester != null && program.currentSemester !== ''
-    ? Number(program.currentSemester)
-    : null;
-  const totalSem = program.totalSemesters != null && program.totalSemesters !== ''
-    ? Number(program.totalSemesters)
-    : null;
+  const currentSem = program.currentSemester != null ? Number(program.currentSemester) : null;
+  const totalSem = program.totalSemesters != null ? Number(program.totalSemesters) : null;
   const completedSemesters = currentSem != null ? Math.max(0, currentSem - 1) : null;
   const remainingSemesters = currentSem != null && totalSem != null ? Math.max(0, totalSem - currentSem) : null;
   const progTitle = activeProgram?.shortName || program.name || "—";

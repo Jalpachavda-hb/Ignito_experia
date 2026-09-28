@@ -10,6 +10,7 @@ interface SemesterAccordionProps {
 
 export function SemesterAccordion({ data }: SemesterAccordionProps) {
   const { currentCourses, student } = data;
+  const currentSemester = student.program.currentSemester;
   const [openCurrent, setOpenCurrent] = useState(true);
   const [openPast, setOpenPast] = useState(false);
 
@@ -35,10 +36,10 @@ export function SemesterAccordion({ data }: SemesterAccordionProps) {
             >
               <div className="flex items-center gap-3">
                 <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400 flex items-center justify-center font-bold text-sm shrink-0">
-                  {student.program.currentSemester}
+                  {currentSemester ?? '—'}
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Semester {student.program.currentSemester}</h4>
+                  <h4 className="text-sm font-bold text-slate-900 dark:text-white">Semester {currentSemester ?? '—'}</h4>
                   <p className="text-xs font-medium text-slate-500 mt-0.5">Current Semester Curriculum</p>
                 </div>
               </div>
@@ -71,7 +72,7 @@ export function SemesterAccordion({ data }: SemesterAccordionProps) {
           </div>
           
           {/* Past Semester Accordion Item (Placeholder) */}
-          {student.program.currentSemester > 1 && (
+          {currentSemester != null && currentSemester > 1 && (
             <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-white dark:bg-slate-950">
               <button 
                 onClick={() => setOpenPast(!openPast)}
@@ -79,10 +80,10 @@ export function SemesterAccordion({ data }: SemesterAccordionProps) {
               >
                 <div className="flex items-center gap-3">
                   <div className="h-8 w-8 rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
-                    {student.program.currentSemester - 1}
+                    {currentSemester - 1}
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">Semester {student.program.currentSemester - 1}</h4>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">Semester {currentSemester - 1}</h4>
                     <p className="text-xs font-medium text-slate-500 mt-0.5">Previous Semester</p>
                   </div>
                 </div>

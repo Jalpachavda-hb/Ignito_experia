@@ -4,9 +4,9 @@ import {
   logoutUser as logoutApi,
 } from '../Utils/PostApiHandler';
 
-export const loginWithCredentials = async ({ email, password, slug }: any) => {
+export const loginWithCredentials = async ({ email, password, slug, portalHost }: any) => {
   try {
-    const data = await loginApi({ email, password, slug });
+    const data = await loginApi({ email, password, slug, portalHost });
     if (data && !data.success && data.message) {
       throw new Error(data.message);
     }
