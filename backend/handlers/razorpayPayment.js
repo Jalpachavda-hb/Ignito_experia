@@ -79,6 +79,8 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
     credits,
     amount,
     labId,
+    labName,
+    items,
     userId: bodyUserId,
     userEmail: bodyUserEmail,
     tenantId: bodyTenantId,
@@ -126,13 +128,17 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
         currency: "INR",
         paymentReference: razorpay_payment_id,
         idempotencyKey: razorpay_order_id || `IDEM-${razorpay_payment_id}`,
+        labId: labId || null,
+        labName: labName || null,
+        items: Array.isArray(items) ? items : null,
       });
     } catch (e) {
       console.warn("Wallet database credit warning for userId:", targetUserId, e.message);
     }
 
-    // Also credit by userEmail if different from userId
-    if (bodyUserEmail && bodyUserEmail !== targetUserId) {
+    // Also credit by userEmail if different from userId.
+    // Multi-lab carts are already split on the primary user, so this must not run again.
+    if (!Array.isArray(items) && bodyUserEmail && bodyUserEmail !== targetUserId) {
       try {
         await creditWalletService.processPurchase({
           userId: bodyUserEmail,

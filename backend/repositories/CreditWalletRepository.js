@@ -131,7 +131,7 @@ class CreditWalletRepository {
   }
 
   async getTransactions(userId, tenantId, limit = 50, offset = 0, db = pool) {
-    let query = `SELECT TransactionId, TenantId, UserId, Type, Source, Credits, Amount, Currency, PaymentReference, LabId, LabSessionId, IdempotencyKey, Status, CreatedAt
+    let query = `SELECT TransactionId, TenantId, UserId, Type, Source, Credits, Amount, Currency, PaymentReference, LabId, LabSessionId, IdempotencyKey, Status, MetadataJson, CreatedAt
        FROM credit_transactions
        WHERE UserId = ?`;
     const params = [userId];

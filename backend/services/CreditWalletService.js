@@ -4,6 +4,61 @@ import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWall
 import studentLabTokenTransactionRepository from "../repositories/StudentLabTokenTransactionRepository.js";
 import { badRequest, forbidden } from "../lib/errors.js";
 
+export function displayLabName(labId, labName) {
+  const given = String(labName || "").trim();
+  const looksLikeId = /^[a-z0-9_-]+$/i.test(given);
+  if (given && !looksLikeId && !/^virtual lab$/i.test(given)) {
+    return given;
+  }
+  const clean = String(labId || given || "")
+    .toLowerCase()
+    .replace(/^lab-/, "")
+    .replace(/-lab$/, "");
+  if (clean.includes("python")) return "Python Programming Lab";
+  if (clean.includes("java")) return "Java Development Lab";
+  if (clean.includes("linux")) return "Linux Administration Lab";
+  if (clean.includes("android")) return "Android Application Lab";
+  if (clean.includes("dotnet") || clean.includes(".net")) return ".NET Technologies Lab";
+  if (!clean) return "Virtual Lab";
+  return `${clean.toUpperCase()} Lab`;
+}
+
+function normalizePurchaseLines({ credits, amount, labId, labName, items }) {
+  if (Array.isArray(items) && items.length > 0) {
+    return items
+      .map((item) => {
+        const itemLabId = String(item.labId || item.LabId || "").trim();
+        const tokens = Number(item.tokens ?? item.tokenAmount ?? item.credits ?? 0);
+        return {
+          labId: itemLabId,
+          labName: displayLabName(itemLabId, item.labName || item.LabName || item.title),
+          tokens,
+          amount: Number(item.amountRupees ?? item.amount ?? item.priceAmount ?? 0),
+        };
+      })
+      .filter((item) => item.labId && item.tokens > 0);
+  }
+
+  const tokens = Number(credits || 0);
+  const resolvedLabId = String(labId || "python");
+  return [{
+    labId: resolvedLabId,
+    labName: displayLabName(resolvedLabId, labName),
+    tokens,
+    amount: Number(amount || 0),
+  }];
+}
+
+function parseMetadata(value) {
+  if (!value) return {};
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
 class CreditWalletService {
   async getWallet(userId, tenantId, db = pool) {
     if (!userId || !tenantId) {
@@ -24,6 +79,8 @@ class CreditWalletService {
     credits,
     amount,
     labId = null,
+    labName = null,
+    items = null,
     currency = 'INR',
     paymentReference,
     idempotencyKey
@@ -31,7 +88,11 @@ class CreditWalletService {
     if (!userId || !tenantId) {
       throw badRequest("UserId and TenantId are required for purchase.");
     }
-    if (!credits || credits <= 0) {
+
+    const lines = normalizePurchaseLines({ credits, amount, labId, labName, items });
+    const totalTokens = lines.reduce((sum, line) => sum + line.tokens, 0);
+    const totalAmount = lines.reduce((sum, line) => sum + line.amount, 0);
+    if (totalTokens <= 0) {
       throw badRequest("Credits amount must be greater than zero.");
     }
 
@@ -58,8 +119,8 @@ class CreditWalletService {
         wallet = await creditWalletRepository.getWalletForUpdate(userId, tenantId, connection);
       }
 
-      const newBalance = Number(wallet.Balance) + Number(credits);
-      const newTotalPurchased = Number(wallet.TotalPurchasedCredits || 0) + Number(credits);
+      const newBalance = Number(wallet.Balance) + totalTokens;
+      const newTotalPurchased = Number(wallet.TotalPurchasedCredits || 0) + totalTokens;
 
       await creditWalletRepository.updateBalance(
         wallet.WalletId,
@@ -73,31 +134,45 @@ class CreditWalletService {
         userId,
         type: 'PURCHASE',
         source: 'STUDENT_PURCHASE',
-        credits: Number(credits),
-        amount: Number(amount || 0),
+        credits: totalTokens,
+        amount: totalAmount || Number(amount || 0),
         currency,
         paymentReference,
+        labId: lines.length === 1 ? lines[0].labId : null,
         idempotencyKey,
         status: 'SUCCESS',
-        metadataJson: { previousBalance: wallet.Balance, newBalance, labId }
+        metadataJson: {
+          previousBalance: wallet.Balance,
+          newBalance,
+          labId: lines.length === 1 ? lines[0].labId : null,
+          items: lines,
+        }
       }, connection);
 
-      // AUTOMATICALLY Credit Lab-Specific Token Wallet during purchase
-      const targetLabId = labId || 'python';
-      await studentLabTokenWalletRepository.creditWalletTokens(tenantId, userId, targetLabId, Number(credits), connection);
-      
-      const ledgerKey = idempotencyKey ? `purchase_${idempotencyKey}_lab_${targetLabId}` : `purchase_tx_${txnId}_lab_${targetLabId}`;
-      await studentLabTokenTransactionRepository.createTransaction({
-        tenantId,
-        studentId: userId,
-        labId: targetLabId,
-        transactionType: 'PURCHASE',
-        tokens: Number(credits),
-        referenceType: 'PURCHASE',
-        referenceId: paymentReference || idempotencyKey || String(txnId),
-        description: `Purchased ${credits} tokens for lab '${targetLabId}'`,
-        idempotencyKey: ledgerKey
-      }, connection);
+      for (const line of lines) {
+        await studentLabTokenWalletRepository.creditWalletTokens(
+          tenantId,
+          userId,
+          line.labId,
+          line.tokens,
+          connection
+        );
+
+        const ledgerKey = idempotencyKey
+          ? `purchase_${idempotencyKey}_lab_${line.labId}`
+          : `purchase_tx_${txnId}_lab_${line.labId}`;
+        await studentLabTokenTransactionRepository.createTransaction({
+          tenantId,
+          studentId: userId,
+          labId: line.labId,
+          transactionType: 'PURCHASE',
+          tokens: line.tokens,
+          referenceType: 'PURCHASE',
+          referenceId: paymentReference || idempotencyKey || String(txnId),
+          description: `${line.labName} (${line.tokens} Tokens)`,
+          idempotencyKey: ledgerKey
+        }, connection);
+      }
 
       await connection.commit();
       connection.release();
@@ -106,7 +181,7 @@ class CreditWalletService {
         success: true,
         transactionId: txnId,
         newBalance,
-        creditsPurchased: Number(credits)
+        creditsPurchased: totalTokens
       };
     } catch (err) {
       await connection.rollback();
@@ -254,8 +329,77 @@ class CreditWalletService {
     }
   }
 
+  expandPurchaseRows(rows, labRows) {
+    const labByPayment = new Map();
+    for (const labRow of labRows || []) {
+      const key = String(labRow.ReferenceId || "");
+      if (!key) continue;
+      if (!labByPayment.has(key)) labByPayment.set(key, []);
+      labByPayment.get(key).push(labRow);
+    }
+
+    return rows.flatMap((row) => {
+      const meta = parseMetadata(row.MetadataJson);
+      const metaItems = Array.isArray(meta.items) ? meta.items.filter((item) => item?.labId && Number(item.tokens) > 0) : [];
+      if (metaItems.length > 1) {
+        return metaItems.map((item) => this.toLabPurchaseRow(row, item.labId, item.labName, Number(item.tokens), Number(item.amount || 0)));
+      }
+
+      const matches = (labByPayment.get(String(row.PaymentReference || "")) || [])
+        .filter((labRow) => labRow.TransactionType === "PURCHASE" || String(labRow.Description || "").startsWith("Purchased") || String(labRow.Description || "").includes("Tokens"));
+
+      if (matches.length > 1) {
+        const tokenSum = matches.reduce((sum, labRow) => sum + Number(labRow.Tokens || 0), 0) || 1;
+        const rupees = Number(row.Amount || 0);
+        return matches.map((labRow) => {
+          const tokens = Number(labRow.Tokens || 0);
+          const share = Math.round((tokens / tokenSum) * rupees * 100) / 100;
+          return this.toLabPurchaseRow(row, labRow.LabId, null, tokens, share);
+        });
+      }
+
+      if (matches.length === 1) {
+        return [this.toLabPurchaseRow(row, matches[0].LabId, null, Number(matches[0].Tokens || row.Credits), Number(row.Amount || 0))];
+      }
+
+      if (metaItems.length === 1) {
+        const item = metaItems[0];
+        return [this.toLabPurchaseRow(row, item.labId, item.labName, Number(item.tokens), Number(item.amount || row.Amount || 0))];
+      }
+
+      const singleLabId = row.LabId || meta.labId || null;
+      return [{
+        ...row,
+        labId: singleLabId,
+        labName: singleLabId ? displayLabName(singleLabId) : null,
+        description: singleLabId
+          ? displayLabName(singleLabId)
+          : (row.Type === "PURCHASE" ? "Token purchase" : "Lab session usage"),
+      }];
+    });
+  }
+
+  toLabPurchaseRow(row, labId, labName, tokens, amount) {
+    const name = displayLabName(labId, labName);
+    const suffix = labId ? `-${labId}` : "";
+    return {
+      ...row,
+      TransactionId: `${row.TransactionId}${suffix}`,
+      IdempotencyKey: `${row.IdempotencyKey || row.TransactionId}${suffix}`,
+      Credits: tokens,
+      Amount: amount,
+      LabId: labId,
+      labId,
+      labName: name,
+      description: name,
+    };
+  }
+
   async getTransactionHistory(userId, tenantId, limit = 50, offset = 0) {
-    return await creditWalletRepository.getTransactions(userId, tenantId, limit, offset);
+    const rows = await creditWalletRepository.getTransactions(userId, tenantId, limit, offset);
+    const refs = rows.map((row) => row.PaymentReference).filter(Boolean);
+    const labRows = await studentLabTokenTransactionRepository.getByReferenceIds(refs);
+    return this.expandPurchaseRows(rows, labRows);
   }
 }
 

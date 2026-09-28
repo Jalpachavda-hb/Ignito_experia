@@ -116,61 +116,8 @@ export async function internalTenantLoginHandler(req, res) {
       });
     }
 
-    // 2. Check user_tenant_mapping + users table (Backward compatibility)
-    const [userRows] = await pool.execute(
-      `SELECT u.UserId, u.Email, u.PasswordHash, u.FullName, u.Status as UserStatus,
-              t.DbId as TenantDbId, t.TenantId, t.Name as TenantName, t.Slug as TenantSlug, t.Status as TenantStatus, utm.Role
-       FROM users u
-       JOIN user_tenant_mapping utm ON u.UserId = utm.UserId
-       JOIN tenants t ON utm.TenantId = t.TenantId
-       WHERE LOWER(u.Email) = ? AND utm.Role = 'TENANT_ADMIN' ${tenantId ? 'AND t.TenantId = ?' : ''}`,
-      tenantId ? [cleanEmail, tenantId] : [cleanEmail]
-    );
-
-    if (userRows.length > 0) {
-      const u = userRows[0];
-
-      if ((u.TenantStatus || '').toUpperCase() !== 'ACTIVE') {
-        return res.status(403).json({
-          success: false,
-          message: `This university account (${u.TenantName}) is currently unavailable. Please contact the platform administrator.`,
-        });
-      }
-
-      if ((u.UserStatus || '').toUpperCase() !== 'ACTIVE') {
-        return res.status(403).json({
-          success: false,
-          message: 'Your administrator account is inactive. Please contact the platform administrator.',
-        });
-      }
-
-      const isValid = bcrypt.compareSync(password, u.PasswordHash);
-      if (!isValid) {
-        return res.status(401).json({ success: false, message: 'Invalid email or password' });
-      }
-
-      // Auto sync into tenants table
-      try {
-        await pool.execute(
-          `UPDATE tenants 
-           SET AdminEmail = ?, AdminPasswordHash = ?, AdminFullName = ?
-           WHERE DbId = ?`,
-          [u.Email, u.PasswordHash, u.FullName, u.TenantDbId]
-        );
-      } catch (e) {}
-
-      return res.status(200).json({
-        success: true,
-        userId: u.UserId,
-        tenantId: u.TenantId,
-        role: 'TENANT_ADMIN',
-        name: u.FullName || 'Tenant Administrator',
-        email: u.Email,
-        tenantName: u.TenantName,
-        tenantSlug: u.TenantSlug,
-      });
-    }
-
+    // Owner DB stores tenant admins on tenants.AdminEmail only.
+    // Students are authenticated by the VLab API after this 401.
     return res.status(401).json({ success: false, message: 'Invalid email or password' });
   } catch (error) {
     console.error('Error in internalTenantLoginHandler:', error);

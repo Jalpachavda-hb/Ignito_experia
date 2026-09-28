@@ -22,7 +22,7 @@ export default function CreditWallet() {
   const { labs, isLoading, loadLabs } = useLabStore();
   const { auth } = useAuthStore();
   const { user } = auth;
-  const { addTransaction } = useTransactionStore();
+  const { addTransaction, fetchTransactions } = useTransactionStore();
   const { labWallets, fetchStudentLabTokens } = useLabTokenStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -115,12 +115,18 @@ export default function CreditWallet() {
 
     setIsCheckoutProcessing(true);
 
-    const labNamesSummary = selectedItemsList.map(item => `${item.lab.title || item.lab.name} (${item.tokens} Tokens)`).join(', ');
+    const purchaseItems = selectedItemsList.map((item) => ({
+      labId: String(item.lab.id || item.lab.labId),
+      labName: item.lab.title || item.lab.name || 'Virtual Lab',
+      tokens: item.tokens,
+      amountRupees: item.amountRupees,
+    }));
 
     await initiateRazorpayPayment({
       amountInRupees: totalCombinedPaymentRupees,
-      labName: `Combined Tokens Bill: ${selectedItemsList.length} Labs`,
-      labId: selectedItemsList.map(i => i.lab.id).join(','),
+      labName: purchaseItems.length === 1 ? purchaseItems[0].labName : `${purchaseItems.length} Labs`,
+      labId: purchaseItems.map((item) => item.labId).join(','),
+      items: purchaseItems,
       userEmail: user?.email || '',
       userName: user?.fullName || user?.name || 'Student User',
       userPhone: user?.phoneNumber || user?.mobile || '',
@@ -130,23 +136,27 @@ export default function CreditWallet() {
         await fetchStudentLabTokens();
 
         const method = detectPaymentMethod(details);
-        addTransaction({
-          razorpayPaymentId: paymentId,
-          description: `Combined Token Order: ${labNamesSummary}`,
-          labName: `${selectedItemsList.length} Labs Combined`,
-          labId: selectedItemsList.map(i => i.lab.id).join(','),
-          type: 'Credit',
-          amount: totalCombinedTokens,
-          amountRupees: totalCombinedPaymentRupees,
-          paymentMethod: method,
-          studentEmail: user?.email || 'student@vlab.edu',
-          studentPhone: user?.phoneNumber || '+91 9876543210',
-          studentName: user?.fullName || 'Student User',
-          status: 'Completed',
+        purchaseItems.forEach((item) => {
+          addTransaction({
+            id: `${paymentId}-${item.labId}`,
+            razorpayPaymentId: paymentId,
+            description: item.labName,
+            labName: item.labName,
+            labId: item.labId,
+            type: 'Credit',
+            amount: item.tokens,
+            amountRupees: item.amountRupees,
+            paymentMethod: method,
+            studentEmail: user?.email || '',
+            studentPhone: user?.phoneNumber || user?.mobile || '',
+            studentName: user?.fullName || user?.name || 'Student User',
+            status: 'Completed',
+          });
         });
+        await fetchTransactions();
 
         setCartItems({});
-        setPaymentSuccessMessage(`Combined bill of ₹${totalCombinedPaymentRupees} paid successfully! Tokens credited.`);
+        setPaymentSuccessMessage(`Payment of ₹${totalCombinedPaymentRupees} paid successfully. Tokens were added to each lab.`);
         setTimeout(() => setPaymentSuccessMessage(''), 5000);
       },
       onFailure: (err) => {

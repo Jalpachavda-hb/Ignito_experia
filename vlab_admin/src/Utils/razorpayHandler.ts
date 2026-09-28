@@ -29,10 +29,18 @@ export const loadRazorpayScript = (): Promise<boolean> => {
   });
 };
 
+export interface RazorpayCartItem {
+  labId: string;
+  labName: string;
+  tokens: number;
+  amountRupees: number;
+}
+
 export interface RazorpayPaymentOptions {
   amountInRupees: number;
   labName: string;
   labId: string;
+  items?: RazorpayCartItem[];
   userEmail?: string;
   userPhone?: string;
   userName?: string;
@@ -103,6 +111,7 @@ export const initiateRazorpayPayment = async ({
   amountInRupees,
   labName,
   labId,
+  items,
   userEmail = '',
   userPhone = '',
   userName = '',
@@ -188,6 +197,8 @@ export const initiateRazorpayPayment = async ({
             credits: amountInRupees,
             amount: amountInRupees,
             labId,
+            labName,
+            items: Array.isArray(items) ? items : undefined,
             userId: currentUserId || userEmail,
             userEmail,
             userName,

@@ -28,6 +28,52 @@ interface TransactionState {
   clearTransactions: () => void;
 }
 
+function prettyLabName(labId?: string) {
+  const clean = String(labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+  if (!clean) return '';
+  if (clean.includes('python')) return 'Python Programming Lab';
+  if (clean.includes('java')) return 'Java Development Lab';
+  if (clean.includes('linux')) return 'Linux Administration Lab';
+  if (clean.includes('android')) return 'Android Application Lab';
+  if (clean.includes('dotnet') || clean.includes('.net')) return '.NET Technologies Lab';
+  return '';
+}
+
+/** One combined payment that names several labs becomes one row per lab. */
+function expandLabPurchases(rows: TransactionRecord[]): TransactionRecord[] {
+  const expanded: TransactionRecord[] = [];
+  for (const tx of rows) {
+    const match = String(tx.description || '').match(/combined token order:\s*(.+)$/i);
+    if (!match) {
+      expanded.push(tx);
+      continue;
+    }
+    const parts: { name: string; tokens: number }[] = [];
+    const re = /([^,]+?)\s*\((\d+)\s*tokens\)/gi;
+    let found: RegExpExecArray | null;
+    while ((found = re.exec(match[1]))) {
+      parts.push({ name: found[1].trim(), tokens: Number(found[2]) });
+    }
+    if (parts.length < 2) {
+      expanded.push(tx);
+      continue;
+    }
+    const tokenSum = parts.reduce((sum, part) => sum + part.tokens, 0) || 1;
+    const rupees = Number(tx.amountRupees ?? 0);
+    parts.forEach((part, index) => {
+      expanded.push({
+        ...tx,
+        id: `${tx.id}-${index}`,
+        description: part.name,
+        labName: part.name,
+        amount: part.tokens,
+        amountRupees: Math.round((part.tokens / tokenSum) * rupees),
+      });
+    });
+  }
+  return expanded;
+}
+
 // Clear any residual localStorage cache from previous test runs
 if (typeof window !== 'undefined') {
   try {
@@ -47,21 +93,25 @@ export const useTransactionStore = create<TransactionState>((set) => ({
       const res = await executeRequest('/credits/transactions', { auth: true });
       const rawList = res?.transactions || res?.data || [];
       const currentUser = useAuthStore.getState()?.auth?.user;
-      const formatted: TransactionRecord[] = rawList.map((t: any) => ({
-        id: t.idempotencyKey || t.transactionId || t.id || `TXN-${t.TransactionId}`,
-        razorpayPaymentId: t.paymentReference || t.PaymentReference,
-        date: t.createdAt || t.CreatedAt || new Date().toISOString(),
-        description: t.description || (t.type === 'PURCHASE' ? 'Combined Token Order: Python (60 Tokens), Java Development Lab (60 Tokens)' : 'Lab Session Usage'),
-        labName: t.labName || t.LabName || 'Virtual Lab',
-        labId: t.labId || t.LabId,
-        type: (t.type === 'PURCHASE' || t.type === 'ALLOCATION' || t.type === 'Credit' || t.Type === 'PURCHASE') ? 'Credit' : 'Debit',
-        amount: Number(t.credits || t.Credits || t.amount || 0),
-        amountRupees: Number(t.amount || t.Amount || t.credits || 0),
-        paymentMethod: t.source === 'STUDENT_PURCHASE' ? 'Razorpay' : (t.source || t.paymentMethod || 'Razorpay'),
-        studentEmail: t.userEmail || t.studentEmail || currentUser?.email || '',
-        studentPhone: t.userPhone || t.studentPhone || currentUser?.phoneNumber || currentUser?.mobile || '',
-        studentName: t.userName || t.studentName || currentUser?.fullName || currentUser?.name || 'Student User',
-        status: (t.status || t.Status || 'SUCCESS').toUpperCase() === 'SUCCESS' ? 'Completed' : 'Failed'
+      const formatted: TransactionRecord[] = expandLabPurchases(rawList.map((t: any) => {
+        const labName = t.labName || t.LabName || prettyLabName(t.labId || t.LabId);
+        const isCredit = t.type === 'PURCHASE' || t.type === 'ALLOCATION' || t.type === 'Credit' || t.Type === 'PURCHASE';
+        return {
+          id: t.idempotencyKey || t.transactionId || t.id || `TXN-${t.TransactionId}`,
+          razorpayPaymentId: t.paymentReference || t.PaymentReference,
+          date: t.createdAt || t.CreatedAt || new Date().toISOString(),
+          description: t.description || labName || (isCredit ? 'Token purchase' : 'Lab session usage'),
+          labName: labName || 'Virtual Lab',
+          labId: t.labId || t.LabId,
+          type: isCredit ? 'Credit' as const : 'Debit' as const,
+          amount: Number(t.credits || t.Credits || t.amount || 0),
+          amountRupees: Number(t.amount ?? t.Amount ?? t.credits ?? 0),
+          paymentMethod: t.source === 'STUDENT_PURCHASE' ? 'Razorpay' : (t.source || t.paymentMethod || 'Razorpay'),
+          studentEmail: t.userEmail || t.studentEmail || currentUser?.email || '',
+          studentPhone: t.userPhone || t.studentPhone || currentUser?.phoneNumber || currentUser?.mobile || '',
+          studentName: t.userName || t.studentName || currentUser?.fullName || currentUser?.name || 'Student User',
+          status: (t.status || t.Status || 'SUCCESS').toUpperCase() === 'SUCCESS' ? 'Completed' as const : 'Failed' as const
+        };
       }));
       set({ transactions: formatted, isLoading: false });
       return;

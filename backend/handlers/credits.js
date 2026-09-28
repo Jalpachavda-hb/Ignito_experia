@@ -72,7 +72,10 @@ export const getTransactionHistoryHandler = async ({ auth, queryStringParameters
       paymentReference: t.PaymentReference,
       idempotencyKey: t.IdempotencyKey,
       status: t.Status,
-      createdAt: t.CreatedAt
+      createdAt: t.CreatedAt,
+      labId: t.labId || t.LabId || null,
+      labName: t.labName || null,
+      description: t.description || null
     }))
   });
 };

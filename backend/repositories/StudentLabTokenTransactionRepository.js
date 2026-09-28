@@ -76,6 +76,19 @@ class StudentLabTokenTransactionRepository {
     return rows;
   }
 
+  async getByReferenceIds(referenceIds, db = pool) {
+    const ids = [...new Set((referenceIds || []).filter(Boolean).map(String))];
+    if (!ids.length) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const [rows] = await db.query(
+      `SELECT Id, StudentId, LabId, TransactionType, Tokens, Description, ReferenceType, ReferenceId, CreatedAt
+       FROM student_lab_token_transactions
+       WHERE ReferenceId IN (${placeholders})`,
+      ids
+    );
+    return rows;
+  }
+
   async getTransactionsForStudentLab(tenantId, studentId, labId, db = pool) {
     const [rows] = await db.query(
       `SELECT Id, TenantId, StudentId, LabId, TransactionType, Tokens, ReferenceType, ReferenceId, Description, IdempotencyKey, CreatedAt
