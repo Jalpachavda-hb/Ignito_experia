@@ -14,6 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set("trust proxy", 1);
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, "uploads");
@@ -27,10 +28,14 @@ app.use("/uploads", express.static(uploadsDir));
 // Verify DB connection on startup
 verifyDbConnection();
 
-// CORS — allow owner frontend on port 5174 and any localhost during development
+// CORS — CORS_ORIGIN env (comma-separated), plus localhost in development
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || origin.includes("localhost") || origin.includes("127.0.0.1")) {
+    if (!origin) return callback(null, true); // curl / same-origin proxies
+    if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
+      return callback(null, true);
+    }
+    if (ENV.corsOrigin.includes(origin) || ENV.corsOrigin.includes("*")) {
       return callback(null, true);
     }
     callback(new Error("Not allowed by CORS"));
