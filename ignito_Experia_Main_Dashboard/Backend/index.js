@@ -22,9 +22,6 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Serve uploaded files statically at /uploads
-app.use("/uploads", express.static(uploadsDir));
-
 // Verify DB connection on startup
 verifyDbConnection();
 
@@ -48,6 +45,17 @@ app.use(
     crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow image loading across origins
   })
 );
+
+// Serve uploaded files statically with explicit CORS and Cross-Origin-Resource-Policy headers
+const staticUploadsMiddleware = express.static(uploadsDir, {
+  setHeaders: (res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  },
+});
+app.use("/uploads", staticUploadsMiddleware);
+app.use(`${ENV.apiPrefix}/uploads`, staticUploadsMiddleware);
+app.use("/owner-api/uploads", staticUploadsMiddleware);
 
 // Rate limiting
 const limiter = rateLimit({

@@ -18,6 +18,54 @@ import { DegreeMilestones } from './components/degree-milestones';
 import { AchievementsTasks } from './components/achievements-tasks';
 import { SemesterAccordion } from './components/semester-accordion';
 
+function formatAcademicValue(value: unknown) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const lines = value.map((item) => {
+      if (item == null || typeof item !== 'object') return item == null ? null : String(item);
+      const row = item as Record<string, unknown>;
+      const name = row.courseName || row.subjectName || row.name || row.courseCode;
+      const score = row.marks ?? row.grade ?? row.score ?? row.status;
+      if (name && score != null && score !== '') return `${name}: ${score}`;
+      if (name) return String(name);
+      return null;
+    }).filter(Boolean);
+    return lines.length ? lines.join(' · ') : null;
+  }
+  return null;
+}
+
+function LmsAcademicFacts({ progress }: { progress: Record<string, unknown> }) {
+  const rows = [
+    ['GPA', progress.gpa],
+    ['CGPA', progress.cgpa],
+    ['Attendance', progress.attendance ?? progress.attendancePercentage],
+    ['Marks', progress.marks],
+    ['Grades', progress.grades],
+    ['Credits', progress.credits],
+    ['Completion', progress.completionPercentage ?? progress.overallProgress],
+    ['Completed courses', progress.completedCourses],
+    ['Current courses', progress.currentCourses ?? progress.subjects],
+    ['Results', progress.results],
+  ]
+    .map(([label, value]) => [label, formatAcademicValue(value)] as const)
+    .filter((row): row is readonly [string, string] => Boolean(row[1]));
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      {rows.map(([label, value]) => (
+        <div key={label} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-card p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white break-words">{value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AcademicProgress() {
   const { auth } = useAuthStore();
   const u = (auth.user || {}) as any;
@@ -73,7 +121,8 @@ export default function AcademicProgress() {
       startDate: prog.admissionDate || null,
       expectedEndDate: prog.expectedEndDate || null,
       enrollmentNumber: prog.enrollmentNumber || null,
-      totalEnrolledPrograms: rawProgrammes.length
+      totalEnrolledPrograms: rawProgrammes.length,
+      semesters: Array.isArray(prog.semesters) ? prog.semesters : [],
     };
   });
 
@@ -157,6 +206,7 @@ export default function AcademicProgress() {
           
           {activeProgram ? (
             <>
+              <LmsAcademicFacts progress={academicProgress} />
               <AcademicOverview
                 data={{
                   ...dashboardData,

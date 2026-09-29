@@ -18,7 +18,7 @@ export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolea
   let academicCourseItems: any[] = [];
 
   if (!isDirectUser && lmsPrograms && Array.isArray(lmsPrograms) && lmsPrograms.length > 0) {
-    academicCourseItems = lmsPrograms.map((prog: any) => {
+    const programmeMenus = lmsPrograms.map((prog: any) => {
       const semesterSource = (prog.semesters && Array.isArray(prog.semesters) && prog.semesters.length > 0)
         ? prog.semesters
         : (prog.currentSemester != null && prog.currentSemester !== ''
@@ -26,86 +26,82 @@ export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolea
             : []);
       const sems = semesterSource.map((s: any) => ({
         title: `Semester ${s.semesterNumber || s.semesterId || s}`,
-        url: `/student/my-labs?programId=${prog.programId || prog.programmeId || ''}&semester=${s.semesterNumber || s.semesterId || s}`
+        url: `/student/my-labs?programId=${encodeURIComponent(String(prog.programId || prog.programmeId || ''))}&semester=${encodeURIComponent(String(s.semesterNumber || s.semesterId || s))}`
       }));
 
       return {
-        title: prog.programName || prog.programmeNameAndCode || 'Degree Program',
-        icon: GraduationCap,
+        title: prog.programName || prog.programmeName || prog.programmeNameAndCode || 'Degree Program',
         items: sems
       };
-    });
-  } else {
-    academicCourseItems = [];
+    }).filter((prog: any) => prog.items.length > 0);
+
+    if (programmeMenus.length > 0) {
+      academicCourseItems = [{
+        title: 'Academic Courses',
+        icon: GraduationCap,
+        items: programmeMenus,
+      }];
+    }
   }
 
-  const academicItems = isDirectUser
-    ? [
-        {
-          title: 'Badges & Achievements',
-          url: '/student/badges-achievements',
-          icon: Award,
-        },
-        {
-          title: 'Profile',
-          url: '/student/profile',
-          icon: User,
-        },
-      ]
-    : [
-        {
-          title: 'Academic Progress',
-          url: '/student/academic-progress',
-          icon: Activity,
-        },
-        {
-          title: 'Badges & Achievements',
-          url: '/student/badges-achievements',
-          icon: Award,
-        },
-        {
-          title: 'Profile',
-          url: '/student/profile',
-          icon: User,
-        },
-      ];
+  const mainItems: any[] = [
+    {
+      title: 'Dashboard',
+      url: '/student/dashboard',
+      icon: LayoutDashboard,
+    },
+    ...academicCourseItems,
+  ];
+
+  if (!isDirectUser) {
+    mainItems.push({
+      title: 'Academic Progress',
+      url: '/student/academic-progress',
+      icon: Activity,
+    });
+  }
+
+  mainItems.push(
+    {
+      title: 'Lab Catalogue',
+      url: '/student/lab-catalogue',
+      icon: BookOpen,
+    },
+    {
+      title: 'My Labs',
+      url: '/student/my-labs',
+      icon: FlaskConical,
+    },
+    {
+      title: 'Token Wallet',
+      url: '/student/credit-wallet',
+      icon: Wallet,
+    },
+    {
+      title: 'Transactions',
+      url: '/student/transactions',
+      icon: ReceiptText,
+    },
+    {
+      title: 'Profile',
+      url: '/student/profile',
+      icon: User,
+    },
+  );
 
   const navGroups: any[] = [
     {
       title: 'Main Menu',
-      items: [
-        {
-          title: 'Dashboard',
-          url: '/student/dashboard',
-          icon: LayoutDashboard,
-        },
-        {
-          title: 'Lab Catalogue',
-          url: '/student/lab-catalogue',
-          icon: BookOpen,
-        },
-        {
-          title: 'My Labs',
-          url: '/student/my-labs',
-          icon: FlaskConical,
-        },
-        {
-          title: 'Token Wallet',
-          url: '/student/credit-wallet',
-          icon: Wallet,
-        },
-        {
-          title: 'Transactions',
-          url: '/student/transactions',
-          icon: ReceiptText,
-        },
-      ],
+      items: mainItems,
     },
     {
       title: 'Academics',
       items: [
-        ...academicItems,
-        ...academicCourseItems
+        {
+          title: 'Badges & Achievements',
+          url: '/student/badges-achievements',
+          icon: Award,
+        },
       ]
     }
   ];

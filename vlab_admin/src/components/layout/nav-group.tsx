@@ -30,6 +30,7 @@ import {
 import {
   type NavCollapsible,
   type NavItem,
+  type NavLeaf,
   type NavLink,
   type NavGroup as NavGroupProps,
 } from './types'
@@ -126,18 +127,22 @@ function SidebarMenuCollapsible({
             {item.items
               .filter((subItem) => !subItem.moduleCode || hasPermission(subItem.moduleCode, 'read'))
               .map((subItem) => (
-                <SidebarMenuSubItem key={subItem.title}>
-                  <SidebarMenuSubButton
-                    asChild
-                    isActive={checkIsActive(href, subItem)}
-                  >
-                    <Link to={subItem.url} onClick={() => setOpenMobile(false)}>
-                      {subItem.icon && <subItem.icon className="shrink-0" />}
-                      <span className="leading-tight py-0.5">{subItem.title}</span>
-                      {subItem.badge && <NavBadge>{subItem.badge}</NavBadge>}
-                    </Link>
-                  </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
+                subItem.items?.length ? (
+                  <NestedProgrammeMenu key={subItem.title} item={subItem} href={href} />
+                ) : subItem.url ? (
+                  <SidebarMenuSubItem key={subItem.title}>
+                    <SidebarMenuSubButton
+                      asChild
+                      isActive={checkIsActive(href, subItem)}
+                    >
+                      <Link to={subItem.url} onClick={() => setOpenMobile(false)}>
+                        {subItem.icon && <subItem.icon className="shrink-0" />}
+                        <span className="leading-tight py-0.5">{subItem.title}</span>
+                        {subItem.badge && <NavBadge>{subItem.badge}</NavBadge>}
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                ) : null
               ))}
           </SidebarMenuSub>
         </CollapsibleContent>
@@ -172,7 +177,7 @@ function SidebarMenuCollapsedDropdown({
             {item.title} {item.badge ? `(${item.badge})` : ''}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {item.items
+          {flattenNavItems(item.items)
             .filter((sub) => !sub.moduleCode || hasPermission(sub.moduleCode, 'read'))
             .map((sub) => (
               <DropdownMenuItem key={`${sub.title}-${sub.url}`} asChild>
@@ -194,13 +199,80 @@ function SidebarMenuCollapsedDropdown({
   )
 }
 
-function checkIsActive(href: string, item: NavItem, mainNav = false) {
+function NestedProgrammeMenu({
+  item,
+  href,
+}: {
+  item: { title: string; items: NavLeaf[] }
+  href: string
+}) {
+  const { setOpenMobile } = useSidebar()
   return (
-    href === item.url || // /endpint?search=param
-    href.split('?')[0] === item.url || // endpoint
-    !!item?.items?.filter((i) => i.url === href).length || // if child nav is active
-    (mainNav &&
+    <SidebarMenuSubItem>
+      <Collapsible
+        defaultOpen={item.items.some((leaf) => urlsMatch(href, leaf.url))}
+        className='group/nested'
+      >
+        <CollapsibleTrigger className='flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'>
+          <span className='leading-tight'>{item.title}</span>
+          <ChevronRight className='ms-auto h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/nested:rotate-90' />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {item.items.map((leaf) => (
+              <SidebarMenuSubItem key={`${item.title}-${leaf.title}`}>
+                <SidebarMenuSubButton asChild isActive={urlsMatch(href, leaf.url)}>
+                  <Link to={leaf.url} onClick={() => setOpenMobile(false)}>
+                    <span>{leaf.title}</span>
+                  </Link>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </Collapsible>
+    </SidebarMenuSubItem>
+  )
+}
+
+function flattenNavItems(items: NavCollapsible['items']): NavLeaf[] {
+  const leaves: NavLeaf[] = []
+  for (const item of items) {
+    if (item.items?.length) {
+      for (const leaf of item.items) {
+        leaves.push({ ...leaf, title: `${item.title} · ${leaf.title}` })
+      }
+    } else if (item.url) {
+      leaves.push(item)
+    }
+  }
+  return leaves
+}
+
+function urlsMatch(href: string, url?: string) {
+  if (!url) return false
+  if (href === url) return true
+  try {
+    const left = new URL(href, 'http://local')
+    const right = new URL(url, 'http://local')
+    if (left.pathname !== right.pathname) return false
+    if (![...right.searchParams.keys()].length) return left.pathname === right.pathname && left.search === ''
+    for (const [key, value] of right.searchParams) {
+      if (left.searchParams.get(key) !== value) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+function checkIsActive(href: string, item: NavItem, mainNav = false) {
+  if (item.url && urlsMatch(href, item.url)) return true
+  if (item.items?.some((child) => checkIsActive(href, child as NavItem))) return true
+  return Boolean(
+    mainNav &&
+      item.url &&
       href.split('/')[1] !== '' &&
-      href.split('/')[1] === item?.url?.split('/')[1])
+      href.split('/')[1] === item.url.split('/')[1]
   )
 }

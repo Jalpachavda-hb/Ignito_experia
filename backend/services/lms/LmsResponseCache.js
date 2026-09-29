@@ -49,6 +49,25 @@ class LmsResponseCache {
     }
   }
 
+  async invalidatePrefix(prefix) {
+    const needle = String(prefix || "");
+    if (!needle) return;
+    for (const key of memory.keys()) {
+      if (String(key).startsWith(needle)) memory.delete(key);
+    }
+    const redis = await getRedis();
+    if (!redis) return;
+    try {
+      const matched = [];
+      for await (const key of redis.scanIterator({ MATCH: `${needle}*`, COUNT: 100 })) {
+        matched.push(key);
+      }
+      if (matched.length) await redis.del(matched);
+    } catch (err) {
+      console.warn("[LmsResponseCache] Redis prefix delete failed:", err.message);
+    }
+  }
+
   /**
    * Cache hit returns cached LMS payload. Miss calls fetcher once per key (single-flight).
    */

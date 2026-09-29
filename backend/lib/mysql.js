@@ -23,6 +23,59 @@ export const getDbConnection = async () => {
   return await pool.getConnection();
 };
 
+const USERS_COLUMNS_TO_DROP = [
+  "EmailVerified",
+  "PasswordResetToken",
+  "PasswordResetExpiresAt",
+  "LastLoginAt",
+  "CreatedBy",
+  "UpdatedBy",
+  "IsDeleted",
+  "DeletedAt",
+  "DeletedBy",
+  "StudentCode",
+  "Mobile",
+  "AlternateMobile",
+  "Gender",
+  "DateOfBirth",
+  "Address",
+  "ProgrammesJson",
+  "AcademicYear",
+  "EnrollmentStatus",
+  "ProgramId",
+  "SemesterId",
+  "Batch",
+  "Section",
+  "DepartmentId",
+  "AuthenticationSource",
+  "UniversityId",
+];
+
+async function tightenUsersTable(connection) {
+  const [cols] = await connection.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Users'`
+  );
+  const have = new Set(cols.map((col) => col.COLUMN_NAME));
+  for (const name of USERS_COLUMNS_TO_DROP) {
+    if (!have.has(name)) continue;
+    try {
+      await connection.query(`ALTER TABLE \`Users\` DROP COLUMN \`${name}\``);
+      console.log(`[MySQL] Removed unused Users.${name}`);
+    } catch (err) {
+      console.warn(`[MySQL] Could not remove Users.${name}:`, err.message);
+    }
+  }
+  await connection.query("ALTER TABLE `Users` MODIFY `PasswordHash` VARCHAR(512) NULL").catch((err) => {
+    console.warn("[MySQL] PasswordHash width was not updated:", err.message);
+  });
+  await connection.query(
+    "ALTER TABLE `Users` MODIFY `AuthType` ENUM('LMS', 'DIRECT', 'LMS_AND_DIRECT') NOT NULL DEFAULT 'DIRECT'"
+  ).catch((err) => {
+    console.warn("[MySQL] AuthType values were not updated:", err.message);
+  });
+}
+
 export const verifyDbConnection = async () => {
   let connection;
   try {
@@ -53,29 +106,19 @@ export const verifyDbConnection = async () => {
         \`UserId\` INT AUTO_INCREMENT PRIMARY KEY,
         \`FullName\` VARCHAR(255) NOT NULL,
         \`Email\` VARCHAR(255) NOT NULL UNIQUE,
-        \`PasswordHash\` VARCHAR(255) NULL,
+        \`PasswordHash\` VARCHAR(512) NULL,
         \`Role\` ENUM('STUDENT', 'TENANT_ADMIN') NOT NULL DEFAULT 'STUDENT',
         \`Status\` VARCHAR(20) DEFAULT 'Active',
-        \`EmailVerified\` BOOLEAN DEFAULT 0,
-        \`PasswordResetToken\` VARCHAR(255) NULL,
-        \`PasswordResetExpiresAt\` DATETIME NULL,
-        \`LastLoginAt\` DATETIME NULL,
-        \`CreatedAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        \`UpdatedAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        \`CreatedBy\` INT NULL,
-        \`UpdatedBy\` INT NULL,
-        \`IsDeleted\` BOOLEAN DEFAULT 0,
-        \`DeletedAt\` DATETIME NULL,
-        \`DeletedBy\` INT NULL,
         \`PhoneNumber\` VARCHAR(50) NULL,
+        \`ProfileImage\` LONGTEXT NULL,
         \`CreatedFrom\` ENUM('LMS', 'DIRECT') DEFAULT 'DIRECT',
         \`AuthType\` ENUM('LMS', 'DIRECT', 'LMS_AND_DIRECT') DEFAULT 'DIRECT',
-        \`ExternalStudentId\` VARCHAR(100) NULL,
         \`TenantId\` VARCHAR(64) NULL,
-        \`StudentDegreeAdmissionId\` VARCHAR(50) NULL,
-        \`ProfileImage\` LONGTEXT NULL,
+        \`ExternalStudentId\` VARCHAR(100) NULL,
         \`StudentId\` VARCHAR(50) NULL,
-        \`StudentCode\` VARCHAR(100) NULL,
+        \`StudentDegreeAdmissionId\` VARCHAR(50) NULL,
+        \`CreatedAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        \`UpdatedAt\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX \`IDX_Users_Email\` (\`Email\`),
         INDEX \`IDX_Users_External\` (\`ExternalStudentId\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -231,6 +274,8 @@ export const verifyDbConnection = async () => {
         \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await tightenUsersTable(connection);
 
     // Tenant ids such as TEN000001 are stored in UniversityId during SSO.
     await connection.query("ALTER TABLE `StudentSessions` MODIFY `UniversityId` VARCHAR(64) NULL");

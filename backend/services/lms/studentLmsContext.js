@@ -7,6 +7,9 @@ import {
   loadTenantById,
 } from "../../lib/studentAccess.js";
 import { cleanLmsId } from "./lmsIds.js";
+import { lmsProfileCacheService } from "../LmsProfileCacheService.js";
+import { lmsProgrammeService } from "./LmsProgrammeService.js";
+import { mergeProgrammes } from "./programmeNormalize.js";
 
 export function identityFromUser(profile) {
   const admissionId = cleanLmsId(profile?.StudentDegreeAdmissionId);
@@ -49,4 +52,41 @@ export async function loadStudentLmsContext(auth) {
     provider,
     ...identity,
   };
+}
+
+export async function loadOwnedProgrammes(ctx) {
+  if (!ctx?.universityStudent || !ctx?.tenant) {
+    return { programmes: [], lmsStatus: null, profile: null, profileStatus: null };
+  }
+
+  let profile = null;
+  let profileStatus = "LMS_PROFILE_UNAVAILABLE";
+  if (ctx.admissionId) {
+    const cached = await lmsProfileCacheService.getOrFetchProfile({
+      tenantId: ctx.tenant.TenantId,
+      provider: ctx.provider,
+      externalStudentId: ctx.externalStudentId,
+      admissionId: ctx.admissionId,
+    });
+    profileStatus = cached?.profileStatus || profileStatus;
+    profile = cached?.data || null;
+  }
+
+  const purchased = ctx.studentId
+    ? await lmsProgrammeService.getPurchased({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+        studentId: ctx.studentId,
+      })
+    : null;
+
+  const programmes = mergeProgrammes(
+    Array.isArray(profile?.enrollmentnumberprogrammenamelist) ? profile.enrollmentnumberprogrammenamelist : [],
+    purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
+  );
+  const lmsStatus = profileStatus === "LIVE" || purchased?.lmsStatus === "LIVE"
+    ? "LIVE"
+    : (purchased?.lmsStatus || profileStatus);
+
+  return { programmes, lmsStatus, profile, profileStatus, purchased };
 }

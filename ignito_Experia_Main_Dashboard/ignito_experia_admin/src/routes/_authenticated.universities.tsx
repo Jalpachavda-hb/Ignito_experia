@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { apiRequest, OWNER_API_BASE } from '@/services/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 export interface UniversityTenant {
   id: string
@@ -79,8 +80,15 @@ function UniversitiesPage() {
       const uploadData = new FormData()
       uploadData.append('file', file)
 
+      const token = useAuthStore.getState().accessToken
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
       const response = await fetch(`${OWNER_API_BASE}/upload`, {
         method: 'POST',
+        headers,
         body: uploadData,
       })
 
@@ -352,7 +360,14 @@ function UniversitiesPage() {
                         <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border-2 border-dashed border-border/80 bg-secondary/20 hover:border-primary/50 transition-all">
                           <div className="h-16 w-16 rounded-2xl bg-card border border-border/80 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-2xs">
                             {formData.logoUrl ? (
-                              <img src={formData.logoUrl} alt="Tenant Logo Preview" className="h-full w-full object-cover" />
+                              <img
+                                src={formData.logoUrl}
+                                alt="Tenant Logo Preview"
+                                className="h-full w-full object-cover"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = '/images/logo.png'
+                                }}
+                              />
                             ) : (
                               <ImageIcon className="h-7 w-7 text-primary/70" />
                             )}
@@ -609,7 +624,14 @@ function UniversitiesPage() {
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-3 min-w-0">
                             {uni.logoUrl ? (
-                              <img src={uni.logoUrl} alt={uni.name} className="h-10 w-10 rounded-xl object-cover border border-border/50 shadow-2xs flex-shrink-0" />
+                              <img
+                                src={uni.logoUrl}
+                                alt={uni.name}
+                                className="h-10 w-10 rounded-xl object-cover border border-border/50 shadow-2xs flex-shrink-0"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = '/images/logo.png'
+                                }}
+                              />
                             ) : (
                               <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center font-bold text-primary text-xs flex-shrink-0">
                                 {uni.code || 'UNI'}
@@ -749,7 +771,14 @@ function UniversitiesPage() {
                     <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border-2 border-dashed border-border/80 bg-secondary/20 hover:border-primary/50 transition-all">
                       <div className="h-16 w-16 rounded-2xl bg-card border border-border/80 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-2xs">
                         {editFormData.logoUrl ? (
-                          <img src={editFormData.logoUrl} alt="Logo Preview" className="h-full w-full object-cover" />
+                          <img
+                            src={editFormData.logoUrl}
+                            alt="Logo Preview"
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = '/images/logo.png'
+                            }}
+                          />
                         ) : (
                           <ImageIcon className="h-7 w-7 text-primary/70" />
                         )}

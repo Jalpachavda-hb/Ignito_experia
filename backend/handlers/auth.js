@@ -5,8 +5,11 @@ import { lmsProfileCacheService } from "../services/LmsProfileCacheService.js";
 import { lmsProgrammeService } from "../services/lms/LmsProgrammeService.js";
 import { lmsCourseService } from "../services/lms/LmsCourseService.js";
 import { lmsAcademicProgressService } from "../services/lms/LmsAcademicProgressService.js";
-import { identityFromUser, loadStudentLmsContext } from "../services/lms/studentLmsContext.js";
-import { mergeProgrammes } from "../services/lms/programmeNormalize.js";
+import { lmsSemesterService } from "../services/lms/LmsSemesterService.js";
+import { lmsResponseCache } from "../services/lms/LmsResponseCache.js";
+import { identityFromUser, loadOwnedProgrammes, loadStudentLmsContext } from "../services/lms/studentLmsContext.js";
+import { mergeProgrammes, programmeMatches } from "../services/lms/programmeNormalize.js";
+import { LMS_PROVIDER_CONFIG } from "../config/lms/lmsProviderConfig.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import { unauthorized } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
@@ -100,14 +103,20 @@ export const tenantResolveHandler = async ({ queryStringParameters = {}, headers
   }
 
   const tenantRow = await resolvePortalTenant({ slug });
+  let rawLogoUrl = tenantRow ? (tenantRow.LogoUrl || tenantRow.logoUrl || null) : null;
+  const forwardedProto = headers['x-forwarded-proto'];
+  if (rawLogoUrl && forwardedProto === 'https' && rawLogoUrl.startsWith('http://')) {
+    rawLogoUrl = rawLogoUrl.replace('http://', 'https://');
+  }
+
   const tenant = tenantRow
     ? {
-        tenantId: tenantRow.TenantId,
-        name: tenantRow.Name,
-        slug: tenantRow.Slug,
-        officialDomain: tenantRow.OfficialDomain,
-        logoUrl: tenantRow.LogoUrl,
-        status: tenantRow.Status,
+        tenantId: tenantRow.TenantId || tenantRow.tenantId,
+        name: tenantRow.Name || tenantRow.name,
+        slug: tenantRow.Slug || tenantRow.slug,
+        officialDomain: tenantRow.OfficialDomain || tenantRow.officialDomain,
+        logoUrl: rawLogoUrl,
+        status: tenantRow.Status || tenantRow.status,
       }
     : null;
 
@@ -125,7 +134,9 @@ export const tenantResolveHandler = async ({ queryStringParameters = {}, headers
       code: "TENANT_INACTIVE",
       message: `This university portal (${tenant.name}) is currently unavailable.`,
       tenant: {
+        tenantId: tenant.tenantId,
         name: tenant.name,
+        slug: tenant.slug,
         logoUrl: tenant.logoUrl
       }
     });
@@ -136,7 +147,10 @@ export const tenantResolveHandler = async ({ queryStringParameters = {}, headers
     isMainDomain: false,
     isTenant: true,
     tenant: {
+      tenantId: tenant.tenantId,
       name: tenant.name,
+      slug: tenant.slug,
+      officialDomain: tenant.officialDomain,
       logoUrl: tenant.logoUrl
     },
   });
@@ -426,6 +440,7 @@ export const authMeHandler = async ({ auth }) => {
   }
 
   const fullName = cachedLmsProfile?.applicantFullName || profile.FullName || `${profile.FirstName || ''} ${profile.LastName || ''}`.trim() || 'Student';
+  const displayEmail = (universityStudent && cachedLmsProfile?.email) ? cachedLmsProfile.email : profile.Email;
 
   const extMobile = cachedLmsProfile ? (cachedLmsProfile.mobile || null) : (universityStudent ? null : (profile.PhoneNumber || profile.Mobile || null));
   const extAltMobile = cachedLmsProfile ? (cachedLmsProfile.alternateMobile || null) : null;
@@ -441,9 +456,16 @@ export const authMeHandler = async ({ auth }) => {
   const profileProgrammes = Array.isArray(cachedLmsProfile?.enrollmentnumberprogrammenamelist)
     ? cachedLmsProfile.enrollmentnumberprogrammenamelist
     : [];
-  const extProgrammes = universityStudent ? mergeProgrammes(profileProgrammes, purchasedPayload) : [];
+  let extProgrammes = universityStudent ? mergeProgrammes(profileProgrammes, purchasedPayload) : [];
+  if (universityStudent && tenant && extProgrammes.length) {
+    extProgrammes = await lmsSemesterService.enrichProgrammes({
+      tenant,
+      provider: lmsProvider,
+      externalStudentId: lmsExternalId,
+    }, extProgrammes);
+  }
   const extEnrollment = universityStudent
-    ? (extProgrammes[0]?.enrollmentNumber || profile.StudentCode || null)
+    ? (extProgrammes[0]?.enrollmentNumber || null)
     : null;
   const extProgramName = universityStudent
     ? (extProgrammes[0]?.programmeName || profile.ProgramName || null)
@@ -468,8 +490,10 @@ export const authMeHandler = async ({ auth }) => {
 
   return ok({
     success: true,
+    isLmsStudent: universityStudent,
     cacheStatus: cacheSource,
     profileStatus,
+    programmes: extProgrammes,
     lmsIdentity: universityStudent ? {
       provider: lmsProvider,
       externalStudentId: lmsExternalId || null,
@@ -488,7 +512,7 @@ export const authMeHandler = async ({ auth }) => {
     } : null,
     identity: {
       userId: profile.UserId || profile.StudentProfileId,
-      email: profile.Email,
+      email: displayEmail,
       fullName: fullName,
       hasPassword: Boolean(profile.PasswordHash),
       authType,
@@ -526,7 +550,7 @@ export const authMeHandler = async ({ auth }) => {
       userId: profile.UserId || profile.StudentProfileId,
       fullName: fullName,
       name: fullName,
-      email: profile.Email,
+      email: displayEmail,
       role: profile.Role || 'Student',
       roleCode: roleCode,
       status: profile.Status,
@@ -553,13 +577,51 @@ export const authMeHandler = async ({ auth }) => {
       tenantName: collegeName,
       createdFrom,
       authType,
+      isLmsStudent: universityStudent,
       hasPassword: Boolean(profile.PasswordHash),
       permissions,
     }
   });
 };
 
-import { hashPassword } from "../lib/password.js";
+import { hashPassword, verifyPassword } from "../lib/password.js";
+
+async function persistUserPassword(userId, hashed) {
+  const id = Number(userId);
+  if (!Number.isFinite(id)) {
+    throw badRequest("Password could not be saved because the account id is missing.");
+  }
+
+  const writeHash = () => pool.query(
+    "UPDATE `Users` SET `PasswordHash` = ?, `UpdatedAt` = NOW() WHERE `UserId` = ?",
+    [hashed, id]
+  );
+
+  let result;
+  try {
+    [result] = await writeHash();
+  } catch (err) {
+    if (err.code === "ER_DATA_TOO_LONG" || err.errno === 1406) {
+      await pool.query("ALTER TABLE `Users` MODIFY `PasswordHash` VARCHAR(512) NULL");
+      [result] = await writeHash();
+    } else {
+      throw err;
+    }
+  }
+
+  if (!result?.affectedRows) {
+    throw badRequest("Password was not saved. No matching student row was found.");
+  }
+
+  try {
+    await pool.query(
+      "UPDATE `Users` SET `AuthType` = 'LMS_AND_DIRECT' WHERE `UserId` = ? AND `AuthType` = 'LMS'",
+      [id]
+    );
+  } catch (err) {
+    console.warn("[auth] Password was saved, but AuthType was not updated:", err.message);
+  }
+}
 
 export const authSetPasswordHandler = async ({ auth, body = {} }) => {
   if (!auth || !auth.userId) {
@@ -575,11 +637,7 @@ export const authSetPasswordHandler = async ({ auth, body = {} }) => {
   }
 
   const hashed = await hashPassword(newPassword);
-
-  await pool.query(
-    "UPDATE users SET PasswordHash = ?, AuthType = IF(AuthType = 'LMS', 'LMS_AND_DIRECT', AuthType), UpdatedAt = NOW() WHERE UserId = ?",
-    [hashed, auth.userId]
-  );
+  await persistUserPassword(auth.userId, hashed);
 
   return ok({
     success: true,
@@ -602,6 +660,16 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
     });
   }
 
+  const provider = ctx.provider || LMS_PROVIDER_CONFIG.provider;
+  await lmsProfileCacheService.invalidateProfile(ctx.tenant.TenantId, provider, ctx.externalStudentId);
+  await lmsProgrammeService.invalidate(ctx.tenant.TenantId, provider, ctx.studentId);
+  await lmsResponseCache.invalidatePrefix(
+    lmsCourseService.cachePrefix(ctx.tenant.TenantId, provider, ctx.externalStudentId)
+  );
+  if (ctx.admissionId) {
+    await lmsResponseCache.invalidate(`lms:academic:${ctx.tenant.TenantId}:${provider}:${ctx.admissionId}`);
+  }
+
   const result = await lmsProfileCacheService.getOrFetchProfile({
     tenantId: ctx.tenant.TenantId,
     provider: ctx.provider,
@@ -609,6 +677,14 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
     admissionId: ctx.admissionId,
     forceRefresh: true,
   });
+  const purchased = ctx.studentId
+    ? await lmsProgrammeService.getPurchased({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+        studentId: ctx.studentId,
+        forceRefresh: true,
+      })
+    : null;
 
   return ok({
     success: true,
@@ -617,6 +693,10 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
       ? "LMS profile refreshed and cache updated successfully."
       : "LMS data is temporarily unavailable.",
     profile: result?.data || null,
+    programmes: mergeProgrammes(
+      Array.isArray(result?.data?.enrollmentnumberprogrammenamelist) ? result.data.enrollmentnumberprogrammenamelist : [],
+      purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
+    ),
   });
 };
 
@@ -640,41 +720,30 @@ export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
   if (!ctx.universityStudent || !ctx.tenant) {
     return ok({ success: true, semesterList: [], courseList: [] });
   }
-  const programmeId = body.programmeId || body.programId;
-  if (!programmeId) throw badRequest("programmeId is required");
+  const requestedId = body.programmeId || body.programId;
+  if (!requestedId) throw badRequest("programmeId is required");
 
-  const profileResult = ctx.admissionId
-    ? await lmsProfileCacheService.getOrFetchProfile({
-        tenantId: ctx.tenant.TenantId,
-        provider: ctx.provider,
-        externalStudentId: ctx.externalStudentId,
-        admissionId: ctx.admissionId,
-      })
-    : null;
-  const purchased = ctx.studentId
-    ? await lmsProgrammeService.getPurchased({
-        tenantId: ctx.tenant.TenantId,
-        provider: ctx.provider,
-        studentId: ctx.studentId,
-      })
-    : null;
-  const owned = mergeProgrammes(
-    Array.isArray(profileResult?.data?.enrollmentnumberprogrammenamelist) ? profileResult.data.enrollmentnumberprogrammenamelist : [],
-    purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
-  );
-  const ownedIds = owned
-    .map((programme) => String(programme.programmeId ?? programme.programId ?? ""))
-    .filter(Boolean);
-  if (ownedIds.length > 0 && !ownedIds.includes(String(programmeId))) {
-    return ok({ success: true, lmsStatus: "LMS_STUDENT_NOT_FOUND", semesterList: [], courseList: [] });
+  const owned = await loadOwnedProgrammes(ctx);
+  const match = owned.programmes.find((programme) => programmeMatches(programme, requestedId));
+  if (!match) {
+    return ok({ success: true, lmsStatus: owned.lmsStatus || "LMS_STUDENT_NOT_FOUND", semesterList: [], courseList: [] });
   }
 
   const result = await lmsCourseService.getByProgramme({
     tenantId: ctx.tenant.TenantId,
     provider: ctx.provider,
-    programmeId,
+    programmeId: match.programmeId ?? match.programId,
+    externalStudentId: ctx.externalStudentId,
     semester: body.semester ?? body.semesterNumber ?? body.semesterId ?? null,
   });
+  return ok(result);
+};
+
+export const studentSemesterLabsHandler = async ({ auth, queryStringParameters = {} }) => {
+  const ctx = await loadStudentLmsContext(auth);
+  const programId = queryStringParameters.programId || queryStringParameters.programmeId;
+  const semester = queryStringParameters.semester || queryStringParameters.semesterNumber || queryStringParameters.semesterId;
+  const result = await lmsSemesterService.getAuthorizedLabs({ ctx, programId, semester });
   return ok(result);
 };
 
@@ -729,7 +798,31 @@ export const mapCourseLabHandler = async () => ok({ success: true });
 export const userProfileUpdateHandler = async () => ok({ success: true });
 export const userProfilePhotoUploadHandler = async () => ok({ success: true });
 export const internalTenantDeleteHandler = async () => ok({ success: true });
-export const userChangePasswordHandler = async () => ok({ success: true, message: "Password updated successfully" });
+export const userChangePasswordHandler = async ({ auth, body = {} }) => {
+  if (!auth?.userId) throw unauthorized("Authentication required");
+  const { currentPassword, newPassword, confirmPassword } = body;
+  if (!newPassword || newPassword.length < 6) {
+    throw badRequest("Password must be at least 6 characters long");
+  }
+  if (confirmPassword && newPassword !== confirmPassword) {
+    throw badRequest("Passwords do not match");
+  }
+
+  const [rows] = await pool.query(
+    "SELECT PasswordHash FROM `Users` WHERE UserId = ? LIMIT 1",
+    [Number(auth.userId)]
+  );
+  const existing = rows?.[0];
+  if (!existing) throw unauthorized("User not found");
+  if (existing.PasswordHash) {
+    if (!currentPassword) throw badRequest("Current password is required");
+    const matches = await verifyPassword(currentPassword, existing.PasswordHash);
+    if (!matches) throw badRequest("Current password is incorrect");
+  }
+
+  await persistUserPassword(auth.userId, await hashPassword(newPassword));
+  return ok({ success: true, message: "Password updated successfully" });
+};
 export const authForgotPasswordHandler = async () => ok({ success: true, message: "Password reset instructions sent" });
 export const authResetPasswordHandler = async () => ok({ success: true, message: "Password reset successfully" });
 

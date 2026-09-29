@@ -17,6 +17,7 @@ import { NavUser } from './nav-user'
 import { fetchTenantResolve } from '@/Utils/GetApiHandler'
 import { getTenantSlug } from '@/lib/tenant-slug'
 import { isDirectStudent, isUniversityStudent } from '@/lib/student-kind'
+import { getTenantLogoUrl } from '@/features/auth/sign-in'
 
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
@@ -77,9 +78,12 @@ export function AppSidebar() {
         <div className="flex items-center justify-center px-3 py-4 border-b border-sidebar-border/40">
           {tenantBranding?.logoUrl ? (
             <img
-              src={tenantBranding.logoUrl}
+              src={getTenantLogoUrl(tenantBranding.logoUrl)}
               alt={tenantBranding.name || 'University Logo'}
               className="h-12 max-h-14 w-auto max-w-[190px] object-contain transition-all group-data-[collapsible=icon]:hidden"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = '/images/logo.png'
+              }}
             />
           ) : (
             <img

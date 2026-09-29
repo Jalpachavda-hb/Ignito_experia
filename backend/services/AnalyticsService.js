@@ -14,10 +14,10 @@ class AnalyticsService {
     const queries = [
       // 0. Total Direct Students vs LMS
       pool.query(`
-        SELECT AuthenticationSource, COUNT(*) as Count 
+        SELECT CreatedFrom AS AuthenticationSource, COUNT(*) as Count 
         FROM Users 
-        WHERE Role = 'Student' AND IsDeleted = 0
-        GROUP BY AuthenticationSource
+        WHERE Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive'
+        GROUP BY CreatedFrom
       `),
       
       // 1. Daily Active Users (Unique Students logged in today)
@@ -50,10 +50,10 @@ class AnalyticsService {
  
       // 5. University Usage Distribution
       pool.query(`
-        SELECT UniversityId as University, COUNT(*) as Students 
+        SELECT TenantId as University, COUNT(*) as Students 
         FROM Users
-        WHERE Role = 'Student' AND IsDeleted = 0
-        GROUP BY UniversityId
+        WHERE Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive'
+        GROUP BY TenantId
         ORDER BY Students DESC
         LIMIT 5
       `),

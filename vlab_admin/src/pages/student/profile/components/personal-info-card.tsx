@@ -7,6 +7,17 @@ import { useAuthStore } from '@/stores/auth-store';
 import { EditProfileModal } from './edit-profile-modal';
 import { isDirectStudent } from '@/lib/student-kind';
 
+function formatDateOfBirth(value: unknown) {
+  if (value == null || value === '') return '—';
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 interface PersonalInfoCardProps {
   student: StudentProfile;
 }
@@ -28,7 +39,7 @@ export function PersonalInfoCard({ student }: PersonalInfoCardProps) {
         { label: 'Full Name', value: u.fullName || u.name || '—' },
         { label: 'Email Address', value: u.email || '—' },
         { label: 'Gender', value: u.gender || '—' },
-        { label: 'Date of Birth', value: u.dateOfBirth || '—' },
+        { label: 'Date of Birth', value: formatDateOfBirth(u.dateOfBirth) },
         { label: 'Mobile Number', value: u.mobile || u.phoneNumber || '—' },
         { label: 'Alternate Contact', value: u.alternateMobile || '—' },
       ];

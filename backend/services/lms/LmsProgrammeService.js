@@ -9,6 +9,12 @@ class LmsProgrammeService {
     return `lms:programmes:${tenantId}:${provider || LMS_PROVIDER_CONFIG.provider}:${studentId}`;
   }
 
+  async invalidate(tenantId, provider, studentId) {
+    const id = numericLmsId(studentId);
+    if (!tenantId || id == null) return;
+    await lmsResponseCache.invalidate(this.cacheKey(tenantId, provider, id));
+  }
+
   async getPurchased({ tenantId, provider, studentId, forceRefresh = false }) {
     const id = numericLmsId(studentId);
     if (!tenantId || id == null) {

@@ -7,14 +7,21 @@ type StudentLike = {
   role?: string
 } | null | undefined
 
-/** University students arrive through LMS SSO and may later sign in with a password on the same portal. */
-export function isUniversityStudent(user: StudentLike) {
+/** LMS SSO students, including those who later set an Experia password. */
+export function isLmsStudent(user: StudentLike) {
   if (!user) return false
   const created = String(user.createdFrom || '').toUpperCase()
   const auth = String(user.authType || '').toUpperCase()
-  if (created === 'LMS' || auth === 'LMS' || auth === 'LMS_AND_DIRECT') return true
+  if (auth === 'LMS' || auth === 'LMS_AND_DIRECT' || created === 'LMS') return true
+  if ((user as { isLmsStudent?: boolean }).isLmsStudent === true) return true
+  return false
+}
+
+/** University students arrive through LMS SSO and may later sign in with a password on the same portal. */
+export function isUniversityStudent(user: StudentLike) {
+  if (!user) return false
+  if (isLmsStudent(user)) return true
   if (user.studentDegreeAdmissionId || user.externalStudentId) return true
-  if (user.tenantSlug) return true
   return false
 }
 

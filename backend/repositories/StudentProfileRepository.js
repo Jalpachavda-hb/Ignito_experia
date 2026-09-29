@@ -3,7 +3,7 @@ import pool from "../lib/mysql.js";
 class StudentProfileRepository {
   async findByUserId(userId) {
     const [rows] = await pool.query(
-      "SELECT * FROM Users WHERE UserId = ? AND Role = 'Student' AND IsDeleted = 0",
+      "SELECT * FROM Users WHERE UserId = ? AND Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive'",
       [userId]
     );
     return rows[0] || null;
@@ -11,7 +11,7 @@ class StudentProfileRepository {
 
   async findByExternalStudentId(externalStudentId) {
     const [rows] = await pool.query(
-      "SELECT * FROM Users WHERE ExternalStudentId = ? AND Role = 'Student' AND IsDeleted = 0",
+      "SELECT * FROM Users WHERE ExternalStudentId = ? AND Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive'",
       [externalStudentId]
     );
     return rows[0] || null;
@@ -56,8 +56,8 @@ class StudentProfileRepository {
   }
 
   async findAndCountAll(filters, pagination, sort) {
-    let query = "SELECT * FROM Users WHERE Role = 'Student' AND IsDeleted = 0";
-    let countQuery = "SELECT COUNT(*) as total FROM Users WHERE Role = 'Student' AND IsDeleted = 0";
+    let query = "SELECT * FROM Users WHERE Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive'";
+    let countQuery = "SELECT COUNT(*) as total FROM Users WHERE Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive'";
     const values = [];
 
     // Filters
@@ -77,16 +77,6 @@ class StudentProfileRepository {
       countQuery += " AND TenantId = ?";
       values.push(filters.tenantId);
     }
-    if (filters.semesterId) {
-      query += " AND SemesterId = ?";
-      countQuery += " AND SemesterId = ?";
-      values.push(filters.semesterId);
-    }
-    if (filters.programId) {
-      query += " AND ProgramId = ?";
-      countQuery += " AND ProgramId = ?";
-      values.push(filters.programId);
-    }
     if (filters.search) {
       query += " AND (FullName LIKE ? OR Email LIKE ? OR ExternalStudentId LIKE ?)";
       countQuery += " AND (FullName LIKE ? OR Email LIKE ? OR ExternalStudentId LIKE ?)";
@@ -95,7 +85,7 @@ class StudentProfileRepository {
     }
 
     // Sort
-    const validSortFields = ['FullName', 'Email', 'CreatedAt', 'LastLoginAt', 'Status'];
+    const validSortFields = ['FullName', 'Email', 'CreatedAt', 'Status'];
     const sortBy = validSortFields.includes(sort.sortBy) ? sort.sortBy : 'CreatedAt';
     const sortOrder = sort.sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
     query += ` ORDER BY ${sortBy} ${sortOrder}`;
@@ -121,7 +111,7 @@ class StudentProfileRepository {
       StudentProfileId: r.UserId,
       FirstName: r.FullName ? r.FullName.split(" ")[0] : "",
       LastName: r.FullName ? r.FullName.split(" ").slice(1).join(" ") : "",
-      LastLogin: r.LastLoginAt
+      LastLogin: null
     }));
 
     return {
@@ -135,7 +125,7 @@ class StudentProfileRepository {
 
   async findById(profileId, connection = pool) {
     const [rows] = await connection.query(
-      "SELECT * FROM Users WHERE UserId = ? AND IsDeleted = 0",
+      "SELECT * FROM Users WHERE UserId = ? AND COALESCE(Status, 'Active') <> 'Inactive'",
       [profileId]
     );
     if (!rows[0]) return null;
@@ -147,7 +137,7 @@ class StudentProfileRepository {
       StudentProfileId: r.UserId,
       FirstName: r.FullName ? r.FullName.split(" ")[0] : "",
       LastName: r.FullName ? r.FullName.split(" ").slice(1).join(" ") : "",
-      LastLogin: r.LastLoginAt
+      LastLogin: null
     };
   }
 
@@ -157,7 +147,6 @@ class StudentProfileRepository {
 
     // Map field names from StudentProfile schema to Users schema if needed
     const fieldMapping = {
-      LastLogin: 'LastLoginAt',
       StudentCode: 'ExternalStudentId',
       UserId: null,
       TenantId: null,
@@ -169,8 +158,8 @@ class StudentProfileRepository {
 
     const validUserColumns = new Set([
       'FullName', 'Email', 'PhoneNumber', 'ProfileImage', 'StudentDegreeAdmissionId',
-      'ExternalStudentId', 'StudentId', 'StudentCode',
-      'Status', 'CreatedFrom', 'AuthType', 'TenantId', 'LastLoginAt'
+      'ExternalStudentId', 'StudentId',
+      'Status', 'CreatedFrom', 'AuthType', 'TenantId'
     ]);
 
     let fullNameUpdates = { firstName: '', lastName: '' };
@@ -214,7 +203,7 @@ class StudentProfileRepository {
 
   async updateLastLogin(profileId, connection = pool) {
     await connection.query(
-      "UPDATE Users SET LastLoginAt = NOW() WHERE UserId = ?",
+      "UPDATE Users SET UpdatedAt = NOW() WHERE UserId = ?",
       [profileId]
     );
   }

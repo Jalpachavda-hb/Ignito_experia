@@ -77,6 +77,39 @@ export function mergeProgrammes(profileList, purchasedPayload) {
   return [...byKey.values()];
 }
 
+export function programmeMatches(programme, requested) {
+  const wanted = String(requested ?? "").trim().toLowerCase();
+  if (!wanted || !programme) return false;
+  const exact = [
+    programme.programmeId,
+    programme.programId,
+    programme.programmeCode,
+    programme.programCode,
+  ]
+    .filter((value) => value != null && String(value).trim() !== "")
+    .map((value) => String(value).trim().toLowerCase());
+  if (exact.includes(wanted)) return true;
+  const name = String(programme.programmeName || programme.programName || "").trim().toLowerCase();
+  if (!name) return false;
+  if (name === wanted) return true;
+  if (wanted.length < 2) return false;
+  return name === wanted || name.split(/[^a-z0-9]+/).includes(wanted);
+}
+
+export function collectSemesterNumbers(...sources) {
+  const set = new Set();
+  for (const source of sources) {
+    const list = Array.isArray(source) ? source : [];
+    for (const item of list) {
+      const value = item != null && typeof item === "object"
+        ? (item.semesterNumber ?? item.semesterId ?? item.semester)
+        : item;
+      if (value != null && String(value).trim() !== "") set.add(String(value).trim());
+    }
+  }
+  return set;
+}
+
 export function filterSemesterPayload(payload, semester) {
   const semesterList = payload?.semesterList || payload?.semesterCourseList || [];
   const flatCourses = payload?.courseList || payload?.courselist || payload?.courses || [];

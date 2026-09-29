@@ -50,6 +50,26 @@ const TerminalLog = () => {
 
 import { fetchTenantResolve } from '@/Utils/GetApiHandler'
 import { getTenantSlug } from '@/lib/tenant-slug'
+import { resolveApiRelativeUrl } from '@/config/env'
+
+export function getTenantLogoUrl(logoUrl?: string | null): string {
+  if (!logoUrl) return '/images/logo.png'
+  let url = logoUrl.trim()
+  if (!url) return '/images/logo.png'
+
+  // If in browser and current page is HTTPS, upgrade to avoid mixed-content blocked images
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && url.startsWith('http://')) {
+    url = url.replace('http://', 'https://')
+  }
+
+  // If relative path like /uploads/...
+  if (url.startsWith('/')) {
+    const resolved = resolveApiRelativeUrl(url)
+    if (resolved) return resolved
+  }
+
+  return url
+}
 
 export function SignIn() {
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
@@ -97,7 +117,14 @@ export function SignIn() {
             
             <div className="flex items-center gap-3">
               {tenantInfo?.logoUrl ? (
-                <img src={tenantInfo.logoUrl} alt={tenantInfo.name || 'Tenant Logo'} className="h-10 sm:h-12 w-auto object-contain rounded-xl" />
+                <img
+                  src={getTenantLogoUrl(tenantInfo.logoUrl)}
+                  alt={tenantInfo.name || 'Tenant Logo'}
+                  className="h-10 sm:h-12 w-auto object-contain rounded-xl"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/images/logo.png'
+                  }}
+                />
               ) : (
                 <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 sm:h-12 w-auto object-contain" />
               )}
@@ -147,7 +174,14 @@ export function SignIn() {
             {/* Mobile Logo */}
             <div className="flex lg:hidden items-center justify-center mb-8">
               {tenantInfo?.logoUrl ? (
-                <img src={tenantInfo.logoUrl} alt={tenantInfo.name || 'Tenant Logo'} className="h-10 w-auto object-contain rounded-xl" />
+                <img
+                  src={getTenantLogoUrl(tenantInfo.logoUrl)}
+                  alt={tenantInfo.name || 'Tenant Logo'}
+                  className="h-10 w-auto object-contain rounded-xl"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/images/logo.png'
+                  }}
+                />
               ) : (
                 <img src="/images/logo.png" alt="IgnitoLearn" className="h-10 w-auto object-contain" />
               )}

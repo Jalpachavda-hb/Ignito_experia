@@ -5,7 +5,7 @@ class UserRepository {
   async findByEmail(email, connection = pool) {
     const params = [email.toLowerCase()];
     const [rows] = await connection.query(
-      "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
+      "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(Status, 'Active') <> 'Inactive'",
       params
     );
     if (!rows || !rows.length) return null;
@@ -30,15 +30,12 @@ class UserRepository {
         u.CreatedFrom,
         u.AuthType,
         (u.PasswordHash IS NOT NULL) AS HasPassword,
-        u.IsDeleted,
-        u.DeletedAt,
         COALESCE(w.Balance, 0) AS CreditBalance,
-        u.LastLoginAt, 
         u.CreatedAt,
         u.UpdatedAt
       FROM Users u
       LEFT JOIN StudentCreditWallets w ON u.UserId = w.UserId
-      WHERE u.UserId = ? AND COALESCE(u.IsDeleted, 0) = 0`,
+      WHERE u.UserId = ? AND COALESCE(u.Status, 'Active') <> 'Inactive'`,
       [userId]
     );
     return rows[0] || null;
@@ -74,7 +71,7 @@ class UserRepository {
     const limit = Math.max(1, parseInt(pageSize, 10) || 10);
     const offset = (Math.max(1, parseInt(page, 10) || 1) - 1) * limit;
 
-    let whereClause = "WHERE COALESCE(u.IsDeleted, 0) = 0";
+    let whereClause = "WHERE COALESCE(u.Status, 'Active') <> 'Inactive'";
     const queryParams = [];
 
     if (effectiveTenantId) {
@@ -126,7 +123,6 @@ class UserRepository {
         u.Status, 
         COALESCE(NULLIF(u.ExternalStudentId, ''), NULLIF(u.StudentDegreeAdmissionId, ''), '') AS EnrollmentNumber,
         COALESCE(w.Balance, 0) AS CreditBalance,
-        u.LastLoginAt, 
         u.CreatedAt,
         COUNT(*) OVER() AS TotalRecords
       FROM Users u
@@ -168,9 +164,9 @@ class UserRepository {
       : ROLES.STUDENT;
 
     const [result] = await connection.query(
-      `INSERT INTO users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, CreatedBy, CreatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdFrom, authType, tenantId, createdBy]
+      `INSERT INTO Users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, CreatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdFrom, authType, tenantId]
     );
 
     const newUserId = result.insertId;
@@ -186,7 +182,7 @@ class UserRepository {
 
     if (profileImage && newUserId) {
       await connection.query(
-        "UPDATE users SET ProfileImage = ?, UpdatedAt = NOW() WHERE UserId = ?",
+        "UPDATE Users SET ProfileImage = ?, UpdatedAt = NOW() WHERE UserId = ?",
         [profileImage, newUserId]
       );
     }
@@ -223,11 +219,6 @@ class UserRepository {
       params.push(normalizedRole);
     }
 
-    if (updatedBy !== undefined) {
-      updates.push("UpdatedBy = ?");
-      params.push(updatedBy);
-    }
-
     if (updates.length > 0) {
       updates.push("UpdatedAt = NOW()");
       params.push(userId);
@@ -239,22 +230,22 @@ class UserRepository {
 
   async updateStatus(userId, status, updatedBy = null) {
     await pool.query(
-      "UPDATE Users SET Status = ?, UpdatedBy = ?, UpdatedAt = NOW() WHERE UserId = ?",
-      [status, updatedBy, userId]
+      "UPDATE Users SET Status = ?, UpdatedAt = NOW() WHERE UserId = ?",
+      [status, userId]
     );
     return this.findById(userId);
   }
 
   async delete(userId, deletedBy = null) {
     await pool.query(
-      "UPDATE Users SET IsDeleted = 1, DeletedAt = NOW(), DeletedBy = ? WHERE UserId = ?",
-      [deletedBy, userId]
+      "UPDATE Users SET Status = 'Inactive', UpdatedAt = NOW() WHERE UserId = ?",
+      [userId]
     );
   }
 
   async updateLastLogin(userId) {
     await pool.query(
-      "UPDATE Users SET LastLoginAt = NOW() WHERE UserId = ?",
+      "UPDATE Users SET UpdatedAt = NOW() WHERE UserId = ?",
       [userId]
     );
   }

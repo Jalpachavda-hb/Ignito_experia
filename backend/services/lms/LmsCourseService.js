@@ -7,18 +7,25 @@ import { endpointUrl, numericLmsId } from "./lmsIds.js";
 import { filterSemesterPayload } from "./programmeNormalize.js";
 
 class LmsCourseService {
-  cacheKey(tenantId, provider, programmeId) {
-    return `lms:courses:${tenantId}:${provider || LMS_PROVIDER_CONFIG.provider}:${programmeId}`;
+  cacheKey(tenantId, provider, externalStudentId, programmeId, semester = "all") {
+    const student = externalStudentId == null || externalStudentId === "" ? "na" : String(externalStudentId);
+    const term = semester == null || semester === "" ? "all" : String(semester);
+    return `lms:courses:${tenantId}:${provider || LMS_PROVIDER_CONFIG.provider}:${student}:${programmeId}:${term}`;
   }
 
-  async getByProgramme({ tenantId, provider, programmeId, semester = null, forceRefresh = false }) {
+  cachePrefix(tenantId, provider, externalStudentId) {
+    const student = externalStudentId == null || externalStudentId === "" ? "na" : String(externalStudentId);
+    return `lms:courses:${tenantId}:${provider || LMS_PROVIDER_CONFIG.provider}:${student}:`;
+  }
+
+  async getByProgramme({ tenantId, provider, programmeId, semester = null, externalStudentId = null, forceRefresh = false }) {
     const id = numericLmsId(programmeId);
     if (!tenantId || id == null) {
       return { success: true, lmsStatus: "LMS_STUDENT_NOT_FOUND", semesterList: [], courseList: [] };
     }
 
     const url = endpointUrl(LMS_PROVIDER_CONFIG.baseUrl, LMS_PROVIDER_CONFIG.semesterCoursesEndpoint);
-    const key = this.cacheKey(tenantId, provider, id);
+    const key = this.cacheKey(tenantId, provider, externalStudentId, id, "all");
 
     try {
       const result = await lmsResponseCache.getOrFetch(key, {

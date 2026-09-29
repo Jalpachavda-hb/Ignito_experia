@@ -5,6 +5,61 @@ import { getDbPool } from '../config/db.js'
 const BASE_DOMAIN = process.env.BASE_DOMAIN || 'experia.ignitolearn.com'
 
 /**
+ * Direct sync helper to mirror tenant changes into ignito_experia database
+ */
+async function syncTenantToVlabDb(pool, tenantData, operation = 'upsert') {
+  try {
+    if (operation === 'delete') {
+      await pool.execute('DELETE FROM ignito_experia.tenants WHERE TenantId = ?', [tenantData.tenantId])
+      return
+    }
+
+    if (operation === 'status') {
+      await pool.execute('UPDATE ignito_experia.tenants SET Status = ?, UpdatedDate = NOW() WHERE TenantId = ?', [
+        tenantData.status,
+        tenantData.tenantId,
+      ])
+      return
+    }
+
+    await pool.execute(
+      `INSERT INTO ignito_experia.tenants 
+        (TenantId, Name, Slug, OfficialDomain, LogoUrl, IntegrationMode, AdminFullName, AdminEmail, AdminPasswordHash, AdminPhone, Status, SettingsJson)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         Name = VALUES(Name),
+         Slug = VALUES(Slug),
+         OfficialDomain = VALUES(OfficialDomain),
+         LogoUrl = VALUES(LogoUrl),
+         IntegrationMode = VALUES(IntegrationMode),
+         AdminFullName = VALUES(AdminFullName),
+         AdminEmail = VALUES(AdminEmail),
+         AdminPasswordHash = COALESCE(VALUES(AdminPasswordHash), AdminPasswordHash),
+         AdminPhone = VALUES(AdminPhone),
+         Status = VALUES(Status),
+         SettingsJson = VALUES(SettingsJson),
+         UpdatedDate = NOW()`,
+      [
+        tenantData.tenantId,
+        tenantData.name,
+        tenantData.slug,
+        tenantData.officialDomain || null,
+        tenantData.logoUrl || null,
+        tenantData.integrationMode || 'LMS',
+        tenantData.adminName || null,
+        tenantData.adminEmail || null,
+        tenantData.adminPasswordHash || null,
+        tenantData.adminPhone || null,
+        tenantData.status || 'ACTIVE',
+        tenantData.settingsJson || null,
+      ]
+    )
+  } catch (err) {
+    console.warn('[universities] Could not directly sync tenant to ignito_experia DB:', err.message)
+  }
+}
+
+/**
  * GET /api/admin/universities
  * List all university tenants with dynamic subdomain resolution and tenant admin info.
  */
@@ -185,6 +240,22 @@ export async function universitiesCreateHandler(req, res) {
       console.warn('Could not sync tenant admin in Users table:', e.message)
     }
 
+    // Direct sync to VLab database (ignito_experia.tenants)
+    await syncTenantToVlabDb(pool, {
+      tenantId,
+      name: name.trim(),
+      slug: cleanSlug,
+      officialDomain: officialDomain ? officialDomain.trim() : null,
+      logoUrl: logoUrl ? logoUrl.trim() : null,
+      integrationMode: modeEnum,
+      adminName: cleanName,
+      adminEmail: cleanEmail,
+      adminPasswordHash: passwordHash,
+      adminPhone: cleanPhone,
+      status: 'ACTIVE',
+      settingsJson: defaultSettings,
+    })
+
     return res.status(201).json({
       success: true,
       message: 'University Tenant provisioned successfully!',
@@ -235,6 +306,9 @@ export async function universitiesStatusHandler(req, res) {
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Tenant not found' })
     }
+
+    // Sync status to VLab database (ignito_experia.tenants)
+    await syncTenantToVlabDb(pool, { tenantId, status: upperStatus }, 'status')
 
     return res.status(200).json({
       success: true,
@@ -308,6 +382,27 @@ export async function universitiesUpdateHandler(req, res) {
       } catch (e) {
         console.warn('Could not sync user update to Users table:', e.message)
       }
+    }
+
+    // Direct sync update to VLab database (ignito_experia.tenants)
+    try {
+      const [targetRows] = await pool.execute('SELECT Slug, IntegrationMode, Status, SettingsJson FROM tenants WHERE TenantId = ?', [tenantId])
+      const currentTenant = targetRows[0] || {}
+      await syncTenantToVlabDb(pool, {
+        tenantId,
+        name: name.trim(),
+        slug: currentTenant.Slug || '',
+        officialDomain: officialDomain ? officialDomain.trim() : null,
+        logoUrl: logoUrl ? logoUrl.trim() : null,
+        integrationMode: currentTenant.IntegrationMode || 'LMS',
+        adminName: cleanName,
+        adminEmail: cleanEmail,
+        adminPhone: cleanPhone,
+        status: currentTenant.Status || 'ACTIVE',
+        settingsJson: currentTenant.SettingsJson,
+      })
+    } catch (e) {
+      console.warn('Could not sync tenant update to ignito_experia DB:', e.message)
     }
 
     return res.status(200).json({
@@ -407,6 +502,9 @@ export async function universitiesDeleteHandler(req, res) {
 
     // 6. Delete Tenant Entity from tenants table (Releasing reserved Slug & TenantId)
     await pool.execute('DELETE FROM tenants WHERE TenantId = ?', [actualTenantId])
+
+    // Sync deletion to VLab database (ignito_experia.tenants)
+    await syncTenantToVlabDb(pool, { tenantId: actualTenantId }, 'delete')
 
     return res.status(200).json({
       success: true,

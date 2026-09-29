@@ -50,14 +50,43 @@ export async function loadTenantBySlug(slug) {
   return rows[0] || null;
 }
 
+async function loadOwnerTenantFromDb(slug) {
+  const clean = String(slug || "").trim().toLowerCase();
+  if (!clean) return null;
+  try {
+    const [rows] = await pool.query(
+      `SELECT TenantId, Name, Slug, OfficialDomain, LogoUrl, Status, SettingsJson, IntegrationMode
+       FROM ignito_experia_owner.tenants
+       WHERE LOWER(Slug) = ? LIMIT 1`,
+      [clean]
+    );
+    if (rows?.[0]) {
+      return {
+        TenantId: rows[0].TenantId,
+        Name: rows[0].Name,
+        Slug: String(rows[0].Slug).trim().toLowerCase(),
+        OfficialDomain: rows[0].OfficialDomain || null,
+        LogoUrl: rows[0].LogoUrl || null,
+        Status: rows[0].Status || "ACTIVE",
+        SettingsJson: rows[0].SettingsJson || null,
+        IntegrationMode: rows[0].IntegrationMode || "LMS",
+      };
+    }
+  } catch (err) {
+    // Cross-database query ignored if not accessible
+  }
+  return null;
+}
+
 async function fetchOwnerTenantBySlug(slug) {
   const clean = String(slug || "").trim().toLowerCase();
   if (!clean) return null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
+    const baseUrl = OWNER_API_URL.replace(/\/(api|owner-api)\/?$/, "");
     const ownerRes = await fetch(
-      `${OWNER_API_URL}/api/internal/tenants/by-slug/${encodeURIComponent(clean)}`,
+      `${baseUrl}/api/internal/tenants/by-slug/${encodeURIComponent(clean)}`,
       {
         headers: { "X-Internal-Service-Token": ENV.internalServiceToken },
         signal: controller.signal,
@@ -84,49 +113,73 @@ async function fetchOwnerTenantBySlug(slug) {
   }
 }
 
-/** Copy an owner-dashboard university into the Experia database so SSO can use it. */
+/** Copy or update an owner-dashboard university into the Experia database so SSO and branding can use it. */
 async function mirrorOwnerTenant(tenant) {
-  if (!tenant?.TenantId || !tenant?.Slug || !tenant?.Name) return tenant;
-  const existingBySlug = await loadTenantBySlug(tenant.Slug);
-  if (existingBySlug?.Slug) return existingBySlug;
-  const existingById = await loadTenantById(tenant.TenantId);
-  if (existingById?.Slug) return existingById;
+  if (!tenant) return null;
+  const tenantId = tenant.TenantId || tenant.tenantId;
+  const name = tenant.Name || tenant.name;
+  const slug = String(tenant.Slug || tenant.slug || "").trim().toLowerCase();
+  if (!tenantId || !slug || !name) return tenant;
+
+  const officialDomain = tenant.OfficialDomain || tenant.officialDomain || null;
+  const logoUrl = tenant.LogoUrl || tenant.logoUrl || null;
+  const integrationMode = tenant.IntegrationMode || tenant.integrationMode || "LMS";
+  const status = tenant.Status || tenant.status || "ACTIVE";
+
   try {
     await pool.query(
       `INSERT INTO tenants (TenantId, Name, Slug, OfficialDomain, LogoUrl, IntegrationMode, Status)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         Name = VALUES(Name),
+         OfficialDomain = VALUES(OfficialDomain),
+         LogoUrl = VALUES(LogoUrl),
+         IntegrationMode = VALUES(IntegrationMode),
+         Status = VALUES(Status),
+         UpdatedDate = NOW()`,
       [
-        tenant.TenantId,
-        tenant.Name,
-        tenant.Slug,
-        tenant.OfficialDomain,
-        tenant.LogoUrl,
-        tenant.IntegrationMode || "LMS",
-        tenant.Status || "ACTIVE",
+        tenantId,
+        name,
+        slug,
+        officialDomain,
+        logoUrl,
+        integrationMode,
+        status,
       ]
     );
   } catch (err) {
-    console.warn("[studentAccess] Could not copy owner tenant into Experia:", err.message);
-    const again = await loadTenantBySlug(tenant.Slug);
-    if (again) return again;
+    console.warn("[studentAccess] Could not copy/update owner tenant into Experia:", err.message);
   }
-  return (await loadTenantBySlug(tenant.Slug)) || tenant;
+  return (await loadTenantBySlug(slug)) || {
+    TenantId: tenantId,
+    Name: name,
+    Slug: slug,
+    OfficialDomain: officialDomain,
+    LogoUrl: logoUrl,
+    IntegrationMode: integrationMode,
+    Status: status,
+  };
 }
 
 /**
  * The browser host slug is the university the student is signing into.
- * Owner-created tenants live in the owner database; Experia mirrors them on first use.
+ * Owner-created tenants live in the owner database; Experia mirrors and syncs them.
  */
 export async function resolvePortalTenant({ slug, tenantId } = {}) {
   const requestSlug = String(slug || "").trim().toLowerCase();
   if (requestSlug) {
-    const local = await loadTenantBySlug(requestSlug);
-    if (local?.Slug) return local;
-    const owner = await fetchOwnerTenantBySlug(requestSlug);
+    // 1. Check owner database or owner API for latest tenant data & branding logo
+    let owner = await fetchOwnerTenantBySlug(requestSlug);
+    if (!owner?.Slug) {
+      owner = await loadOwnerTenantFromDb(requestSlug);
+    }
     if (owner?.Slug) {
-      console.log(`[studentAccess] Resolved university "${requestSlug}" from the owner dashboard.`);
       return mirrorOwnerTenant(owner);
     }
+
+    // 2. Fallback to local table if owner backend was unreachable
+    const local = await loadTenantBySlug(requestSlug);
+    if (local?.Slug) return local;
   }
   if (tenantId && String(tenantId) !== PLATFORM_TENANT_ID) {
     const byId = await loadTenantById(tenantId);

@@ -42,14 +42,40 @@ export function uploadFileHandler(req, res) {
       return res.status(400).json({ success: false, message: "No file uploaded" });
     }
 
+    // Mirror uploaded file to vlab backend uploads directory if it exists
+    try {
+      const vlabUploadsDir = path.resolve(__dirname, "../../../backend/uploads");
+      if (fs.existsSync(path.dirname(vlabUploadsDir))) {
+        if (!fs.existsSync(vlabUploadsDir)) {
+          fs.mkdirSync(vlabUploadsDir, { recursive: true });
+        }
+        fs.copyFileSync(req.file.path, path.join(vlabUploadsDir, req.file.filename));
+      }
+    } catch (copyErr) {
+      console.warn("Could not copy uploaded image to backend/uploads:", copyErr.message);
+    }
+
     const host = req.get("host") || "localhost:4000";
-    const protocol = req.protocol || "http";
-    const fileUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
+    const forwardedProto = req.headers["x-forwarded-proto"];
+    const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
+    const isHttps = forwardedProto === "https" || req.protocol === "https" || req.secure || (!isLocal && !host.startsWith("192.168."));
+    const protocol = isHttps ? "https" : "http";
+
+    // Determine upload path prefix
+    let prefix = "/uploads";
+    if (req.originalUrl && req.originalUrl.includes("/owner-api")) {
+      prefix = "/owner-api/uploads";
+    } else if (host.includes("experia.ignitolearn.com")) {
+      prefix = "/owner-api/uploads";
+    }
+
+    const fileUrl = `${protocol}://${host}${prefix}/${req.file.filename}`;
 
     return res.status(200).json({
       success: true,
       message: "Image uploaded successfully",
       url: fileUrl,
+      relativeUrl: `/uploads/${req.file.filename}`,
       filename: req.file.filename,
     });
   } catch (error) {

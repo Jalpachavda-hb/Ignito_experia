@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ProgramInfo } from '@/pages/student/dashboard/types';
-import { CheckCircle2, CircleDashed, ArrowRightCircle, Hash } from 'lucide-react';
+import { CircleDashed, ArrowRightCircle, Hash } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 
@@ -12,15 +12,21 @@ interface ProgramTimelineProps {
 }
 
 export function ProgramTimeline({ program }: ProgramTimelineProps) {
-  const currentSem = program.currentSemester != null ? Number(program.currentSemester) : null;
-  const totalSem = program.totalSemesters != null && Number(program.totalSemesters) > 0
-    ? Number(program.totalSemesters)
-    : null;
+  const currentSem = program.currentSemester != null ? String(program.currentSemester) : null;
   const progress = program.overallProgress != null ? Number(program.overallProgress) : null;
-  const completedCount = currentSem != null ? Math.max(0, currentSem - 1) : null;
-  const remainingCount = currentSem != null && totalSem != null ? Math.max(0, totalSem - currentSem) : null;
-
-  const semesters = totalSem != null ? Array.from({ length: totalSem }, (_, i) => i + 1) : [];
+  const listedSemesters = Array.isArray((program as unknown as { semesters?: unknown[] }).semesters)
+    ? (program as unknown as { semesters: unknown[] }).semesters
+    : [];
+  const semesters = listedSemesters
+    .map((item) => {
+      if (item != null && typeof item === 'object') {
+        const row = item as { semesterNumber?: unknown; semesterId?: unknown; status?: unknown };
+        const number = row.semesterNumber ?? row.semesterId;
+        return number == null || number === '' ? null : { number: String(number), status: row.status ? String(row.status) : null };
+      }
+      return item == null || item === '' ? null : { number: String(item), status: null };
+    })
+    .filter((item): item is { number: string; status: string | null } => Boolean(item));
 
   return (
     <Card className="border-border/50 shadow-sm">
@@ -40,13 +46,13 @@ export function ProgramTimeline({ program }: ProgramTimelineProps) {
         </div>
         <div className="flex items-center gap-4 bg-slate-50 dark:bg-slate-900 px-4 py-2 rounded-lg border border-slate-100 dark:border-slate-800 shrink-0">
           <div className="text-center">
-            <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Completed</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{completedCount ?? "—"}</p>
+            <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Current Semester</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{currentSem ?? "—"}</p>
           </div>
           <div className="w-px h-8 bg-slate-200 dark:bg-slate-700"></div>
           <div className="text-center">
-            <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Remaining</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{remainingCount ?? "—"}</p>
+            <p className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Semesters</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{semesters.length || "—"}</p>
           </div>
         </div>
       </CardHeader>
@@ -71,29 +77,26 @@ export function ProgramTimeline({ program }: ProgramTimelineProps) {
         <div className="relative">
           <div className="absolute top-5 left-0 w-full h-0.5 bg-slate-100 dark:bg-slate-800 -z-10"></div>
           <div className="flex justify-between relative z-10 w-full overflow-x-auto pb-4 hide-scrollbar">
-            {semesters.map((sem) => {
-              const isCompleted = currentSem != null && sem < currentSem;
-              const isCurrent = currentSem != null && sem === currentSem;
-              const isPending = currentSem == null || sem > currentSem;
+            {semesters.length === 0 ? (
+              <p className="text-sm text-slate-500">The university LMS did not return a semester list for this programme.</p>
+            ) : semesters.map((sem) => {
+              const isCurrent = currentSem != null && sem.number === currentSem;
+              const label = sem.status || (isCurrent ? 'Current' : 'Enrolled');
 
               return (
-                <div key={sem} className="flex flex-col items-center min-w-[100px]">
+                <div key={sem.number} className="flex flex-col items-center min-w-[100px]">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 border-white dark:border-slate-950 shadow-sm ${
-                    isCompleted ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-400' :
                     isCurrent ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' :
                     'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                   }`}>
-                    {isCompleted && <CheckCircle2 className="h-5 w-5" />}
-                    {isCurrent && <ArrowRightCircle className="h-5 w-5" />}
-                    {isPending && <CircleDashed className="h-5 w-5" />}
+                    {isCurrent ? <ArrowRightCircle className="h-5 w-5" /> : <CircleDashed className="h-5 w-5" />}
                   </div>
-                  <p className="text-sm font-bold text-slate-900 dark:text-white mt-3">Semester {sem}</p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-white mt-3">Semester {sem.number}</p>
                   <Badge variant="outline" className={`mt-1.5 text-[10px] uppercase font-bold tracking-wider ${
-                    isCompleted ? 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/30' :
                     isCurrent ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/30' :
                     'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-900'
                   }`}>
-                    {isCompleted ? 'Completed' : isCurrent ? 'Current' : 'Pending'}
+                    {label}
                   </Badge>
                 </div>
               );

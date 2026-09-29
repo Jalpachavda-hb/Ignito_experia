@@ -8,13 +8,13 @@ class StudentStatisticsService {
     if (cached) return cached;
 
     // Simple aggregations
-    const [totalRows] = await pool.query("SELECT COUNT(*) as count FROM Users WHERE Role = 'Student' AND IsDeleted = 0");
-    const [sourceRows] = await pool.query("SELECT AuthenticationSource, COUNT(*) as count FROM Users WHERE Role = 'Student' AND IsDeleted = 0 GROUP BY AuthenticationSource");
-    const [statusRows] = await pool.query("SELECT Status, COUNT(*) as count FROM Users WHERE Role = 'Student' AND IsDeleted = 0 GROUP BY Status");
+    const [totalRows] = await pool.query("SELECT COUNT(*) as count FROM Users WHERE Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive'");
+    const [sourceRows] = await pool.query("SELECT CreatedFrom, COUNT(*) as count FROM Users WHERE Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive' GROUP BY CreatedFrom");
+    const [statusRows] = await pool.query("SELECT Status, COUNT(*) as count FROM Users WHERE Role = 'Student' AND COALESCE(Status, 'Active') <> 'Inactive' GROUP BY Status");
 
     const result = {
       total: totalRows[0].count,
-      bySource: sourceRows.reduce((acc, row) => ({ ...acc, [row.AuthenticationSource]: row.count }), {}),
+      bySource: sourceRows.reduce((acc, row) => ({ ...acc, [row.CreatedFrom]: row.count }), {}),
       byStatus: statusRows.reduce((acc, row) => ({ ...acc, [row.Status]: row.count }), {})
     };
 

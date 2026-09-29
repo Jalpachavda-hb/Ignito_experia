@@ -19,13 +19,20 @@ type BaseNavItem = {
   moduleCode?: string
 }
 
-type NavLink = BaseNavItem & {
+type NavLeaf = BaseNavItem & {
   url: LinkProps['to'] | (string & {})
   items?: never
 }
 
+type NavBranch = BaseNavItem & {
+  items: NavLeaf[]
+  url?: never
+}
+
+type NavLink = NavLeaf
+
 type NavCollapsible = BaseNavItem & {
-  items: (BaseNavItem & { url: LinkProps['to'] | (string & {}) })[]
+  items: Array<NavLeaf | NavBranch>
   url?: never
 }
 
@@ -42,4 +49,4 @@ type SidebarData = {
   navGroups: NavGroup[]
 }
 
-export type { SidebarData, NavGroup, NavItem, NavCollapsible, NavLink }
+export type { SidebarData, NavGroup, NavItem, NavCollapsible, NavLink, NavBranch, NavLeaf }

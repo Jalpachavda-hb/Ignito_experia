@@ -62,6 +62,15 @@ export const getStudentPurchasedProgrammes = async (studentId) => {
   });
 };
 
+export const getSemesterLabs = async (programId, semester) => {
+  return executeRequest('/student/semester-labs', {
+    method: 'GET',
+    auth: true,
+    baseUrl: LMS_BASE_URL,
+    params: { programId, semester },
+  });
+};
+
 export const getSemesterCourseListByProgrammeId = async (programmeId, semester) => {
   return executeRequest(LMS_API_PATHS.STUDENT.PROGRAMME_SEMESTERS, {
     method: 'POST',

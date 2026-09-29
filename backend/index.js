@@ -88,7 +88,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 app.use(upload.any());
 
-app.use("/uploads", express.static(uploadsDir, {
+const staticUploadsMiddleware = express.static(uploadsDir, {
   setHeaders: (res, filePath) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
@@ -96,7 +96,10 @@ app.use("/uploads", express.static(uploadsDir, {
       res.setHeader("Content-Type", "image/png");
     }
   }
-}));
+});
+app.use("/uploads", staticUploadsMiddleware);
+app.use(`${apiPrefix}/uploads`, staticUploadsMiddleware);
+app.use("/owner-api/uploads", staticUploadsMiddleware);
 
 
 

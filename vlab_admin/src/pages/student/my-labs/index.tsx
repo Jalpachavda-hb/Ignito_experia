@@ -20,7 +20,7 @@ import { DotnetSelectionModal } from './components/dotnet-selection-modal';
 import { PurchaseCreditModal } from './components/purchase-credit-modal';
 import { TokenPackagesModal } from './components/token-packages-modal';
 import { useLabTokenStore } from '@/stores/labTokenStore';
-import { getSemesterCourseListByProgrammeId, getStudentPurchasedProgrammes } from '@/Utils/lmsApi_paths';
+import { getSemesterCourseListByProgrammeId, getSemesterLabs, getStudentPurchasedProgrammes } from '@/Utils/lmsApi_paths';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { isDirectStudent } from '@/lib/student-kind';
@@ -61,6 +61,7 @@ export default function MyLabs() {
 
   // Dynamic Semester Courses & Mapped Labs State
   const [semesterCourses, setSemesterCourses] = useState<any[]>([]);
+  const [semesterNotice, setSemesterNotice] = useState('');
   const [isCoursesLoading, setIsCoursesLoading] = useState(false);
 
   // Total Assigned Labs across all enrolled student programs
@@ -77,26 +78,34 @@ export default function MyLabs() {
     loadActiveSession(userId);
   }, [user, loadActiveSession]);
 
-  // Fetch Semester Courses & Mapped Labs dynamically from LMS API for selected semester
+  // Semester labs come from the backend, which checks programme and semester ownership.
   useEffect(() => {
-    if (!programIdQuery) {
+    if (!programIdQuery || !semesterFilterQuery || isDirectUser) {
       setSemesterCourses([]);
+      setSemesterNotice('');
       return;
     }
 
     setIsCoursesLoading(true);
-    getSemesterCourseListByProgrammeId(programIdQuery, semesterFilterQuery)
+    getSemesterLabs(programIdQuery, semesterFilterQuery)
       .then((res: any) => {
-        const courses = res?.courseList || res?.courses || [];
+        if (!res?.authorized) {
+          setSemesterCourses([]);
+          setSemesterNotice('This programme or semester is not part of your LMS enrolment.');
+          return;
+        }
+        const courses = res?.courses || res?.courseList || [];
         setSemesterCourses(Array.isArray(courses) ? courses : []);
+        setSemesterNotice('');
       })
       .catch(() => {
         setSemesterCourses([]);
+        setSemesterNotice('LMS course data is temporarily unavailable. Your session is still active.');
       })
       .finally(() => {
         setIsCoursesLoading(false);
       });
-  }, [programIdQuery, semesterFilterQuery]);
+  }, [programIdQuery, semesterFilterQuery, isDirectUser]);
 
   // Fetch all assigned labs across all enrolled programs for general "My Labs" view (LMS Students only)
   useEffect(() => {
@@ -375,26 +384,28 @@ export default function MyLabs() {
             return lId === mId || lId.replace('lab-', '') === mId.replace('lab-', '');
           });
 
+          const labTitle = mappedLabObj.title || labMatch?.title || labMatch?.name || 'Virtual Lab';
           if (labMatch) {
             mappedResults.push({
               ...labMatch,
-              title: cName,
-              mappedLabTitle: mappedLabObj.title || labMatch.title,
+              title: labTitle,
+              subtitle: cName,
+              mappedLabTitle: labTitle,
               courseCode: cCode,
               courseName: cName,
             });
           } else {
             mappedResults.push({
               id: mId,
-              title: cName,
-              subtitle: mappedLabObj.title || 'Course Assigned Lab',
+              title: labTitle,
+              subtitle: cName,
               category: 'Course Lab',
               durationMinutes: mappedLabObj.durationMinutes || 90,
               credits: mappedLabObj.credits || 30,
               status: 'active',
               courseCode: cCode,
               courseName: cName,
-              mappedLabTitle: mappedLabObj.title,
+              mappedLabTitle: labTitle,
             });
           }
         }
@@ -757,9 +768,47 @@ export default function MyLabs() {
                     <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-card rounded-xl border border-dashed border-border/60">
                       <BookOpen className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
                       <h3 className="text-lg font-bold text-foreground">No Course Labs Found</h3>
-                      <p className="text-muted-foreground text-sm mt-1">
-                        No practical courses were found for Semester {semesterFilterQuery}.
+                      <p className="text-muted-foreground text-sm mt-1 text-center max-w-md">
+                        {semesterNotice || `No practical courses were found for Semester ${semesterFilterQuery}.`}
                       </p>
+                    </div>
+                  ) : hasCourseFilter ? (
+                    <div className="space-y-8">
+                      {Array.from(displayLabs.reduce((groups: Map<string, any[]>, lab: any) => {
+                        const key = `${lab.courseCode || ''}|${lab.courseName || lab.subtitle || 'Course'}`;
+                        const list = groups.get(key) || [];
+                        list.push(lab);
+                        groups.set(key, list);
+                        return groups;
+                      }, new Map<string, any[]>()).entries()).map(([key, labsInCourse]) => (
+                        <div key={key} className="space-y-3">
+                          <div>
+                            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                              {labsInCourse[0]?.courseName || labsInCourse[0]?.subtitle || 'Course'}
+                            </h2>
+                            {labsInCourse[0]?.courseCode ? (
+                              <p className="text-xs text-slate-500 mt-0.5">{labsInCourse[0].courseCode}</p>
+                            ) : null}
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
+                            {labsInCourse.map((lab: any) => (
+                              <LabCard
+                                key={`${lab.courseCode || 'course'}-${lab.id}`}
+                                lab={lab}
+                                onStart={handleStartLab}
+                                onResume={handleResumeLab}
+                                onStop={handleStopLabClick}
+                                onDetails={handleViewDetails}
+                                activeSession={isLabActive(lab) ? activeSession : undefined}
+                                elapsedTime={isLabActive(lab) ? elapsedTime || undefined : undefined}
+                                isStarting={startingLabId === lab.id}
+                                isStopping={stoppingLabId === lab.id}
+                                userCredits={user?.credits}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
