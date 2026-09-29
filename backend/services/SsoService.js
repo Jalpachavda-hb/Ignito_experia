@@ -26,57 +26,65 @@ async function runOptional(label, fn) {
   }
 }
 
-async function selectUserIdByEmail(connection, email) {
-  for (const table of ["Users", "users"]) {
-    try {
-      const [rows] = await connection.query(
-        `SELECT UserId FROM \`${table}\` WHERE LOWER(TRIM(Email)) = ? LIMIT 1`,
-        [email]
-      );
-      if (rows[0]?.UserId) return rows[0].UserId;
-    } catch (err) {
-      if (err.code !== "ER_NO_SUCH_TABLE") throw err;
-    }
+function quoteIdent(name) {
+  if (!/^[A-Za-z0-9_]+$/.test(String(name || ""))) {
+    throw badRequest("Student account table name is invalid.");
   }
-  return null;
+  return `\`${name}\``;
 }
 
-async function selectUserById(connection, userId) {
-  for (const table of ["Users", "users"]) {
-    try {
-      const [rows] = await connection.query(
-        `SELECT UserId, PasswordHash, CreatedFrom, AuthType FROM \`${table}\` WHERE UserId = ? LIMIT 1`,
-        [userId]
-      );
-      if (rows[0]?.UserId) return rows[0];
-    } catch (err) {
-      if (err.code !== "ER_NO_SUCH_TABLE") throw err;
-    }
+/** StudentSessions.UserId must exist in the table this foreign key names, not a second users table. */
+async function sessionUserTable(connection) {
+  try {
+    const [rows] = await connection.query(
+      `SELECT REFERENCED_TABLE_NAME AS tableName
+       FROM information_schema.KEY_COLUMN_USAGE
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'StudentSessions'
+         AND CONSTRAINT_NAME = 'FK_StudentSessions_UserId'
+         AND REFERENCED_TABLE_NAME IS NOT NULL
+       LIMIT 1`
+    );
+    if (rows[0]?.tableName) return rows[0].tableName;
+  } catch (err) {
+    console.warn("[SsoService] Could not read StudentSessions foreign key:", err.message);
   }
-  return null;
+  return "Users";
 }
 
-async function insertStudent(connection, row) {
+async function selectUserIdByEmail(connection, table, email) {
+  const [rows] = await connection.query(
+    `SELECT UserId FROM ${quoteIdent(table)} WHERE LOWER(TRIM(Email)) = ? LIMIT 1`,
+    [email]
+  );
+  return rows[0]?.UserId || null;
+}
+
+async function selectUserById(connection, table, userId) {
+  const [rows] = await connection.query(
+    `SELECT UserId, PasswordHash, CreatedFrom, AuthType FROM ${quoteIdent(table)} WHERE UserId = ? LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+async function insertStudent(connection, table, row) {
+  const quoted = quoteIdent(table);
   const attempts = [
     {
-      sql: `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId, StudentDegreeAdmissionId, StudentId, CreatedAt)
+      sql: `INSERT INTO ${quoted} (FullName, Email, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId, StudentDegreeAdmissionId, StudentId, CreatedAt)
             VALUES (?, ?, NULL, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?, ?, ?, NOW())`,
       params: [row.fullName, row.email, row.tenantId, row.storedExternalId, row.storedAdmissionId, row.storedStudentId],
     },
     {
-      sql: `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, CreatedAt)
+      sql: `INSERT INTO ${quoted} (FullName, Email, PasswordHash, Role, Status, CreatedAt)
             VALUES (?, ?, NULL, 'STUDENT', 'Active', NOW())`,
       params: [row.fullName, row.email],
     },
     {
-      sql: `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, CreatedAt)
+      sql: `INSERT INTO ${quoted} (FullName, Email, PasswordHash, Role, Status, CreatedAt)
             VALUES (?, ?, NULL, 'Student', 'Active', NOW())`,
       params: [row.fullName, row.email],
-    },
-    {
-      sql: `INSERT INTO users (FullName, Email, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId, StudentDegreeAdmissionId, StudentId, CreatedAt)
-            VALUES (?, ?, NULL, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?, ?, ?, NOW())`,
-      params: [row.fullName, row.email, row.tenantId, row.storedExternalId, row.storedAdmissionId, row.storedStudentId],
     },
   ];
 
@@ -85,15 +93,15 @@ async function insertStudent(connection, row) {
     try {
       const [result] = await connection.query(attempt.sql, attempt.params);
       if (result.insertId) return result.insertId;
-      const existing = await selectUserIdByEmail(connection, row.email);
+      const existing = await selectUserIdByEmail(connection, table, row.email);
       if (existing) return existing;
     } catch (err) {
       lastErr = err;
       if (err.code === "ER_DUP_ENTRY") {
-        const existing = await selectUserIdByEmail(connection, row.email);
+        const existing = await selectUserIdByEmail(connection, table, row.email);
         if (existing) return existing;
       }
-      const retryable = ["ER_BAD_FIELD_ERROR", "ER_NO_SUCH_TABLE", "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD", "WARN_DATA_TRUNCATED", "ER_DUP_ENTRY"].includes(err.code);
+      const retryable = ["ER_BAD_FIELD_ERROR", "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD", "WARN_DATA_TRUNCATED", "ER_DUP_ENTRY"].includes(err.code);
       if (!retryable) throw err;
     }
   }
@@ -197,15 +205,16 @@ class SsoService {
         );
       });
 
-      // The session foreign key points at Users. A linked id that is not in that table cannot sign in.
+      // StudentSessions.UserId can only reference the table named by FK_StudentSessions_UserId.
+      const userTable = await sessionUserTable(connection);
       const externalIdentity = await externalIdentityRepository.findBySubject(tenantId, provider, providerSubject, connection).catch(() => null);
-      let userId = await selectUserIdByEmail(connection, email);
+      let userId = await selectUserIdByEmail(connection, userTable, email);
       if (!userId && externalIdentity?.UserId) {
-        const linked = await selectUserById(connection, externalIdentity.UserId);
+        const linked = await selectUserById(connection, userTable, externalIdentity.UserId);
         userId = linked?.UserId || null;
       }
       if (!userId) {
-        userId = await insertStudent(connection, {
+        userId = await insertStudent(connection, userTable, {
           fullName,
           email,
           tenantId,
@@ -215,33 +224,19 @@ class SsoService {
         });
       } else {
         await runOptional("student profile update", () => connection.query(
-          `UPDATE Users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = COALESCE(?, ExternalStudentId), StudentDegreeAdmissionId = COALESCE(?, StudentDegreeAdmissionId), StudentId = COALESCE(?, StudentId), AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
+          `UPDATE ${quoteIdent(userTable)} SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = COALESCE(?, ExternalStudentId), StudentDegreeAdmissionId = COALESCE(?, StudentDegreeAdmissionId), StudentId = COALESCE(?, StudentId), AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
           [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId, userId]
         ));
       }
 
-      const userObj = await selectUserById(connection, userId);
+      const userObj = await selectUserById(connection, userTable, userId);
       if (!userObj?.UserId) {
         throw badRequest("Student account could not be saved, so the lab session was not opened.");
       }
       userId = Number(userObj.UserId);
-
-      await runOptional("external identity", () => connection.query(
-        `INSERT INTO external_identities (TenantId, UserId, Provider, ProviderSubject, ExternalEmail)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE UserId = VALUES(UserId), ExternalEmail = VALUES(ExternalEmail)`,
-        [tenantId || "TEN000001", userId, String(provider || "GTU_LMS").slice(0, 100), String(providerSubject).slice(0, 255), email]
-      ));
-
-      if (tenantId) {
-        await runOptional("university membership", () => connection.query(
-          `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
-           VALUES (?, ?, 'STUDENT', 'ACTIVE')
-           ON DUPLICATE KEY UPDATE Status = 'ACTIVE'`,
-          [userId, tenantId]
-        ));
-        await runOptional("credit wallet", () => creditWalletRepository.createWallet({ userId, tenantId, initialBalance: 0.00 }, connection));
-      }
+      // Commit the student before the session. The foreign key only accepts a saved Users row.
+      await connection.commit();
+      await connection.beginTransaction();
 
       // 3. Create Authenticated Session Context
       const sessionId = crypto.randomUUID();
@@ -302,6 +297,23 @@ class SsoService {
       }, connection);
 
       await connection.commit();
+
+      await runOptional("external identity", () => connection.query(
+        `INSERT INTO external_identities (TenantId, UserId, Provider, ProviderSubject, ExternalEmail)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE UserId = VALUES(UserId), ExternalEmail = VALUES(ExternalEmail)`,
+        [tenantId || "TEN000001", userId, String(provider || "GTU_LMS").slice(0, 100), String(providerSubject).slice(0, 255), email]
+      ));
+      if (tenantId) {
+        await runOptional("university membership", () => connection.query(
+          `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
+           VALUES (?, ?, 'STUDENT', 'ACTIVE')
+           ON DUPLICATE KEY UPDATE Status = 'ACTIVE'`,
+          [userId, tenantId]
+        ));
+        await runOptional("credit wallet", () => creditWalletRepository.createWallet({ userId, tenantId, initialBalance: 0.00 }, connection));
+      }
+
       connection.release();
 
       if (auditService) {
