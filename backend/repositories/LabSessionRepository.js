@@ -8,7 +8,7 @@ class LabSessionRepository {
               FinalCreditsConsumed, StartedAt, ExpiresAt, EndedAt, Status, TenMinuteWarningSent,
               TaskArn, ContainerId, RuntimeUrl, CreatedAt, UpdatedAt
        FROM lab_sessions
-       WHERE UserId = ? AND (TenantId = ? OR TenantId IS NULL OR TenantId = 'DEFAULT' OR TenantId = 'DIRECT' OR TenantId = 'TEN000001') AND Status IN ('STARTING', 'RUNNING', 'EXPIRING_SOON', 'STOPPING')
+       WHERE UserId = ? AND (TenantId = ? OR TenantId IS NULL OR TenantId = 'DEFAULT' OR TenantId = 'DIRECT') AND Status IN ('STARTING', 'RUNNING', 'EXPIRING_SOON', 'STOPPING')
        ORDER BY CreatedAt DESC LIMIT 1`,
       [userId, tenantId || 'DEFAULT']
     );

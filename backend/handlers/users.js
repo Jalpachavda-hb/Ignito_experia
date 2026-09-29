@@ -57,7 +57,7 @@ export const usersListHandler = async (parsed) => {
       if (anyTenant.length > 0 && anyTenant[0].TenantId) {
         authTenantId = anyTenant[0].TenantId;
       } else {
-        authTenantId = 'TEN000001';
+        authTenantId = null;
       }
     }
   }

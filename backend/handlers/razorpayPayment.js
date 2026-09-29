@@ -115,7 +115,7 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
 
   // Credit user wallet in database
   const targetUserId = auth?.userId || bodyUserId || bodyUserEmail || "1";
-  const tenantId = auth?.tenantId || auth?.universityId || bodyTenantId || "TEN000001";
+  const tenantId = auth?.tenantId || auth?.universityId || bodyTenantId || null;
   const creditsToAdd = Number(credits || amount || 0);
 
   if (creditsToAdd > 0 && targetUserId) {

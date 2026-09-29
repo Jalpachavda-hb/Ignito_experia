@@ -277,7 +277,7 @@ export const verifyDbConnection = async () => {
 
     await tightenUsersTable(connection);
 
-    // Tenant ids such as TEN000001 are stored in UniversityId during SSO.
+    // University Tenant IDs (e.g. from LMS) are stored in UniversityId during SSO.
     await connection.query("ALTER TABLE `StudentSessions` MODIFY `UniversityId` VARCHAR(64) NULL");
     await connection.query("ALTER TABLE `AuditLogs` MODIFY `UniversityId` VARCHAR(64) NULL");
     await connection.query("ALTER TABLE `AuditLogs_Archive` MODIFY `UniversityId` VARCHAR(64) NULL");
@@ -333,7 +333,7 @@ export const verifyDbConnection = async () => {
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`course_lab_mappings\` (
         \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-        \`tenant_id\` VARCHAR(64) NOT NULL DEFAULT 'TEN000001',
+        \`tenant_id\` VARCHAR(64) NOT NULL,
         \`program_id\` VARCHAR(64) NOT NULL,
         \`semester_id\` VARCHAR(64) NOT NULL,
         \`course_code\` VARCHAR(64) NOT NULL,

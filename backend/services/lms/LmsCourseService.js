@@ -33,7 +33,7 @@ class LmsCourseService {
         fetcher: () => lmsApiClient.post({
           tenantId,
           url,
-          data: { programmeId: id },
+          data: { programmeId: String(id) },
         }),
       });
       const filtered = filterSemesterPayload(result.data || {}, semester);

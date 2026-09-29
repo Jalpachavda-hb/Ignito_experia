@@ -16,7 +16,18 @@ export function SsoCallback() {
   const [errorMessage, setErrorMessage] = useState<string>('')
 
   useEffect(() => {
-    const token = searchParams?.token || searchParams?.accessToken || searchParams?.access_token || searchParams?.id_token || searchParams?.idToken
+    const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const token =
+      searchParams?.token ||
+      searchParams?.accessToken ||
+      searchParams?.access_token ||
+      searchParams?.id_token ||
+      searchParams?.idToken ||
+      urlParams.get('token') ||
+      urlParams.get('accessToken') ||
+      urlParams.get('access_token') ||
+      urlParams.get('id_token') ||
+      urlParams.get('idToken');
 
     if (!token) {
       setStatus('error')
@@ -26,8 +37,28 @@ export function SsoCallback() {
 
     const processSso = async () => {
       try {
-        const studentDegreeAdmissionId = searchParams?.studentDegreeAdmissionId
-        const studentId = searchParams?.studentId
+        const studentDegreeAdmissionId =
+          searchParams?.studentDegreeAdmissionId ||
+          searchParams?.admissionId ||
+          searchParams?.student_degree_admission_id ||
+          urlParams.get('studentDegreeAdmissionId') ||
+          urlParams.get('admissionId') ||
+          urlParams.get('student_degree_admission_id');
+
+        const studentId =
+          searchParams?.studentId ||
+          searchParams?.student_id ||
+          searchParams?.studentID ||
+          urlParams.get('studentId') ||
+          urlParams.get('student_id') ||
+          urlParams.get('studentID');
+
+        const slug =
+          searchParams?.slug ||
+          urlParams.get('slug') ||
+          getTenantSlug() ||
+          'gtu';
+
         const apiOrigin = getApiOrigin()
 
         const res = await fetch(`${apiOrigin}/api/auth/sso-login`, {
@@ -40,7 +71,7 @@ export function SsoCallback() {
             token,
             studentDegreeAdmissionId,
             studentId,
-            slug: getTenantSlug(),
+            slug,
           })
         })
 

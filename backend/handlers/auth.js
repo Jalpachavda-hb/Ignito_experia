@@ -382,7 +382,7 @@ export const authMeHandler = async ({ auth }) => {
   }
 
   let tenantId = profile.TenantId || profile.UniversityId || auth.tenantId;
-  if (!tenantId || tenantId === PLATFORM_TENANT_ID) {
+  if (!tenantId || String(tenantId).toUpperCase() === PLATFORM_TENANT_ID) {
     const lookupId = profile.UserId || auth.userId;
     if (lookupId) {
       const [utmRows] = await pool.query(
@@ -394,13 +394,16 @@ export const authMeHandler = async ({ auth }) => {
       }
     }
   }
-  if (tenantId === PLATFORM_TENANT_ID) tenantId = null;
   const universityStudent = isUniversityIdentity(profile);
   const admissionId = universityStudent
     ? (profile.StudentDegreeAdmissionId || profile.ExternalStudentId || auth.studentDegreeAdmissionId || null)
     : null;
-  const tenant = universityStudent ? await loadTenantById(tenantId) : null;
-  if (!tenantId) {
+  const tenant = universityStudent
+    ? (tenantId ? await loadTenantById(tenantId) : null) || (await resolvePortalTenant({ tenantId }))
+    : null;
+  if (tenant) {
+    tenantId = tenant.TenantId;
+  } else if (!tenantId) {
     tenantId = PLATFORM_TENANT_ID;
   }
 
@@ -702,17 +705,45 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
 
 export const studentRefreshProfileHandler = authRefreshLmsProfileHandler;
 
-export const studentPurchasedProgrammesHandler = async ({ auth }) => {
+export const studentPurchasedProgrammesHandler = async ({ auth, body = {} }) => {
   const ctx = await loadStudentLmsContext(auth);
   if (!ctx.universityStudent || !ctx.tenant) {
     return ok({ success: true, programmeList: [], programList: [], semesterList: [] });
   }
-  const result = await lmsProgrammeService.getPurchased({
-    tenantId: ctx.tenant.TenantId,
-    provider: ctx.provider,
-    studentId: ctx.studentId,
+
+  const effectiveStudentId = body.studentId || body.student_id || ctx.studentId || ctx.externalStudentId;
+  if (effectiveStudentId && !ctx.studentId) {
+    ctx.studentId = effectiveStudentId;
+  }
+
+  let purchased = null;
+  if (ctx.studentId) {
+    try {
+      purchased = await lmsProgrammeService.getPurchased({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+        studentId: ctx.studentId,
+      });
+    } catch (e) {
+      console.warn("[studentPurchasedProgrammesHandler] getPurchased error:", e.message);
+    }
+  }
+
+  const owned = await loadOwnedProgrammes(ctx);
+  const programmeList = (owned.programmes && owned.programmes.length > 0)
+    ? owned.programmes
+    : (purchased?.programmeList || purchased?.programList || []);
+
+  const semesterList = purchased?.semesterList || [];
+
+  return ok({
+    success: true,
+    lmsStatus: owned.lmsStatus || purchased?.lmsStatus || (programmeList.length > 0 ? "LIVE" : "LMS_STUDENT_NOT_FOUND"),
+    programmeList,
+    programList: programmeList,
+    semesterList,
+    rawData: purchased?.rawData || null,
   });
-  return ok(result);
 };
 
 export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
@@ -720,23 +751,34 @@ export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
   if (!ctx.universityStudent || !ctx.tenant) {
     return ok({ success: true, semesterList: [], courseList: [] });
   }
-  const requestedId = body.programmeId || body.programId;
+
+  const requestedId = body.programmeId || body.programId || body.programme_id || body.program_id;
   if (!requestedId) throw badRequest("programmeId is required");
+
+  const requestedSemester = body.semester ?? body.semesterNumber ?? body.semesterId ?? body.semester_id ?? null;
 
   const owned = await loadOwnedProgrammes(ctx);
   const match = owned.programmes.find((programme) => programmeMatches(programme, requestedId));
-  if (!match) {
-    return ok({ success: true, lmsStatus: owned.lmsStatus || "LMS_STUDENT_NOT_FOUND", semesterList: [], courseList: [] });
-  }
+  const targetProgrammeId = match ? (match.programmeId ?? match.programId) : requestedId;
 
-  const result = await lmsCourseService.getByProgramme({
-    tenantId: ctx.tenant.TenantId,
-    provider: ctx.provider,
-    programmeId: match.programmeId ?? match.programId,
-    externalStudentId: ctx.externalStudentId,
-    semester: body.semester ?? body.semesterNumber ?? body.semesterId ?? null,
-  });
-  return ok(result);
+  try {
+    const result = await lmsCourseService.getByProgramme({
+      tenantId: ctx.tenant.TenantId,
+      provider: ctx.provider,
+      programmeId: targetProgrammeId,
+      externalStudentId: ctx.externalStudentId,
+      semester: requestedSemester,
+    });
+    return ok(result);
+  } catch (err) {
+    console.error("[studentProgrammeSemestersHandler] Course fetch error:", err.message);
+    return ok({
+      success: true,
+      lmsStatus: "LMS_COURSES_UNAVAILABLE",
+      semesterList: [],
+      courseList: [],
+    });
+  }
 };
 
 export const studentSemesterLabsHandler = async ({ auth, queryStringParameters = {} }) => {

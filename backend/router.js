@@ -110,6 +110,7 @@ export const ROUTES = [
   { method: "POST", path: "/auth/reset-password", handler: authResetPasswordHandler, auth: false },
   { method: "GET", path: "/auth/me", handler: authMeHandler, auth: true },
   { method: "GET", path: "/student/me", handler: authMeHandler, auth: true },
+  { method: "GET", path: "/student/profile", handler: authMeHandler, auth: true },
   { method: "POST", path: "/student/refresh-profile", handler: studentRefreshProfileHandler, auth: true },
   { method: "POST", path: "/student/purchased-programmes", handler: studentPurchasedProgrammesHandler, auth: true },
   { method: "POST", path: "/student/programme-semesters", handler: studentProgrammeSemestersHandler, auth: true },

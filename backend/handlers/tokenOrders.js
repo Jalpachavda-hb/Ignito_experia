@@ -6,7 +6,7 @@ import tokenOrderRepository from "../repositories/TokenOrderRepository.js";
 
 export const tokenOrderCreateHandler = async ({ body, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "TEN000001";
+  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
   const studentId = auth.userId;
 
   const items = body?.items;
@@ -69,7 +69,7 @@ export const tokenOrderWebhookHandler = async ({ body, headers }) => {
 
 export const tokenOrderListHandler = async ({ queryStringParameters, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "TEN000001";
+  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
   const limit = Math.min(100, Math.max(1, Number(queryStringParameters?.limit || 50)));
   const offset = Math.max(0, Number(queryStringParameters?.offset || 0));
 

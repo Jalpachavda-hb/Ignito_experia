@@ -68,7 +68,7 @@ const normalizeLabObject = (lab) => {
 };
 
 class LabService {
-  async getAllAdmin(status, tenantId = 'TEN000001') {
+  async getAllAdmin(status, tenantId = null) {
     const endpoint = status ? `/api/labs?status=${encodeURIComponent(status)}` : "/api/labs";
     const data = await fetchFromOwner(endpoint);
     let labs = [];
@@ -82,10 +82,14 @@ class LabService {
 
     try {
       const pool = (await import("../lib/mysql.js")).default;
-      const [mappings] = await pool.query(
-        "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ?",
-        [tenantId || 'TEN000001']
-      );
+      const [mappings] = tenantId
+        ? await pool.query(
+            "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ?",
+            [tenantId]
+          )
+        : await pool.query(
+            "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings"
+          );
       const mapDict = new Map();
       (mappings || []).forEach(m => mapDict.set(String(m.lab_id), m));
 
@@ -108,7 +112,7 @@ class LabService {
     return labs;
   }
 
-  async getAllActive(tenantId = 'TEN000001') {
+  async getAllActive(tenantId = null) {
     const data = await fetchFromOwner("/api/labs");
     let labs = [];
     if (data && Array.isArray(data.labs)) {
@@ -121,10 +125,14 @@ class LabService {
 
     try {
       const pool = (await import("../lib/mysql.js")).default;
-      const [mappings] = await pool.query(
-        "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ?",
-        [tenantId || 'TEN000001']
-      );
+      const [mappings] = tenantId
+        ? await pool.query(
+            "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ?",
+            [tenantId]
+          )
+        : await pool.query(
+            "SELECT program_id, semester_id, course_code, lab_id FROM course_lab_mappings"
+          );
       const mapDict = new Map();
       (mappings || []).forEach(m => mapDict.set(String(m.lab_id), m));
 

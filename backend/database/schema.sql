@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS `user_tenant_mapping` (
 -- 10. Course Lab Mappings Table
 CREATE TABLE IF NOT EXISTS `course_lab_mappings` (
   `id` INT AUTO_INCREMENT PRIMARY KEY,
-  `tenant_id` VARCHAR(64) NOT NULL DEFAULT 'TEN000001',
+  `tenant_id` VARCHAR(64) NOT NULL,
   `program_id` VARCHAR(64) NOT NULL,
   `semester_id` VARCHAR(64) NOT NULL,
   `course_code` VARCHAR(64) NOT NULL,
