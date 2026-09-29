@@ -14,8 +14,7 @@ import { lmsProfileCacheService } from "./LmsProfileCacheService.js";
 import {
   assertStudentPortal,
   loadLmsProvider,
-  loadTenantById,
-  loadTenantBySlug,
+  resolvePortalTenant,
 } from "../lib/studentAccess.js";
 
 const LMS_JWT_SECRET = process.env.LMS_JWT_SECRET || "default_lms_secret";
@@ -54,10 +53,16 @@ class SsoService {
 
     const admissionId = studentDegreeAdmissionId || decodedToken.studentDegreeAdmissionId || decodedToken.admissionId;
     const requestSlug = String(slug || decodedToken.tenantSlug || decodedToken.slug || decodedToken.universitySlug || "").trim().toLowerCase();
-    let tenantId = decodedToken.tenantId || decodedToken.universityId || null;
-    let tenant = tenantId ? await loadTenantById(tenantId) : null;
-    if (!tenant && requestSlug) tenant = await loadTenantBySlug(requestSlug);
-    if (tenant) tenantId = tenant.TenantId;
+    const tenant = await resolvePortalTenant({
+      slug: requestSlug,
+      tenantId: decodedToken.tenantId || decodedToken.universityId || null,
+    });
+    const tenantId = tenant?.TenantId || null;
+    if (!tenant && requestSlug) {
+      throw unauthorized(
+        `University portal "${requestSlug}" is not onboarded. Create this university in the owner dashboard before students sign in from Verse.`
+      );
+    }
     assertStudentPortal({
       user: { CreatedFrom: "LMS", AuthType: "LMS" },
       tenant,

@@ -2,6 +2,9 @@ import pool from "./mysql.js";
 import { unauthorized } from "./errors.js";
 import { portalHostForSlug } from "./tenantSlug.js";
 import { LMS_PROVIDER_CONFIG } from "../config/lms/lmsProviderConfig.js";
+import { ENV } from "../config/env.js";
+
+const OWNER_API_URL = (process.env.OWNER_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 
 /** Platform bucket for students who are not members of a university tenant. */
 export const PLATFORM_TENANT_ID = "TEN000001";
@@ -45,6 +48,93 @@ export async function loadTenantBySlug(slug) {
     [clean]
   );
   return rows[0] || null;
+}
+
+async function fetchOwnerTenantBySlug(slug) {
+  const clean = String(slug || "").trim().toLowerCase();
+  if (!clean) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const ownerRes = await fetch(
+      `${OWNER_API_URL}/api/internal/tenants/by-slug/${encodeURIComponent(clean)}`,
+      {
+        headers: { "X-Internal-Service-Token": ENV.internalServiceToken },
+        signal: controller.signal,
+      }
+    );
+    if (!ownerRes.ok) return null;
+    const ownerData = await ownerRes.json();
+    if (!ownerData?.success || !ownerData.slug || !ownerData.tenantId) return null;
+    return {
+      TenantId: ownerData.tenantId,
+      Name: ownerData.name,
+      Slug: String(ownerData.slug).trim().toLowerCase(),
+      OfficialDomain: ownerData.officialDomain || null,
+      LogoUrl: ownerData.logoUrl || null,
+      Status: ownerData.status || "ACTIVE",
+      SettingsJson: null,
+      IntegrationMode: "LMS",
+    };
+  } catch (err) {
+    console.warn("[studentAccess] Owner tenant lookup failed:", err.message);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Copy an owner-dashboard university into the Experia database so SSO can use it. */
+async function mirrorOwnerTenant(tenant) {
+  if (!tenant?.TenantId || !tenant?.Slug || !tenant?.Name) return tenant;
+  const existingBySlug = await loadTenantBySlug(tenant.Slug);
+  if (existingBySlug?.Slug) return existingBySlug;
+  const existingById = await loadTenantById(tenant.TenantId);
+  if (existingById?.Slug) return existingById;
+  try {
+    await pool.query(
+      `INSERT INTO tenants (TenantId, Name, Slug, OfficialDomain, LogoUrl, IntegrationMode, Status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        tenant.TenantId,
+        tenant.Name,
+        tenant.Slug,
+        tenant.OfficialDomain,
+        tenant.LogoUrl,
+        tenant.IntegrationMode || "LMS",
+        tenant.Status || "ACTIVE",
+      ]
+    );
+  } catch (err) {
+    console.warn("[studentAccess] Could not copy owner tenant into Experia:", err.message);
+    const again = await loadTenantBySlug(tenant.Slug);
+    if (again) return again;
+  }
+  return (await loadTenantBySlug(tenant.Slug)) || tenant;
+}
+
+/**
+ * The browser host slug is the university the student is signing into.
+ * Owner-created tenants live in the owner database; Experia mirrors them on first use.
+ */
+export async function resolvePortalTenant({ slug, tenantId } = {}) {
+  const requestSlug = String(slug || "").trim().toLowerCase();
+  if (requestSlug) {
+    const local = await loadTenantBySlug(requestSlug);
+    if (local?.Slug) return local;
+    const owner = await fetchOwnerTenantBySlug(requestSlug);
+    if (owner?.Slug) {
+      console.log(`[studentAccess] Resolved university "${requestSlug}" from the owner dashboard.`);
+      return mirrorOwnerTenant(owner);
+    }
+  }
+  if (tenantId && String(tenantId) !== PLATFORM_TENANT_ID) {
+    const byId = await loadTenantById(tenantId);
+    if (byId?.Slug && (!requestSlug || String(byId.Slug).toLowerCase() === requestSlug)) {
+      return byId;
+    }
+  }
+  return null;
 }
 
 export async function loadLmsProvider(userId, tenant, explicitProvider) {

@@ -8,6 +8,7 @@ const loginSchema = Joi.object({
 });
 
 export async function loginHandler(req, res) {
+  debugger;
   try {
     const { error, value } = loginSchema.validate(req.body);
     if (error) {

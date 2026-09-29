@@ -23,6 +23,37 @@ export function slugFromHost(host) {
   return "";
 }
 
+function hostFromUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    return new URL(raw).host;
+  } catch {
+    return raw.split("/")[0];
+  }
+}
+
+/**
+ * The SSO API is on experia.ignitolearn.com. The student portal is on {slug}.experia.ignitolearn.com.
+ * Read the portal from the browser page, not from the API host.
+ */
+export function portalHostFromRequest(headers = {}, body = {}) {
+  const candidates = [
+    body?.portalHost,
+    headers["x-tenant-domain"],
+    headers["x-tenant-host"],
+    hostFromUrl(headers.origin || headers.Origin),
+    hostFromUrl(headers.referer || headers.Referer),
+    headers.host,
+    headers.Host,
+  ];
+  for (const candidate of candidates) {
+    const host = String(candidate || "").trim();
+    if (host && slugFromHost(host)) return host;
+  }
+  return String(candidates.find(Boolean) || "");
+}
+
 /** Build `{slug}.{apex}` from the browser host. Apex is taken from the request, never a fixed domain. */
 export function portalHostForSlug(slug, requestHost) {
   const raw = String(requestHost || "").trim().toLowerCase();
