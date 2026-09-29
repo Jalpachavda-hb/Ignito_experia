@@ -18,6 +18,8 @@ const queryClient = new QueryClient({
 const router = createRouter({
   routeTree,
   context: { queryClient },
+  // Must match Vite `base` when served under /owner/ behind Nginx
+  basepath: import.meta.env.BASE_URL.replace(/\/$/, '') || '/',
 })
 
 declare module '@tanstack/react-router' {

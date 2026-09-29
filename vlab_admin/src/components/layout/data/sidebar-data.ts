@@ -1,6 +1,5 @@
 import {
   LayoutDashboard,
-  LineChart,
   Users,
   Shield,
   GraduationCap,
@@ -11,15 +10,8 @@ import {
   Wallet,
   ReceiptText,
   FileText,
-  Bell,
   ScrollText,
   Settings,
-  Server,
-  User,
-  BookMarked,
-  Award,
-  UserCheck,
-  UserCog,
 } from 'lucide-react'
 import { type SidebarData } from '../types'
 

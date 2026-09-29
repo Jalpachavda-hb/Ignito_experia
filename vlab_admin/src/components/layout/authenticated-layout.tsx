@@ -26,11 +26,12 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
       fetchAuthMe()
         .then((data: any) => {
           if (data?.user) {
+            const u = data.user
             auth.setUser({
-              ...data.user,
-              userId: data.user.id || data.user.userId,
-              fullName: data.user.fullName || data.user.name,
-              name: data.user.fullName || data.user.name,
+              ...u,
+              userId: u.id || u.userId,
+              fullName: u.fullName || u.name,
+              name: u.fullName || u.name,
               exp: Date.now() + 24 * 60 * 60 * 1000,
             })
           }

@@ -112,7 +112,7 @@ export const verifyDbConnection = async () => {
         \`UserId\` INT NOT NULL,
         \`DeviceId\` VARCHAR(100) NULL,
         \`LoginSource\` ENUM('DIRECT', 'LMS') NOT NULL,
-        \`UniversityId\` BIGINT NULL,
+        \`UniversityId\` VARCHAR(64) NULL,
         \`AccessTokenId\` VARCHAR(100) NULL,
         \`RefreshTokenId\` VARCHAR(100) NULL,
         \`IPAddress\` VARCHAR(45),
@@ -161,7 +161,7 @@ export const verifyDbConnection = async () => {
         \`TraceId\` VARCHAR(100) NULL,
         \`SessionId\` VARCHAR(100) NULL,
         \`UserId\` INT NULL,
-        \`UniversityId\` INT NULL,
+        \`UniversityId\` VARCHAR(64) NULL,
         \`DepartmentId\` INT NULL,
         \`ProgramId\` INT NULL,
         \`SemesterId\` INT NULL,
@@ -207,7 +207,7 @@ export const verifyDbConnection = async () => {
         \`TraceId\` VARCHAR(100) NULL,
         \`SessionId\` VARCHAR(100) NULL,
         \`UserId\` INT NULL,
-        \`UniversityId\` INT NULL,
+        \`UniversityId\` VARCHAR(64) NULL,
         \`DepartmentId\` INT NULL,
         \`ProgramId\` INT NULL,
         \`SemesterId\` INT NULL,
@@ -231,6 +231,11 @@ export const verifyDbConnection = async () => {
         \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // Tenant ids such as TEN000001 are stored in UniversityId during SSO.
+    await connection.query("ALTER TABLE `StudentSessions` MODIFY `UniversityId` VARCHAR(64) NULL");
+    await connection.query("ALTER TABLE `AuditLogs` MODIFY `UniversityId` VARCHAR(64) NULL");
+    await connection.query("ALTER TABLE `AuditLogs_Archive` MODIFY `UniversityId` VARCHAR(64) NULL");
 
     // StudentCreditWallets
     await connection.query(`
@@ -393,6 +398,17 @@ export const verifyDbConnection = async () => {
         UNIQUE KEY \`UQ_LabUsage_Sequence\` (\`LabSessionId\`, \`BillingSequence\`),
         INDEX \`IDX_LabUsage_StudentLab\` (\`TenantId\`, \`StudentId\`, \`LabId\`),
         CONSTRAINT \`FK_LabUsage_Wallet\` FOREIGN KEY (\`WalletId\`) REFERENCES \`student_lab_token_wallets\` (\`Id\`) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // SSO replay protection (migration 011)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`SSOReplayStore\` (
+        \`ReplayId\` VARCHAR(255) PRIMARY KEY,
+        \`TenantId\` VARCHAR(64) NOT NULL,
+        \`ExpiresAt\` DATETIME NOT NULL,
+        \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX \`idx_replay_expires\` (\`ExpiresAt\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 

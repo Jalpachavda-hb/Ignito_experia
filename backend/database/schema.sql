@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS `StudentSessions` (
   `UserId` INT NOT NULL,
   `DeviceId` VARCHAR(100) NULL,
   `LoginSource` ENUM('DIRECT', 'LMS') NOT NULL,
-  `UniversityId` BIGINT NULL,
+  `UniversityId` VARCHAR(64) NULL,
   `AccessTokenId` VARCHAR(100) NULL,
   `RefreshTokenId` VARCHAR(100) NULL,
   `IPAddress` VARCHAR(45),
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS `AuditLogs` (
   `TraceId` VARCHAR(100) NULL,
   `SessionId` VARCHAR(100) NULL,
   `UserId` INT NULL,
-  `UniversityId` INT NULL,
+  `UniversityId` VARCHAR(64) NULL,
   `DepartmentId` INT NULL,
   `ProgramId` INT NULL,
   `SemesterId` INT NULL,
@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS `AuditLogs_Archive` (
   `TraceId` VARCHAR(100) NULL,
   `SessionId` VARCHAR(100) NULL,
   `UserId` INT NULL,
-  `UniversityId` INT NULL,
+  `UniversityId` VARCHAR(64) NULL,
   `DepartmentId` INT NULL,
   `ProgramId` INT NULL,
   `SemesterId` INT NULL,
@@ -238,6 +238,15 @@ CREATE TABLE IF NOT EXISTS `course_lab_mappings` (
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `uk_tenant_course_lab` (`tenant_id`, `program_id`, `semester_id`, `course_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 11. SSO Replay Store
+CREATE TABLE IF NOT EXISTS `SSOReplayStore` (
+  `ReplayId` VARCHAR(255) PRIMARY KEY,
+  `TenantId` VARCHAR(64) NOT NULL,
+  `ExpiresAt` DATETIME NOT NULL,
+  `CreatedAt` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_replay_expires` (`ExpiresAt`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -42,12 +42,13 @@ const corsHeaders = (headers = {}) => {
 import { lmsLoginDto, loginDto, refreshDto } from "../dto/auth.dto.js";
 import { ssoService } from "../services/SsoService.js";
 import { badRequest } from "../lib/errors.js";
-import { slugFromHost } from "../lib/tenantSlug.js";
+import { portalHostFromRequest, slugFromHost } from "../lib/tenantSlug.js";
 import {
   PLATFORM_TENANT_ID,
   isUniversityIdentity,
   loadLmsProvider,
   loadTenantById,
+  resolvePortalTenant,
 } from "../lib/studentAccess.js";
 
 const validate = (schema, data) => {
@@ -75,8 +76,6 @@ export const authRegisterHandler = async ({ body, headers = {} }) => {
   });
 };
 
-import { ENV } from "../config/env.js";
-
 const obfuscate = (data) => {
   const jsonStr = JSON.stringify(data);
   const base64 = Buffer.from(jsonStr).toString('base64');
@@ -100,48 +99,17 @@ export const tenantResolveHandler = async ({ queryStringParameters = {}, headers
     });
   }
 
-  let tenant = null;
-
-  try {
-    const ownerRes = await fetch(`http://localhost:4000/api/internal/tenants/by-slug/${slug.toLowerCase()}`, {
-      headers: {
-        "X-Internal-Service-Token": ENV.internalServiceToken,
-      },
-    });
-    if (ownerRes.ok) {
-      const ownerData = await ownerRes.json();
-      if (ownerData.success) {
-        tenant = {
-          tenantId: ownerData.tenantId,
-          name: ownerData.name,
-          slug: ownerData.slug,
-          officialDomain: ownerData.officialDomain,
-          logoUrl: ownerData.logoUrl,
-          status: ownerData.status,
-        };
+  const tenantRow = await resolvePortalTenant({ slug });
+  const tenant = tenantRow
+    ? {
+        tenantId: tenantRow.TenantId,
+        name: tenantRow.Name,
+        slug: tenantRow.Slug,
+        officialDomain: tenantRow.OfficialDomain,
+        logoUrl: tenantRow.LogoUrl,
+        status: tenantRow.Status,
       }
-    }
-  } catch (err) {
-    console.warn("Owner Tenant API unreachable, using local fallback:", err.message);
-  }
-
-  if (!tenant) {
-    const [rows] = await pool.query(
-      "SELECT TenantId, Name, Slug, OfficialDomain, LogoUrl, Status FROM tenants WHERE LOWER(Slug) = ?",
-      [slug.toLowerCase()]
-    );
-    if (rows.length > 0) {
-      const row = rows[0];
-      tenant = {
-        tenantId: row.TenantId,
-        name: row.Name,
-        slug: row.Slug,
-        officialDomain: row.OfficialDomain,
-        logoUrl: row.LogoUrl,
-        status: row.Status,
-      };
-    }
-  }
+    : null;
 
   if (!tenant) {
     return obfuscate({
@@ -222,8 +190,8 @@ export const ssoLoginHandler = async ({ body = {}, headers, requestContext }) =>
   // Use APIGW request ID or generate one
   const correlationId = requestContext?.requestId || crypto.randomUUID();
 
-  const host = headers["x-tenant-domain"] || headers.host || headers.Host || "";
-  const slug = body?.slug || slugFromHost(host);
+  const host = portalHostFromRequest(headers, body);
+  const slug = String(body?.slug || "").trim().toLowerCase() || slugFromHost(host);
 
   const result = await ssoService.verifyLmsToken({
     token,
