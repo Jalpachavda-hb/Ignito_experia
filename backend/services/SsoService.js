@@ -1,7 +1,6 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import pool from "../lib/mysql.js";
-import userRepository from "../repositories/UserRepository.js";
 import externalIdentityRepository from "../repositories/ExternalIdentityRepository.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import sessionRepository from "../repositories/SessionRepository.js";
@@ -18,6 +17,88 @@ import {
 } from "../lib/studentAccess.js";
 
 const LMS_JWT_SECRET = process.env.LMS_JWT_SECRET || "default_lms_secret";
+
+async function runOptional(label, fn) {
+  try {
+    await fn();
+  } catch (err) {
+    console.warn(`[SsoService] ${label} skipped:`, err.message);
+  }
+}
+
+async function selectUserIdByEmail(connection, email) {
+  for (const table of ["Users", "users"]) {
+    try {
+      const [rows] = await connection.query(
+        `SELECT UserId FROM \`${table}\` WHERE LOWER(TRIM(Email)) = ? LIMIT 1`,
+        [email]
+      );
+      if (rows[0]?.UserId) return rows[0].UserId;
+    } catch (err) {
+      if (err.code !== "ER_NO_SUCH_TABLE") throw err;
+    }
+  }
+  return null;
+}
+
+async function selectUserById(connection, userId) {
+  for (const table of ["Users", "users"]) {
+    try {
+      const [rows] = await connection.query(
+        `SELECT UserId, PasswordHash, CreatedFrom, AuthType FROM \`${table}\` WHERE UserId = ? LIMIT 1`,
+        [userId]
+      );
+      if (rows[0]?.UserId) return rows[0];
+    } catch (err) {
+      if (err.code !== "ER_NO_SUCH_TABLE") throw err;
+    }
+  }
+  return null;
+}
+
+async function insertStudent(connection, row) {
+  const attempts = [
+    {
+      sql: `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId, StudentDegreeAdmissionId, StudentId, CreatedAt)
+            VALUES (?, ?, NULL, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?, ?, ?, NOW())`,
+      params: [row.fullName, row.email, row.tenantId, row.storedExternalId, row.storedAdmissionId, row.storedStudentId],
+    },
+    {
+      sql: `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, CreatedAt)
+            VALUES (?, ?, NULL, 'STUDENT', 'Active', NOW())`,
+      params: [row.fullName, row.email],
+    },
+    {
+      sql: `INSERT INTO Users (FullName, Email, PasswordHash, Role, Status, CreatedAt)
+            VALUES (?, ?, NULL, 'Student', 'Active', NOW())`,
+      params: [row.fullName, row.email],
+    },
+    {
+      sql: `INSERT INTO users (FullName, Email, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId, StudentDegreeAdmissionId, StudentId, CreatedAt)
+            VALUES (?, ?, NULL, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?, ?, ?, NOW())`,
+      params: [row.fullName, row.email, row.tenantId, row.storedExternalId, row.storedAdmissionId, row.storedStudentId],
+    },
+  ];
+
+  let lastErr = null;
+  for (const attempt of attempts) {
+    try {
+      const [result] = await connection.query(attempt.sql, attempt.params);
+      if (result.insertId) return result.insertId;
+      const existing = await selectUserIdByEmail(connection, row.email);
+      if (existing) return existing;
+    } catch (err) {
+      lastErr = err;
+      if (err.code === "ER_DUP_ENTRY") {
+        const existing = await selectUserIdByEmail(connection, row.email);
+        if (existing) return existing;
+      }
+      const retryable = ["ER_BAD_FIELD_ERROR", "ER_NO_SUCH_TABLE", "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD", "WARN_DATA_TRUNCATED", "ER_DUP_ENTRY"].includes(err.code);
+      if (!retryable) throw err;
+    }
+  }
+  throw lastErr || badRequest("Student account could not be saved, so the lab session was not opened.");
+}
 
 class SsoService {
   async verifyLmsToken({ token, studentDegreeAdmissionId, studentId, device, os, browser, ipAddress, correlationId, slug, host }) {
@@ -95,90 +176,71 @@ class SsoService {
     const storedAdmissionId = /^\d+$/.test(String(admissionId ?? "").trim()) ? String(admissionId).trim() : null;
     const storedExternalId = storedStudentId || storedAdmissionId;
 
-    const replayId = decodedToken.jti || decodedToken.nonce || `${providerSubject}_${decodedToken.iat || Date.now()}`;
-    const email = (externalProfile?.email || decodedToken.email || "").trim().toLowerCase();
-    const fullName = (externalProfile?.applicantFullName || decodedToken.name || decodedToken.fullName || `${decodedToken.firstName || ''} ${decodedToken.lastName || ''}`.trim() || 'LMS Student').trim();
-
-    if (!email) {
-      throw badRequest("LMS token must contain email or user identity");
+    const replayId = String(decodedToken.jti || decodedToken.nonce || `${providerSubject}_${decodedToken.iat || Date.now()}`).slice(0, 255);
+    let email = (externalProfile?.email || decodedToken.email || decodedToken.preferred_username || "").trim().toLowerCase();
+    if (!email.includes("@")) {
+      const safeSubject = String(providerSubject).replace(/[^a-z0-9._-]/gi, "").slice(0, 48) || "student";
+      email = `${safeSubject}@sso.experia.local`;
     }
+    const fullName = (externalProfile?.applicantFullName || decodedToken.name || decodedToken.fullName || `${decodedToken.firstName || ''} ${decodedToken.lastName || ''}`.trim() || 'LMS Student').trim();
 
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
     try {
-      // 1. SSOReplayStore Replay Protection Handling (Seamless Re-launch support)
-      const [existingReplay] = await connection.query("SELECT ReplayId FROM SSOReplayStore WHERE ReplayId = ?", [replayId]);
-      if (existingReplay && existingReplay.length > 0) {
-        console.log(`[SsoService] Re-launch assertion detected for replayId=${replayId}. Proceeding with seamless user session.`);
-      } else {
+      await runOptional("SSO replay record", async () => {
         const expiresAtDate = decodedToken.exp ? new Date(decodedToken.exp * 1000) : new Date(Date.now() + 5 * 60 * 1000);
+        const replayExpiry = Number.isNaN(expiresAtDate.getTime()) ? new Date(Date.now() + 5 * 60 * 1000) : expiresAtDate;
         await connection.query(
           "INSERT INTO SSOReplayStore (ReplayId, TenantId, ExpiresAt) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE ReplayId = VALUES(ReplayId)",
-          [replayId, tenantId, expiresAtDate]
+          [replayId, tenantId || "TEN000001", replayExpiry]
         );
+      });
+
+      // The session foreign key points at Users. A linked id that is not in that table cannot sign in.
+      const externalIdentity = await externalIdentityRepository.findBySubject(tenantId, provider, providerSubject, connection).catch(() => null);
+      let userId = await selectUserIdByEmail(connection, email);
+      if (!userId && externalIdentity?.UserId) {
+        const linked = await selectUserById(connection, externalIdentity.UserId);
+        userId = linked?.UserId || null;
+      }
+      if (!userId) {
+        userId = await insertStudent(connection, {
+          fullName,
+          email,
+          tenantId,
+          storedExternalId,
+          storedAdmissionId,
+          storedStudentId,
+        });
+      } else {
+        await runOptional("student profile update", () => connection.query(
+          `UPDATE Users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = COALESCE(?, ExternalStudentId), StudentDegreeAdmissionId = COALESCE(?, StudentDegreeAdmissionId), StudentId = COALESCE(?, StudentId), AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
+          [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId, userId]
+        ));
       }
 
-      // 2. Resolve External Identity via TenantId + Provider + ProviderSubject
-      let externalIdentity = await externalIdentityRepository.findBySubject(tenantId, provider, providerSubject, connection);
-      let userId;
-      let userObj;
+      const userObj = await selectUserById(connection, userId);
+      if (!userObj?.UserId) {
+        throw badRequest("Student account could not be saved, so the lab session was not opened.");
+      }
+      userId = Number(userObj.UserId);
 
-      if (!externalIdentity) {
-        // Find existing user by email or create minimal Experia User
-        userObj = await userRepository.findByEmail(email, connection);
-        if (!userObj) {
-          const [insertRes] = await connection.query(
-            `INSERT INTO users (FullName, Email, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId, StudentDegreeAdmissionId, StudentId, CreatedAt)
-             VALUES (?, ?, NULL, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?, ?, ?, NOW())`,
-            [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId]
-          );
-          userId = insertRes.insertId;
-          userObj = await userRepository.findById(userId, connection);
-        } else {
-          userId = userObj.UserId;
-          try {
-            await connection.query(
-              `UPDATE users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = COALESCE(?, ExternalStudentId), StudentDegreeAdmissionId = COALESCE(?, StudentDegreeAdmissionId), StudentId = COALESCE(?, StudentId), AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
-              [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId, userId]
-            );
-          } catch (e) {
-            console.error("[SsoService] users UPDATE error:", e.message);
-          }
-          userObj = await userRepository.findById(userId, connection);
-        }
+      await runOptional("external identity", () => connection.query(
+        `INSERT INTO external_identities (TenantId, UserId, Provider, ProviderSubject, ExternalEmail)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE UserId = VALUES(UserId), ExternalEmail = VALUES(ExternalEmail)`,
+        [tenantId || "TEN000001", userId, String(provider || "GTU_LMS").slice(0, 100), String(providerSubject).slice(0, 255), email]
+      ));
 
-        // Create permanent external identity mapping
-        await externalIdentityRepository.insert({
-          tenantId,
-          userId,
-          provider,
-          providerSubject,
-          externalEmail: email
-        }, connection);
-
-        // Create user_tenant_mapping if missing
-        await connection.query(
+      if (tenantId) {
+        await runOptional("university membership", () => connection.query(
           `INSERT INTO user_tenant_mapping (UserId, TenantId, Role, Status)
            VALUES (?, ?, 'STUDENT', 'ACTIVE')
            ON DUPLICATE KEY UPDATE Status = 'ACTIVE'`,
           [userId, tenantId]
-        );
-
-        // Initialize tenant-isolated credit wallet
-        await creditWalletRepository.createWallet({ userId, tenantId, initialBalance: 0.00 }, connection);
-      } else {
-        userId = externalIdentity.UserId;
-        userObj = await userRepository.findById(userId, connection);
-        try {
-          await connection.query(
-            `UPDATE users SET FullName = ?, Email = ?, TenantId = COALESCE(?, TenantId), ExternalStudentId = COALESCE(?, ExternalStudentId), StudentDegreeAdmissionId = COALESCE(?, StudentDegreeAdmissionId), StudentId = COALESCE(?, StudentId), AuthType = IF(PasswordHash IS NOT NULL, 'LMS_AND_DIRECT', 'LMS'), Status = 'Active' WHERE UserId = ?`,
-            [fullName, email, tenantId, storedExternalId, storedAdmissionId, storedStudentId, userId]
-          );
-        } catch (e) {
-          console.error("[SsoService] users existing identity UPDATE error:", e.message);
-        }
-        userObj = await userRepository.findById(userId, connection);
+        ));
+        await runOptional("credit wallet", () => creditWalletRepository.createWallet({ userId, tenantId, initialBalance: 0.00 }, connection));
       }
 
       // 3. Create Authenticated Session Context
@@ -206,16 +268,31 @@ class SsoService {
       const refreshExpiresAt = new Date();
       refreshExpiresAt.setDate(refreshExpiresAt.getDate() + 7);
 
-      await sessionRepository.insert({
-        SessionId: sessionId,
-        UserId: userId,
-        AuthenticationSource: 'LMS',
-        UniversityId: tenantId,
-        IPAddress: ipAddress,
-        Browser: browser,
-        OS: os,
-        Device: device
-      }, connection);
+      try {
+        await sessionRepository.insert({
+          SessionId: sessionId,
+          UserId: userId,
+          AuthenticationSource: 'LMS',
+          UniversityId: tenantId,
+          IPAddress: ipAddress,
+          Browser: browser,
+          OS: os,
+          Device: device
+        }, connection);
+      } catch (err) {
+        const universityValueRejected = ["ER_TRUNCATED_WRONG_VALUE_FOR_FIELD", "ER_DATA_TOO_LONG", "WARN_DATA_TRUNCATED"].includes(err.code);
+        if (!universityValueRejected) throw err;
+        await sessionRepository.insert({
+          SessionId: sessionId,
+          UserId: userId,
+          AuthenticationSource: 'LMS',
+          UniversityId: null,
+          IPAddress: ipAddress,
+          Browser: browser,
+          OS: os,
+          Device: device
+        }, connection);
+      }
 
       await refreshTokenRepository.insert({
         UserId: userId,
@@ -303,7 +380,9 @@ class SsoService {
         refreshToken: refreshTokenRaw
       };
     } catch (err) {
-      await connection.rollback();
+      try { await connection.rollback(); } catch (rollbackErr) {
+        console.warn("[SsoService] Rollback failed:", rollbackErr.message);
+      }
       connection.release();
       throw err;
     }

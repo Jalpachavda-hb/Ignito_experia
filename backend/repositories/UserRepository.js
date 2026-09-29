@@ -5,7 +5,7 @@ class UserRepository {
   async findByEmail(email, connection = pool) {
     const params = [email.toLowerCase()];
     const [rows] = await connection.query(
-      "SELECT * FROM users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
+      "SELECT * FROM Users WHERE LOWER(Email) = ? AND COALESCE(IsDeleted, 0) = 0",
       params
     );
     if (!rows || !rows.length) return null;
