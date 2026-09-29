@@ -161,7 +161,7 @@ jobs:
             echo "==> Owner admin build"
             cd "$DEPLOY_PATH/ignito_Experia_Main_Dashboard/ignito_experia_admin"
             npm ci --legacy-peer-deps
-            VITE_API_URL="$APP_URL/ownerbackend" npm run build -- --base=/owner/
+            VITE_API_URL="$APP_URL/owner-api" npm run build -- --base=/owner/
 
             echo "==> Restart  apps"
             pm2 restart vlab-backend ownerbackend || {
