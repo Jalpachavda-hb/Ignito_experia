@@ -47,22 +47,38 @@ export function dedupeSemesters(list) {
 export function mergeProgrammes(profileList, purchasedPayload) {
   const purchased = purchasedPayload?.programmeList || purchasedPayload?.programList || [];
   const sharedSemesters = purchasedPayload?.semesterList || [];
-  const byKey = new Map();
+  const mergedList = [];
 
-  for (const raw of [...(profileList || []), ...purchased]) {
+  // First process purchased list (which has authoritative programmeId)
+  for (const raw of purchased) {
     const programme = normalizeProgramme(raw);
     if (!programme || !programme.programmeName) continue;
-    const key = String(programme.programmeId ?? programme.programmeName).toLowerCase();
-    const prev = byKey.get(key) || {};
-    byKey.set(key, {
-      ...prev,
-      ...programme,
-      programmeName: programme.programmeName || prev.programmeName,
-      semesters: dedupeSemesters([...(prev.semesters || []), ...(programme.semesters || programme.semesterList || [])]),
-    });
+    mergedList.push(programme);
   }
 
-  for (const programme of byKey.values()) {
+  // Then merge in profile list items
+  for (const raw of (profileList || [])) {
+    const p = normalizeProgramme(raw);
+    if (!p || !p.programmeName) continue;
+
+    const existing = mergedList.find(m => 
+      (m.programmeId != null && p.programmeId != null && String(m.programmeId) === String(p.programmeId)) ||
+      (m.programmeName && p.programmeName && m.programmeName.toLowerCase().trim() === p.programmeName.toLowerCase().trim())
+    );
+
+    if (existing) {
+      existing.currentSemester = existing.currentSemester || p.currentSemester;
+      existing.enrollmentNumber = existing.enrollmentNumber || p.enrollmentNumber;
+      existing.admissionDate = existing.admissionDate || p.admissionDate;
+      existing.totalSemesters = existing.totalSemesters || p.totalSemesters;
+      existing.semesters = dedupeSemesters([...(existing.semesters || []), ...(p.semesters || [])]);
+    } else {
+      mergedList.push(p);
+    }
+  }
+
+  // Attach shared semesters
+  for (const programme of mergedList) {
     const pid = programme.programmeId != null ? String(programme.programmeId) : "";
     const related = sharedSemesters.filter((semester) => {
       const owner = semester?.programId ?? semester?.programmeId;
@@ -74,7 +90,7 @@ export function mergeProgrammes(profileList, purchasedPayload) {
     }
   }
 
-  return [...byKey.values()];
+  return mergedList;
 }
 
 export function programmeMatches(programme, requested) {
