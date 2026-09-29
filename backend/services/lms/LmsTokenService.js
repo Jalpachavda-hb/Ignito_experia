@@ -20,7 +20,7 @@ class LmsTokenService {
   }
 
   getCacheKey(tenantId) {
-    const safeTenant = (tenantId || 'TEN000001').trim();
+    const safeTenant = String(tenantId || "default").trim();
     return `lms:token:${safeTenant}:${LMS_PROVIDER_CONFIG.provider}`;
   }
 

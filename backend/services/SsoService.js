@@ -145,13 +145,12 @@ class SsoService {
     const tenant = await resolvePortalTenant({
       slug: requestSlug,
       tenantId: decodedToken.tenantId || decodedToken.universityId || null,
+      host,
     });
-    const tenantId = tenant?.TenantId || null;
-    if (!tenant && requestSlug) {
-      throw unauthorized(
-        `University portal "${requestSlug}" is not onboarded. Create this university in the owner dashboard before students sign in from Verse.`
-      );
+    if (!tenant?.TenantId) {
+      throw unauthorized("University portal could not be identified from database for this account.");
     }
+    const tenantId = tenant.TenantId;
     assertStudentPortal({
       user: { CreatedFrom: "LMS", AuthType: "LMS" },
       tenant,
@@ -180,9 +179,9 @@ class SsoService {
     }
 
     const resolvedStudentId = hintedStudentId || externalProfile?.studentId || externalProfile?.studentID || externalProfile?.student_id || null;
-    const storedStudentId = /^\d+$/.test(String(resolvedStudentId ?? "").trim()) ? String(resolvedStudentId).trim() : null;
-    const storedAdmissionId = /^\d+$/.test(String(admissionId ?? "").trim()) ? String(admissionId).trim() : null;
-    const storedExternalId = storedStudentId || storedAdmissionId;
+    const storedStudentId = resolvedStudentId != null && String(resolvedStudentId).trim() ? String(resolvedStudentId).trim() : null;
+    const storedAdmissionId = admissionId != null && String(admissionId).trim() ? String(admissionId).trim() : null;
+    const storedExternalId = storedStudentId || storedAdmissionId || String(providerSubject);
 
     const replayId = String(decodedToken.jti || decodedToken.nonce || `${providerSubject}_${decodedToken.iat || Date.now()}`).slice(0, 255);
     let email = (externalProfile?.email || decodedToken.email || decodedToken.preferred_username || "").trim().toLowerCase();
@@ -201,7 +200,7 @@ class SsoService {
         const replayExpiry = Number.isNaN(expiresAtDate.getTime()) ? new Date(Date.now() + 5 * 60 * 1000) : expiresAtDate;
         await connection.query(
           "INSERT INTO SSOReplayStore (ReplayId, TenantId, ExpiresAt) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE ReplayId = VALUES(ReplayId)",
-          [replayId, tenantId || "TEN000001", replayExpiry]
+          [replayId, tenantId, replayExpiry]
         );
       });
 
@@ -302,7 +301,7 @@ class SsoService {
         `INSERT INTO external_identities (TenantId, UserId, Provider, ProviderSubject, ExternalEmail)
          VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE UserId = VALUES(UserId), ExternalEmail = VALUES(ExternalEmail)`,
-        [tenantId || "TEN000001", userId, String(provider || "GTU_LMS").slice(0, 100), String(providerSubject).slice(0, 255), email]
+        [tenantId, userId, String(provider || "LMS").slice(0, 100), String(providerSubject).slice(0, 255), email]
       ));
       if (tenantId) {
         await runOptional("university membership", () => connection.query(
@@ -378,8 +377,9 @@ class SsoService {
           authSource: "LMS",
           createdFrom: userObj?.CreatedFrom || "LMS",
           authType: userObj?.AuthType || "LMS",
-          studentDegreeAdmissionId: admissionId,
-          externalStudentId: String(admissionId || providerSubject),
+          studentId: storedStudentId,
+          studentDegreeAdmissionId: storedAdmissionId || admissionId,
+          externalStudentId: String(storedExternalId || admissionId || providerSubject),
           hasPassword
         },
         tenant: {

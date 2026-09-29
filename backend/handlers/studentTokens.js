@@ -62,7 +62,7 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
 
 export const studentLabSingleTokenBalanceHandler = async ({ pathParameters, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "TEN000001";
+  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
   const labId = pathParameters?.labId;
 
   const wallet = await studentLabTokenWalletRepository.getWallet(tenantId, auth.userId, labId);
@@ -95,7 +95,7 @@ export const studentAvailableTokenPackagesHandler = async () => {
 
 export const studentLabTokenUsageHandler = async ({ queryStringParameters, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "TEN000001";
+  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
   const labId = queryStringParameters?.labId || null;
   const limit = Math.min(100, Math.max(1, Number(queryStringParameters?.limit || 50)));
   const offset = Math.max(0, Number(queryStringParameters?.offset || 0));

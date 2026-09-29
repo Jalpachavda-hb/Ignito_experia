@@ -5,6 +5,7 @@ import {
   isUniversityIdentity,
   loadLmsProvider,
   loadTenantById,
+  resolvePortalTenant,
 } from "../../lib/studentAccess.js";
 import { cleanLmsId } from "./lmsIds.js";
 import { lmsProfileCacheService } from "../LmsProfileCacheService.js";
@@ -31,16 +32,18 @@ export async function loadStudentLmsContext(auth) {
   if (!profile) throw unauthorized("User not found or inactive");
 
   let tenantId = profile.TenantId || auth.tenantId || null;
-  if (!tenantId || String(tenantId) === PLATFORM_TENANT_ID) {
+  if (!tenantId || String(tenantId).toUpperCase() === PLATFORM_TENANT_ID) {
     const [utmRows] = await pool.query(
-      "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' AND TenantId <> ? ORDER BY MappingId DESC LIMIT 1",
-      [profile.UserId, PLATFORM_TENANT_ID]
+      "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' AND TenantId <> 'PLATFORM' ORDER BY MappingId DESC LIMIT 1",
+      [profile.UserId]
     ).catch(() => [[]]);
     if (utmRows?.[0]?.TenantId) tenantId = utmRows[0].TenantId;
   }
 
   const universityStudent = isUniversityIdentity(profile);
-  const tenant = universityStudent ? await loadTenantById(tenantId) : null;
+  const tenant = universityStudent
+    ? (tenantId ? await loadTenantById(tenantId) : null) || (await resolvePortalTenant({ tenantId }))
+    : null;
   const provider = universityStudent ? await loadLmsProvider(profile.UserId, tenant) : null;
   const identity = identityFromUser(profile);
 
@@ -48,7 +51,7 @@ export async function loadStudentLmsContext(auth) {
     profile,
     universityStudent,
     tenant,
-    tenantId: tenant?.TenantId || (tenantId && String(tenantId) !== PLATFORM_TENANT_ID ? tenantId : null),
+    tenantId: tenant?.TenantId || (tenantId && String(tenantId).toUpperCase() !== PLATFORM_TENANT_ID ? tenantId : null),
     provider,
     ...identity,
   };

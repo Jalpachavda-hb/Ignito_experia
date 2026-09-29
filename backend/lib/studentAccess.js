@@ -6,8 +6,8 @@ import { ENV } from "../config/env.js";
 
 const OWNER_API_URL = (process.env.OWNER_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 
-/** Platform bucket for students who are not members of a university tenant. */
-export const PLATFORM_TENANT_ID = "TEN000001";
+/** Platform bucket for students who are direct and not members of a university tenant. */
+export const PLATFORM_TENANT_ID = "PLATFORM";
 
 export function isUniversityIdentity(user) {
   if (!user) return false;
@@ -16,6 +16,7 @@ export function isUniversityIdentity(user) {
   if (created === "LMS" || auth === "LMS" || auth === "LMS_AND_DIRECT") return true;
   if (user.StudentDegreeAdmissionId || user.studentDegreeAdmissionId) return true;
   if (user.ExternalStudentId || user.externalStudentId) return true;
+  if (user.StudentId || user.studentId) return true;
   return false;
 }
 
@@ -31,12 +32,19 @@ function parseSettings(raw) {
 
 const TENANT_COLUMNS = "TenantId, Name, Slug, OfficialDomain, LogoUrl, Status, SettingsJson, IntegrationMode";
 
+export async function loadDefaultOrFirstTenant() {
+  const [rows] = await pool.query(
+    `SELECT ${TENANT_COLUMNS} FROM tenants WHERE Status = 'ACTIVE' ORDER BY DbId ASC LIMIT 1`
+  ).catch(() => [[]]);
+  return rows[0] || null;
+}
+
 export async function loadTenantById(tenantId) {
-  if (!tenantId || String(tenantId) === PLATFORM_TENANT_ID) return null;
+  if (!tenantId || String(tenantId).toUpperCase() === PLATFORM_TENANT_ID) return null;
   const [rows] = await pool.query(
     `SELECT ${TENANT_COLUMNS} FROM tenants WHERE TenantId = ? LIMIT 1`,
     [tenantId]
-  );
+  ).catch(() => [[]]);
   return rows[0] || null;
 }
 
@@ -46,7 +54,17 @@ export async function loadTenantBySlug(slug) {
   const [rows] = await pool.query(
     `SELECT ${TENANT_COLUMNS} FROM tenants WHERE LOWER(Slug) = ? LIMIT 1`,
     [clean]
-  );
+  ).catch(() => [[]]);
+  return rows[0] || null;
+}
+
+export async function loadTenantByDomain(domain) {
+  const clean = String(domain || "").trim().toLowerCase();
+  if (!clean) return null;
+  const [rows] = await pool.query(
+    `SELECT ${TENANT_COLUMNS} FROM tenants WHERE LOWER(OfficialDomain) = ? OR LOWER(Slug) = ? LIMIT 1`,
+    [clean, clean]
+  ).catch(() => [[]]);
   return rows[0] || null;
 }
 
@@ -165,10 +183,14 @@ async function mirrorOwnerTenant(tenant) {
  * The browser host slug is the university the student is signing into.
  * Owner-created tenants live in the owner database; Experia mirrors and syncs them.
  */
-export async function resolvePortalTenant({ slug, tenantId } = {}) {
+export async function resolvePortalTenant({ slug, tenantId, host } = {}) {
   const requestSlug = String(slug || "").trim().toLowerCase();
   if (requestSlug) {
-    // 1. Check owner database or owner API for latest tenant data & branding logo
+    // 1. Check local table first
+    const local = await loadTenantBySlug(requestSlug);
+    if (local?.Slug) return local;
+
+    // 2. Check owner database or owner API for latest tenant data & branding logo
     let owner = await fetchOwnerTenantBySlug(requestSlug);
     if (!owner?.Slug) {
       owner = await loadOwnerTenantFromDb(requestSlug);
@@ -176,17 +198,25 @@ export async function resolvePortalTenant({ slug, tenantId } = {}) {
     if (owner?.Slug) {
       return mirrorOwnerTenant(owner);
     }
+  }
 
-    // 2. Fallback to local table if owner backend was unreachable
-    const local = await loadTenantBySlug(requestSlug);
-    if (local?.Slug) return local;
-  }
-  if (tenantId && String(tenantId) !== PLATFORM_TENANT_ID) {
+  // 3. Resolve by tenantId from DB
+  if (tenantId && String(tenantId).toUpperCase() !== PLATFORM_TENANT_ID) {
     const byId = await loadTenantById(tenantId);
-    if (byId?.Slug && (!requestSlug || String(byId.Slug).toLowerCase() === requestSlug)) {
-      return byId;
-    }
+    if (byId) return byId;
   }
+
+  // 4. Resolve by host / domain from DB
+  if (host) {
+    const cleanHost = String(host).split(':')[0].toLowerCase();
+    const byDomain = await loadTenantByDomain(cleanHost);
+    if (byDomain) return byDomain;
+  }
+
+  // 5. Fallback dynamically to the active tenant in database
+  const fallback = await loadDefaultOrFirstTenant();
+  if (fallback) return fallback;
+
   return null;
 }
 
@@ -212,15 +242,15 @@ export async function loadLmsProvider(userId, tenant, explicitProvider) {
 export function assertStudentPortal({ user, tenant, slug, host }) {
   const requestSlug = String(slug || "").trim().toLowerCase();
   if (isUniversityIdentity(user)) {
+    if (!tenant) {
+      throw unauthorized("University portal could not be identified from database for this account.");
+    }
     const expected = String(tenant?.Slug || "").trim().toLowerCase();
     const portal = expected ? portalHostForSlug(expected, host) : "";
-    if (!expected) {
-      throw unauthorized("This university account can only sign in on its university portal.");
-    }
     if ((tenant.Status || "ACTIVE").toUpperCase() !== "ACTIVE") {
-      throw unauthorized(`${tenant.Name} is currently unavailable. Contact the platform administrator.`);
+      throw unauthorized(`${tenant.Name || "University portal"} is currently unavailable. Contact the platform administrator.`);
     }
-    if (requestSlug !== expected) {
+    if (requestSlug && expected && requestSlug !== expected) {
       throw unauthorized(
         `Sign in at ${portal}. University students use their university portal, not the main Experia site.`
       );

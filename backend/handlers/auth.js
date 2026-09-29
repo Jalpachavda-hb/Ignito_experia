@@ -382,7 +382,7 @@ export const authMeHandler = async ({ auth }) => {
   }
 
   let tenantId = profile.TenantId || profile.UniversityId || auth.tenantId;
-  if (!tenantId || tenantId === PLATFORM_TENANT_ID) {
+  if (!tenantId || String(tenantId).toUpperCase() === PLATFORM_TENANT_ID) {
     const lookupId = profile.UserId || auth.userId;
     if (lookupId) {
       const [utmRows] = await pool.query(
@@ -394,13 +394,16 @@ export const authMeHandler = async ({ auth }) => {
       }
     }
   }
-  if (tenantId === PLATFORM_TENANT_ID) tenantId = null;
   const universityStudent = isUniversityIdentity(profile);
   const admissionId = universityStudent
     ? (profile.StudentDegreeAdmissionId || profile.ExternalStudentId || auth.studentDegreeAdmissionId || null)
     : null;
-  const tenant = universityStudent ? await loadTenantById(tenantId) : null;
-  if (!tenantId) {
+  const tenant = universityStudent
+    ? (tenantId ? await loadTenantById(tenantId) : null) || (await resolvePortalTenant({ tenantId }))
+    : null;
+  if (tenant) {
+    tenantId = tenant.TenantId;
+  } else if (!tenantId) {
     tenantId = PLATFORM_TENANT_ID;
   }
 

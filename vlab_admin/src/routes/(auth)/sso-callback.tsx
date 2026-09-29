@@ -9,8 +9,14 @@ const searchSchema = z.object({
   id_token: z.string().optional(),
   idToken: z.string().optional(),
   studentDegreeAdmissionId: z.union([z.string(), z.number()]).optional(),
+  admissionId: z.union([z.string(), z.number()]).optional(),
+  student_degree_admission_id: z.union([z.string(), z.number()]).optional(),
   studentId: z.union([z.string(), z.number()]).optional(),
-})
+  student_id: z.union([z.string(), z.number()]).optional(),
+  studentID: z.union([z.string(), z.number()]).optional(),
+  slug: z.string().optional(),
+  tenantId: z.string().optional(),
+}).passthrough()
 
 export const Route = createFileRoute('/(auth)/sso-callback')({
   component: SsoCallback,

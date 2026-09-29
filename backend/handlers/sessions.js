@@ -245,7 +245,7 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
 
 export const sessionsExtendHandler = async ({ pathParameters, body, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "TEN000001";
+  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
 
   const sessionId = pathParameters?.sessionId;
   const sessionBlocks = Math.max(1, Number(body?.sessionBlocks || 1));
@@ -392,7 +392,7 @@ export const sessionsListByUserHandler = async ({
   auth,
 }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "TEN000001";
+  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
   const rawParam = pathParameters?.userId ? decodeURIComponent(pathParameters.userId) : null;
 
   if (rawParam && rawParam !== "active") {

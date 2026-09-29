@@ -1,25 +1,7 @@
 import { executeRequest } from './GetApiHandler';
 import { BASE_URL } from './Api_path';
 
-const defaultApiPort = import.meta.env.VITE_API_PORT || '8080';
-
-let rawLmsBaseUrl = import.meta.env.VITE_LMS_API_BASE_URL || '';
-
-if (
-  typeof window !== 'undefined' &&
-  window.location.hostname !== 'localhost' &&
-  rawLmsBaseUrl.includes('localhost')
-) {
-  rawLmsBaseUrl = rawLmsBaseUrl.replace('localhost', window.location.hostname);
-}
-
-if (typeof window !== 'undefined' && !rawLmsBaseUrl) {
-  rawLmsBaseUrl = `${window.location.protocol}//${window.location.hostname}:${defaultApiPort}/api`;
-}
-
-export const LMS_BASE_URL = rawLmsBaseUrl
-  ? rawLmsBaseUrl.replace(/\/+$/, '')
-  : BASE_URL;
+export const LMS_BASE_URL = BASE_URL;
 
 export const LMS_API_PATHS = {
   STUDENT: {
