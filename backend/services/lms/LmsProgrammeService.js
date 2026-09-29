@@ -15,7 +15,7 @@ class LmsProgrammeService {
     await lmsResponseCache.invalidate(this.cacheKey(tenantId, provider, id));
   }
 
-  async getPurchased({ tenantId, provider, studentId, forceRefresh = false }) {
+  async getPurchased({ tenantId, provider, studentId, bearerToken = null, forceRefresh = false }) {
     const id = numericLmsId(studentId);
     if (!tenantId || id == null) {
       return { success: true, lmsStatus: "LMS_STUDENT_NOT_FOUND", programmeList: [], programList: [], semesterList: [] };
@@ -27,10 +27,11 @@ class LmsProgrammeService {
     try {
       const result = await lmsResponseCache.getOrFetch(key, {
         forceRefresh,
-        fetcher: () => lmsApiClient.post({
+        fetcher: () => lmsApiClient.postWithCredentialFallback({
           tenantId,
           url,
           data: { studentId: id },
+          bearerToken,
         }),
       });
       const raw = result.data || {};

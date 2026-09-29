@@ -25,10 +25,20 @@ export function identityFromUser(profile) {
 }
 
 export async function loadStudentLmsContext(auth) {
-  if (!auth?.userId) throw unauthorized("Authentication required");
+  if (!auth?.userId && !auth?.email) throw unauthorized("Authentication required");
 
-  const [rows] = await pool.query("SELECT * FROM users WHERE UserId = ? LIMIT 1", [auth.userId]);
-  const profile = rows?.[0];
+  let profile = null;
+  if (auth?.userId) {
+    const [rows] = await pool.query("SELECT * FROM users WHERE UserId = ? LIMIT 1", [auth.userId]);
+    profile = rows?.[0] || null;
+  }
+  if (!profile && auth?.email) {
+    const [emailRows] = await pool.query(
+      "SELECT * FROM users WHERE LOWER(TRIM(Email)) = LOWER(TRIM(?)) LIMIT 1",
+      [auth.email]
+    );
+    profile = emailRows?.[0] || null;
+  }
   if (!profile) throw unauthorized("User not found or inactive");
 
   let tenantId = profile.TenantId || auth.tenantId || null;
@@ -64,12 +74,13 @@ export async function loadOwnedProgrammes(ctx) {
 
   let profile = null;
   let profileStatus = "LMS_PROFILE_UNAVAILABLE";
-  if (ctx.admissionId) {
+  if (ctx.admissionId || ctx.studentId) {
     const cached = await lmsProfileCacheService.getOrFetchProfile({
       tenantId: ctx.tenant.TenantId,
       provider: ctx.provider,
       externalStudentId: ctx.externalStudentId,
       admissionId: ctx.admissionId,
+      studentId: ctx.studentId,
     });
     profileStatus = cached?.profileStatus || profileStatus;
     profile = cached?.data || null;

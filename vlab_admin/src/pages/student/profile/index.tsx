@@ -6,8 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, CheckCircle2, ShieldCheck, Lock, KeyRound } from 'lucide-react';
 import { dashboardData } from '@/pages/student/dashboard/data';
-import { refreshStudentProfile } from '@/Utils/lmsApi_paths';
-import { fetchAuthMe } from '@/Utils/GetApiHandler';
+import { loadStudentPortalData, mergeStudentPortalUser, refreshStudentProfile } from '@/Utils/lmsApi_paths';
 import { useAuthStore } from '@/stores/auth-store';
 
 import { ProfileSummaryCard } from './components/profile-summary-card';
@@ -29,16 +28,11 @@ export default function Profile() {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
 
   React.useEffect(() => {
-    fetchAuthMe()
-      .then((data: any) => {
-        if (data?.user) {
-          useAuthStore.getState().auth.setUser({
-            ...data.user,
-            userId: data.user.id || data.user.userId,
-            fullName: data.user.fullName || data.user.name,
-            exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
-          });
-        }
+    const studentId = u.studentId || u.studentDegreeAdmissionId || u.externalStudentId;
+    loadStudentPortalData(studentId)
+      .then((payload: any) => {
+        const current = useAuthStore.getState().auth.user;
+        useAuthStore.getState().auth.setUser(mergeStudentPortalUser(current, payload));
       })
       .catch(() => {});
   }, []);
@@ -48,19 +42,13 @@ export default function Profile() {
       setIsRefreshing(true);
       setRefreshSuccess(false);
       
-      // 1. Invalidate Redis cache and fetch latest from LMS API
       await refreshStudentProfile();
 
-      // 2. Fetch fresh user state and update AuthStore
-      const data: any = await fetchAuthMe();
-      if (data?.user) {
-        useAuthStore.getState().auth.setUser({
-          ...data.user,
-          userId: data.user.id || data.user.userId,
-          fullName: data.user.fullName || data.user.name,
-          exp: Date.now() + 24 * 60 * 60 * 1000,
-        });
-      }
+      const studentId = useAuthStore.getState().auth.user?.studentId
+        || useAuthStore.getState().auth.user?.studentDegreeAdmissionId;
+      const payload: any = await loadStudentPortalData(studentId);
+      const current = useAuthStore.getState().auth.user;
+      useAuthStore.getState().auth.setUser(mergeStudentPortalUser(current, payload));
 
       setRefreshSuccess(true);
       setTimeout(() => setRefreshSuccess(false), 4000);

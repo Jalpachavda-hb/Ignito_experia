@@ -8,6 +8,7 @@ import { lmsAcademicProgressService } from "../services/lms/LmsAcademicProgressS
 import { lmsSemesterService } from "../services/lms/LmsSemesterService.js";
 import { lmsResponseCache } from "../services/lms/LmsResponseCache.js";
 import { identityFromUser, loadOwnedProgrammes, loadStudentLmsContext } from "../services/lms/studentLmsContext.js";
+import { cleanLmsId } from "../services/lms/lmsIds.js";
 import { mergeProgrammes, programmeMatches } from "../services/lms/programmeNormalize.js";
 import { LMS_PROVIDER_CONFIG } from "../config/lms/lmsProviderConfig.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
@@ -310,7 +311,7 @@ export const authLogoutHandler = async ({ body, headers }) => {
 import { permissionService } from "../services/PermissionService.js";
 import studentProfileRepository from "../repositories/StudentProfileRepository.js";
 
-export const authMeHandler = async ({ auth }) => {
+export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
   if (!auth) {
     throw unauthorized("Not authenticated");
   }
@@ -414,13 +415,18 @@ export const authMeHandler = async ({ auth }) => {
     ? await loadLmsProvider(profile.UserId || auth.userId, tenant)
     : null;
   const lmsIdentityIds = identityFromUser(profile);
-  const lmsExternalId = lmsIdentityIds.externalStudentId;
-  if (universityStudent && admissionId && tenant) {
+  const requestedStudentId = cleanLmsId(queryStringParameters.studentId || queryStringParameters.student_id);
+  if (!lmsIdentityIds.studentId && requestedStudentId) {
+    lmsIdentityIds.studentId = requestedStudentId;
+  }
+  const lmsExternalId = lmsIdentityIds.externalStudentId || lmsIdentityIds.studentId;
+  if (universityStudent && (admissionId || lmsIdentityIds.studentId) && tenant) {
     const cachedResult = await lmsProfileCacheService.getOrFetchProfile({
       tenantId: tenant.TenantId,
       provider: lmsProvider,
       externalStudentId: lmsExternalId,
       admissionId,
+      studentId: lmsIdentityIds.studentId,
       forceRefresh: false
     });
     profileStatus = cachedResult?.profileStatus || 'LMS_PROFILE_UNAVAILABLE';
@@ -428,7 +434,7 @@ export const authMeHandler = async ({ auth }) => {
     if (profileStatus === 'LIVE' && cachedResult?.data) {
       cachedLmsProfile = cachedResult.data;
     }
-  } else if (universityStudent && !admissionId) {
+  } else if (universityStudent && !admissionId && !lmsIdentityIds.studentId) {
     profileStatus = 'LMS_STUDENT_NOT_FOUND';
   }
 
@@ -678,6 +684,7 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
     provider: ctx.provider,
     externalStudentId: ctx.externalStudentId,
     admissionId: ctx.admissionId,
+    studentId: ctx.studentId,
     forceRefresh: true,
   });
   const purchased = ctx.studentId
@@ -789,20 +796,26 @@ export const studentSemesterLabsHandler = async ({ auth, queryStringParameters =
   return ok(result);
 };
 
-export const studentAcademicProgressHandler = async ({ auth }) => {
+export const studentAcademicProgressHandler = async ({ auth, queryStringParameters = {} }) => {
   const ctx = await loadStudentLmsContext(auth);
   if (!ctx.universityStudent || !ctx.tenant) {
     return ok({ success: true, progressStatus: null, programmes: [], academicProgress: {} });
   }
 
+  const requestedStudentId = queryStringParameters.studentId || queryStringParameters.student_id;
+  if (requestedStudentId && !ctx.studentId) {
+    ctx.studentId = String(requestedStudentId).trim();
+  }
+
   let profile = null;
   let profileStatus = "LMS_PROFILE_UNAVAILABLE";
-  if (ctx.admissionId) {
+  if (ctx.admissionId || ctx.studentId) {
     const cached = await lmsProfileCacheService.getOrFetchProfile({
       tenantId: ctx.tenant.TenantId,
       provider: ctx.provider,
       externalStudentId: ctx.externalStudentId,
       admissionId: ctx.admissionId,
+      studentId: ctx.studentId,
     });
     profileStatus = cached?.profileStatus || profileStatus;
     profile = cached?.data || null;
@@ -829,7 +842,9 @@ export const studentAcademicProgressHandler = async ({ auth }) => {
     programmes,
   });
 
-  if (profileStatus !== "LIVE" && progress.progressStatus === "LIVE") {
+  if (programmes.length > 0 && (profileStatus === "LIVE" || purchased?.lmsStatus === "LIVE")) {
+    progress.progressStatus = "LIVE";
+  } else if (profileStatus !== "LIVE" && progress.progressStatus === "LIVE") {
     progress.progressStatus = profileStatus;
   }
   return ok(progress);

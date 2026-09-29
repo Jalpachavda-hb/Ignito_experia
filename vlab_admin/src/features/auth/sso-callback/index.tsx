@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { getApiOrigin } from '@/config/env'
 import { getTenantSlug } from '@/lib/tenant-slug'
 import { fetchAuthMe } from '@/Utils/GetApiHandler'
+import { loadStudentPortalData, mergeStudentPortalUser } from '@/Utils/lmsApi_paths'
 
 export function SsoCallback() {
   const navigate = useNavigate()
@@ -82,20 +83,29 @@ export function SsoCallback() {
           if (data.refreshToken) {
             auth.setRefreshToken?.(data.refreshToken)
           }
+          if (data.student) auth.setUser(data.student)
           try {
-            const meData: any = await fetchAuthMe()
-            if (meData?.user) {
-              auth.setUser({
-                ...meData.user,
-                userId: meData.user.id || meData.user.userId,
-                fullName: meData.user.fullName || meData.user.name,
-                exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
-              })
-            } else if (data.student) {
-              auth.setUser(data.student)
-            }
+            const portal = await loadStudentPortalData(studentId || data.student?.studentId)
+            const merged = mergeStudentPortalUser(
+              useAuthStore.getState().auth.user || data.student,
+              portal,
+            )
+            auth.setUser(merged)
           } catch {
-            if (data.student) auth.setUser(data.student)
+            try {
+              const meData: any = await fetchAuthMe()
+              if (meData?.user) {
+                auth.setUser({
+                  ...data.student,
+                  ...meData.user,
+                  userId: meData.user.id || meData.user.userId,
+                  fullName: meData.user.fullName || meData.user.name,
+                  exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+                })
+              }
+            } catch {
+              if (data.student) auth.setUser(data.student)
+            }
           }
 
           // Instantly replace window location to student dashboard to skip /sso-callback in browser history.

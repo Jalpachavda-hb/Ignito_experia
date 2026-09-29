@@ -49,6 +49,22 @@ class LmsApiClient {
     });
   }
 
+  /**
+   * Prefer the server M2M credential. If that credential is missing or rejected
+   * and the student SSO token is still available, retry once with that token.
+   */
+  async postWithCredentialFallback({ tenantId, url, data, bearerToken }) {
+    try {
+      return await this.post({ tenantId, url, data });
+    } catch (err) {
+      const canUseStudentToken = bearerToken && err instanceof LmsApiError &&
+        ["LMS_PROVIDER_CONFIGURATION_MISSING", "LMS_AUTHENTICATION_FAILED", "LMS_API_UNAUTHORIZED"].includes(err.code);
+      if (!canUseStudentToken) throw err;
+      console.warn(`[LmsApiClient] M2M ${err.code}. Retrying with the student SSO token.`);
+      return this.post({ tenantId, url, data, bearerToken });
+    }
+  }
+
   async sendWithRetry(ctx) {
     try {
       return await this.send(ctx);

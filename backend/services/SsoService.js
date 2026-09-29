@@ -10,6 +10,8 @@ import { signAccessToken } from "../lib/jwt.js";
 import { unauthorized, badRequest } from "../lib/errors.js";
 import { ENV } from "../config/env.js";
 import { lmsProfileCacheService } from "./LmsProfileCacheService.js";
+import { lmsProgrammeService } from "./lms/LmsProgrammeService.js";
+import { mergeProgrammes } from "./lms/programmeNormalize.js";
 import {
   assertStudentPortal,
   loadLmsProvider,
@@ -158,7 +160,13 @@ class SsoService {
       host: host || ""
     });
     const provider = await loadLmsProvider(null, tenant, decodedToken.provider || null);
-    const hintedStudentId = studentId || decodedToken.studentId || decodedToken.studentID || decodedToken.student_id || null;
+    const hintedStudentId = studentId
+      || decodedToken.studentId
+      || decodedToken.studentID
+      || decodedToken.StudentId
+      || decodedToken.student_id
+      || decodedToken.lmsStudentId
+      || null;
 
     let externalProfile = null;
     if (admissionId) {
@@ -168,6 +176,7 @@ class SsoService {
           provider,
           externalStudentId: hintedStudentId || admissionId,
           admissionId,
+          studentId: hintedStudentId,
           token: token
         });
         if (profileResult && profileResult.data) {
@@ -178,7 +187,12 @@ class SsoService {
       }
     }
 
-    const resolvedStudentId = hintedStudentId || externalProfile?.studentId || externalProfile?.studentID || externalProfile?.student_id || null;
+    const resolvedStudentId = hintedStudentId
+      || externalProfile?.studentId
+      || externalProfile?.studentID
+      || externalProfile?.StudentId
+      || externalProfile?.student_id
+      || null;
     const storedStudentId = resolvedStudentId != null && String(resolvedStudentId).trim() ? String(resolvedStudentId).trim() : null;
     const storedAdmissionId = admissionId != null && String(admissionId).trim() ? String(admissionId).trim() : null;
     const storedExternalId = storedStudentId || storedAdmissionId || String(providerSubject);
@@ -342,7 +356,26 @@ class SsoService {
             ? externalProfile.studentProfileImage
             : lmsImageBase + externalProfile.studentProfileImage)
         : null;
-      const extProgrammes = externalProfile?.enrollmentnumberprogrammenamelist || [];
+      let purchasedProgrammes = [];
+      if (storedStudentId) {
+        try {
+          const purchased = await lmsProgrammeService.getPurchased({
+            tenantId,
+            provider,
+            studentId: storedStudentId,
+            bearerToken: token,
+          });
+          if (purchased?.lmsStatus === "LIVE") {
+            purchasedProgrammes = purchased.programmeList || purchased.programList || [];
+          }
+        } catch (err) {
+          console.warn("[SsoService] purchased programmes skipped:", err.message);
+        }
+      }
+      const extProgrammes = mergeProgrammes(
+        Array.isArray(externalProfile?.enrollmentnumberprogrammenamelist) ? externalProfile.enrollmentnumberprogrammenamelist : [],
+        purchasedProgrammes.length ? { programmeList: purchasedProgrammes } : null
+      );
       const extEnrollment = extProgrammes[0]?.enrollmentNumber || null;
       const extProgramName = extProgrammes[0]?.programmeName || null;
       const extCurrentSemester = extProgrammes[0]?.currentSemester || null;

@@ -29,12 +29,14 @@ class LmsStudentProfileService {
     provider,
     externalStudentId,
     admissionId,
+    studentId = null,
     token = null,
     forceRefresh = false,
   }) {
-    const admission = numericLmsId(admissionId) ?? numericLmsId(externalStudentId);
-    const cacheIdentity = numericLmsId(externalStudentId) ?? admission;
-    if (!tenantId || !cacheIdentity || admission == null) {
+    const student = numericLmsId(studentId);
+    const admission = numericLmsId(admissionId) ?? (student == null ? numericLmsId(externalStudentId) : null);
+    const cacheIdentity = student ?? admission;
+    if (!tenantId || cacheIdentity == null || (admission == null && student == null)) {
       return { data: null, source: "NONE", profileStatus: "LMS_STUDENT_NOT_FOUND" };
     }
 
@@ -44,17 +46,15 @@ class LmsStudentProfileService {
         forceRefresh,
         fetcher: async () => {
           const url = profileUrl();
-          const body = { studentDegreeAdmissionId: admission };
-          let raw;
-          try {
-            raw = await lmsApiClient.post({ tenantId, url, data: body });
-          } catch (err) {
-            if (token && err instanceof LmsApiError && err.code === "LMS_PROVIDER_CONFIGURATION_MISSING") {
-              raw = await lmsApiClient.post({ tenantId, url, data: body, bearerToken: token });
-            } else {
-              throw err;
-            }
-          }
+          const body = {};
+          if (admission != null) body.studentDegreeAdmissionId = admission;
+          if (student != null) body.studentId = student;
+          const raw = await lmsApiClient.postWithCredentialFallback({
+            tenantId,
+            url,
+            data: body,
+            bearerToken: token,
+          });
           if (!isLiveProfile(raw)) {
             throw new LmsApiError("LMS_STUDENT_NOT_FOUND", "LMS profile response was empty");
           }

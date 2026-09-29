@@ -3,8 +3,7 @@ import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
 import { dashboardData } from '@/pages/student/dashboard/data';
 import { useAuthStore } from '@/stores/auth-store';
-import { fetchAuthMe } from '@/Utils/GetApiHandler';
-import { getStudentAcademicProgress } from '@/Utils/lmsApi_paths';
+import { loadStudentPortalData, mergeStudentPortalUser } from '@/Utils/lmsApi_paths';
 import { GraduationCap, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -73,20 +72,20 @@ export default function AcademicProgress() {
   const [progressPayload, setProgressPayload] = useState<any>(null);
 
   useEffect(() => {
-    fetchAuthMe()
-      .then((data: any) => {
-        if (data?.user) {
-          useAuthStore.getState().auth.setUser({
-            ...data.user,
-            userId: data.user.id || data.user.userId,
-            fullName: data.user.fullName || data.user.name,
-            exp: Date.now() + 24 * 60 * 60 * 1000,
-          });
-        }
+    const studentId = u.studentId || u.studentDegreeAdmissionId || u.externalStudentId;
+    loadStudentPortalData(studentId)
+      .then((payload: any) => {
+        const current = useAuthStore.getState().auth.user;
+        const merged = mergeStudentPortalUser(current, payload);
+        useAuthStore.getState().auth.setUser(merged);
+        const progress = payload.progress || {};
+        setProgressPayload({
+          ...progress,
+          programmes: (progress.programmes && progress.programmes.length > 0) ? progress.programmes : (merged.programmesList || []),
+          academicProgress: progress.academicProgress || merged.academicProgress || {},
+          progressStatus: progress.progressStatus || merged.profileStatus || 'LMS_PROFILE_UNAVAILABLE',
+        });
       })
-      .catch(() => {});
-    getStudentAcademicProgress()
-      .then((data: any) => setProgressPayload(data))
       .catch(() => setProgressPayload({ progressStatus: 'LMS_PROFILE_UNAVAILABLE', programmes: [], academicProgress: {} }));
   }, []);
 

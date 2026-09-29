@@ -7,7 +7,7 @@ import { useLabStore } from '@/stores/labStore'
 import { useLabSessionStore } from '@/stores/labSessionStore'
 import { PasswordSetupModal } from '@/components/auth/PasswordSetupModal'
 import { isUniversityStudent } from '@/lib/student-kind'
-import { fetchAuthMe } from '@/Utils/GetApiHandler'
+import { loadStudentPortalData, mergeStudentPortalUser } from '@/Utils/lmsApi_paths'
 import { useNavigate } from '@tanstack/react-router'
 
 // UI Components for Header Navbar
@@ -140,19 +140,14 @@ export default function StudentDashboard() {
   }, [labs, activeSession, labWallets])
 
   useEffect(() => {
-    fetchAuthMe()
-      .then((data: any) => {
-        if (data?.user) {
-          useAuthStore.getState().auth.setUser({
-            ...data.user,
-            userId: data.user.id || data.user.userId,
-            fullName: data.user.fullName || data.user.name,
-            exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
-          })
-        }
+    const studentId = user?.studentId || user?.studentDegreeAdmissionId || user?.externalStudentId
+    loadStudentPortalData(studentId)
+      .then((payload: any) => {
+        const current = useAuthStore.getState().auth.user
+        useAuthStore.getState().auth.setUser(mergeStudentPortalUser(current, payload))
       })
       .catch(() => {})
-  }, [])
+  }, [user?.studentId, user?.email])
 
   useEffect(() => {
     // Prompt first-time university students to set a password (if not skipped in this tab)
@@ -253,6 +248,30 @@ export default function StudentDashboard() {
 
           {/* Row 1: Welcome Banner */}
           <WelcomeBanner student={data.student} wallet={data.wallet} />
+
+          {isUniversityStudent(auth.user) ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-card">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Academic programme</h2>
+              {auth.user?.profileStatus && auth.user.profileStatus !== 'LIVE' ? (
+                <p className="mt-2 text-sm text-amber-800">LMS data is temporarily unavailable. Your Experia session is still active.</p>
+              ) : null}
+              {Array.isArray(auth.user?.programmesList) && auth.user.programmesList.length > 0 ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {auth.user.programmesList.map((prog: any, idx: number) => (
+                    <div key={idx} className="rounded-lg border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+                      <p className="text-sm font-bold text-slate-900 dark:text-white">{prog.programmeName || prog.programName || 'Programme'}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {prog.enrollmentNumber ? `Enrollment ${prog.enrollmentNumber}` : 'Enrollment not returned'}
+                        {prog.currentSemester != null && prog.currentSemester !== '' ? ` · Semester ${prog.currentSemester}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-slate-500">No programme enrolment is available for this account yet.</p>
+              )}
+            </div>
+          ) : null}
 
           {/* Row 2: Top Statistics Cards */}
           <StatsCards />
