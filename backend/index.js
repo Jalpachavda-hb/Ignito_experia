@@ -98,7 +98,7 @@ const staticUploadsMiddleware = express.static(uploadsDir, {
   }
 });
 app.use("/uploads", staticUploadsMiddleware);
-app.use(`${apiPrefix}/uploads`, staticUploadsMiddleware);
+app.use(`${ENV.apiPrefix}/uploads`, staticUploadsMiddleware);
 app.use("/owner-api/uploads", staticUploadsMiddleware);
 
 
