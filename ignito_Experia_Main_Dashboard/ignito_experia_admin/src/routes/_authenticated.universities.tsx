@@ -16,7 +16,7 @@ import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { apiRequest } from '@/services/api'
+import { apiRequest, OWNER_API_BASE } from '@/services/api'
 
 export interface UniversityTenant {
   id: string
@@ -79,7 +79,7 @@ function UniversitiesPage() {
       const uploadData = new FormData()
       uploadData.append('file', file)
 
-      const response = await fetch('http://localhost:4000/api/upload', {
+      const response = await fetch(`${OWNER_API_BASE}/upload`, {
         method: 'POST',
         body: uploadData,
       })

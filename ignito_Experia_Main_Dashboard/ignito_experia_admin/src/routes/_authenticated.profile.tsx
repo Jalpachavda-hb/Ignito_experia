@@ -13,7 +13,7 @@ import { Main } from '@/components/layout/main'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { ProfileDropdown } from '@/components/profile-dropdown'
-import { apiRequest } from '@/services/api'
+import { apiRequest, OWNER_API_BASE } from '@/services/api'
 
 export const Route = createFileRoute('/_authenticated/profile')({
   component: ProfilePage,
@@ -103,7 +103,7 @@ export default function ProfilePage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
+      const apiBase = OWNER_API_BASE
       const token = useAuthStore.getState().accessToken
 
       const res = await fetch(`${apiBase}/upload`, {
