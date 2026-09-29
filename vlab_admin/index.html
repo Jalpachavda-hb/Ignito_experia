@@ -1,13 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="light" style="color-scheme: light;">
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/images/favicon.png" media="(prefers-color-scheme: light)" />
-  <link rel="icon" type="image/svg+xml" href="/images/favicon.png" media="(prefers-color-scheme: dark)" />
-  <link rel="icon" type="image/png" href="/images/favicon.png" media="(prefers-color-scheme: light)" />
-  <link rel="icon" type="image/png" href="/images/favicon.png" media="(prefers-color-scheme: dark)" />
+  <script>
+    try {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+      document.cookie = 'vite-ui-theme=light; path=/; max-age=31536000';
+    } catch (e) {}
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/images/favicon.png" />
+  <link rel="icon" type="image/png" href="/images/favicon.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
 
   <!-- Primary Meta Tags -->
   <title>IgnitoExperia</title>  

@@ -11,6 +11,7 @@
     scrollbar-color: var(--border) transparent;
   }
   html {
+    color-scheme: light;
     @apply overflow-x-hidden;
   }
   body {

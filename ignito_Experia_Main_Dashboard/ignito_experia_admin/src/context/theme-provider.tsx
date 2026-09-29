@@ -4,7 +4,7 @@ import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
 type Theme = 'dark' | 'light' | 'system'
 type ResolvedTheme = Exclude<Theme, 'system'>
 
-const DEFAULT_THEME = 'system'
+const DEFAULT_THEME: Theme = 'light'
 const THEME_COOKIE_NAME = 'vite-ui-theme'
 const THEME_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
 
@@ -38,57 +38,44 @@ export function ThemeProvider({
   storageKey = THEME_COOKIE_NAME,
   ...props
 }: ThemeProviderProps) {
-  const [theme, _setTheme] = useState<Theme>(
-    () => (getCookie(storageKey) as Theme) || defaultTheme
-  )
+  const [theme, _setTheme] = useState<Theme>(() => {
+    const saved = getCookie(storageKey)
+    if (saved === 'dark' || saved === 'system') {
+      setCookie(storageKey, 'light', THEME_COOKIE_MAX_AGE)
+    }
+    return 'light'
+  })
 
   const resolvedTheme = useMemo((): ResolvedTheme => {
-    if (theme === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light'
-    }
-    return theme as ResolvedTheme
-  }, [theme])
+    return 'light'
+  }, [])
 
   useEffect(() => {
     const root = window.document.documentElement
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
-    const applyTheme = (currentResolvedTheme: ResolvedTheme) => {
-      root.classList.remove('light', 'dark')
-      root.classList.add(currentResolvedTheme)
+    const applyTheme = () => {
+      root.classList.remove('dark')
+      root.classList.add('light')
     }
 
-    const handleChange = () => {
-      if (theme === 'system') {
-        const systemTheme = mediaQuery.matches ? 'dark' : 'light'
-        applyTheme(systemTheme)
-      }
-    }
+    applyTheme()
+  }, [theme])
 
-    applyTheme(resolvedTheme)
-
-    mediaQuery.addEventListener('change', handleChange)
-
-    return () => mediaQuery.removeEventListener('change', handleChange)
-  }, [theme, resolvedTheme])
-
-  const setTheme = (theme: Theme) => {
-    setCookie(storageKey, theme, THEME_COOKIE_MAX_AGE)
-    _setTheme(theme)
+  const setTheme = (newTheme: Theme) => {
+    setCookie(storageKey, 'light', THEME_COOKIE_MAX_AGE)
+    _setTheme('light')
   }
 
   const resetTheme = () => {
-    removeCookie(storageKey)
-    _setTheme(DEFAULT_THEME)
+    setCookie(storageKey, 'light', THEME_COOKIE_MAX_AGE)
+    _setTheme('light')
   }
 
   const contextValue = {
-    defaultTheme,
-    resolvedTheme,
+    defaultTheme: 'light' as Theme,
+    resolvedTheme: 'light' as ResolvedTheme,
     resetTheme,
-    theme,
+    theme: 'light' as Theme,
     setTheme,
   }
 
