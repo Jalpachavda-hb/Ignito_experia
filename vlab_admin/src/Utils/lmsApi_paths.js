@@ -83,7 +83,7 @@ function isUniversityAccount(user) {
   if (!user) return false;
   const auth = String(user.authType || '').toUpperCase();
   const created = String(user.createdFrom || '').toUpperCase();
-  return auth === 'LMS' || auth === 'LMS_AND_DIRECT' || created === 'LMS' || user.isLmsStudent === true || Boolean(user.studentDegreeAdmissionId);
+  return auth === 'LMS' || auth === 'LMS_AND_DIRECT' || created === 'LMS' || user.isLmsStudent === true || Boolean(user.studentDegreeAdmissionId) || Boolean(user.externalStudentId) || Boolean(user.studentId);
 }
 
 /**

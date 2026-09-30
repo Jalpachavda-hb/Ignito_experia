@@ -40,19 +40,20 @@ export function AcademicOverview({ data, activeProgram }: AcademicOverviewProps)
     },
     {
       title: "Completed Labs",
-      value: completedLabs != null ? String(completedLabs) : "—",
-      description: totalLabs != null ? `Out of ${totalLabs} Total Labs` : "Not returned by LMS",
+      value: completedLabs != null ? String(completedLabs) : "Pending",
+      description: totalLabs != null ? `Out of ${totalLabs} Total Labs` : "Awaiting university update",
       icon: BookOpen,
       color: "text-emerald-500",
       bgColor: "bg-emerald-50 dark:bg-emerald-900/20"
     },
     {
       title: "Overall Progress",
-      value: progressVal != null ? `${progressVal}%` : "—",
-      description: progressVal != null ? "Degree Completion" : "Not returned by LMS",
+      value: progressVal != null ? `${progressVal}%` : "Pending",
+      description: progressVal != null ? "Degree Completion" : "Awaiting university update",
       icon: Target,
       color: "text-red-500",
-      bgColor: "bg-red-50 dark:bg-red-900/20"
+      bgColor: "bg-red-50 dark:bg-red-900/20",
+      bar: progressVal != null ? Number(progressVal) : 8,
     }
   ];
 
@@ -69,6 +70,14 @@ export function AcademicOverview({ data, activeProgram }: AcademicOverviewProps)
               <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white truncate max-w-[180px]" title={stat.value}>
                 {stat.value}
               </div>
+              {"bar" in stat && stat.bar != null ? (
+                <div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-red-100 dark:bg-red-950/50">
+                  <div
+                    className="h-full rounded-full bg-red-600"
+                    style={{ width: progressVal == null ? "2.25rem" : `${Math.min(100, Math.max(Number(stat.bar) || 0, 0))}%` }}
+                  />
+                </div>
+              ) : null}
               <p className="text-[11px] font-medium text-slate-500 mt-1">
                 {stat.description}
               </p>

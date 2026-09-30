@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { ok } from "../lib/apigw.js";
 import authService from "../services/AuthService.js";
 import userRepository from "../repositories/UserRepository.js";
@@ -107,10 +109,14 @@ export const authRegisterHandler = async ({ body, headers = {} }) => {
     message: "User registered successfully",
     user: {
       id: user.UserId,
+      userId: user.UserId,
       fullName: user.FullName,
+      name: user.FullName,
       email: user.Email,
       role: user.Role,
       status: user.Status,
+      profileImage: user.ProfileImage || null,
+      avatar: user.ProfileImage || null,
     }
   });
 };
@@ -514,7 +520,7 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
     ? (cachedLmsProfile.studentProfileImage.startsWith('http') || !lmsImageBase
         ? cachedLmsProfile.studentProfileImage
         : lmsImageBase.replace(/\/$/, "") + cachedLmsProfile.studentProfileImage)
-    : (universityStudent ? null : (profile.ProfileImage || null));
+    : (universityStudent ? null : (profile.ProfileImage || profile.profileImage || null));
   const profileProgrammes = Array.isArray(cachedLmsProfile?.enrollmentnumberprogrammenamelist)
     ? cachedLmsProfile.enrollmentnumberprogrammenamelist
     : [];
@@ -623,6 +629,7 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
       dateOfBirth: extDob,
       address: extAddress,
       profileImage: extImage,
+      avatar: extImage,
       studentId: universityStudent ? (profile.StudentId || profile.ExternalStudentId || profile.StudentDegreeAdmissionId || null) : null,
       studentDegreeAdmissionId: universityStudent ? admissionId : null,
       externalStudentId: universityStudent ? (profile.ExternalStudentId || null) : null,
@@ -926,8 +933,104 @@ export const studentAcademicProgressHandler = async ({ auth, queryStringParamete
 
 export const getPracticalAvailableProgramsHandler = async () => ok({ success: true, programList: [] });
 export const mapCourseLabHandler = async () => ok({ success: true });
-export const userProfileUpdateHandler = async () => ok({ success: true });
-export const userProfilePhotoUploadHandler = async () => ok({ success: true });
+export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
+  if (!auth?.userId) throw unauthorized("Authentication required");
+  const userId = Number(auth.userId);
+  const { fullName, name, mobile, phoneNumber, mobileNumber, profileImage } = body;
+
+  const newFullName = fullName || name || null;
+  const newPhone = mobile || phoneNumber || mobileNumber || null;
+  let finalImage = profileImage || null;
+
+  if (finalImage && typeof finalImage === 'string' && finalImage.startsWith('data:image')) {
+    try {
+      const matches = finalImage.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+      let ext = 'png';
+      let base64Data = finalImage.replace(/^data:image\/\w+;base64,/, "");
+      if (matches && matches[1]) {
+        ext = matches[1].toLowerCase().replace('jpeg', 'jpg');
+        base64Data = matches[2];
+      }
+      const filename = `profile_upd_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      const uploadPath = path.join(uploadsDir, filename);
+      fs.writeFileSync(uploadPath, Buffer.from(base64Data, 'base64'));
+      finalImage = `/uploads/${filename}`;
+    } catch (e) {
+      console.error("Error saving updated profile image:", e);
+    }
+  }
+
+  const updates = [];
+  const params = [];
+
+  if (newFullName) {
+    updates.push("FullName = ?");
+    params.push(newFullName.trim());
+  }
+  if (newPhone) {
+    updates.push("PhoneNumber = ?");
+    params.push(newPhone.trim());
+  }
+  if (finalImage) {
+    updates.push("ProfileImage = ?");
+    params.push(finalImage);
+  }
+
+  if (updates.length > 0) {
+    updates.push("UpdatedAt = NOW()");
+    params.push(userId);
+    await pool.query(`UPDATE Users SET ${updates.join(', ')} WHERE UserId = ?`, params);
+  }
+
+  const [rows] = await pool.query("SELECT * FROM Users WHERE UserId = ?", [userId]);
+  const updatedUser = rows[0] || {};
+
+  return ok({
+    success: true,
+    message: "Profile updated successfully",
+    user: {
+      userId: updatedUser.UserId,
+      id: updatedUser.UserId,
+      fullName: updatedUser.FullName,
+      name: updatedUser.FullName,
+      email: updatedUser.Email,
+      phoneNumber: updatedUser.PhoneNumber,
+      mobile: updatedUser.PhoneNumber,
+      profileImage: updatedUser.ProfileImage || finalImage || null,
+      avatar: updatedUser.ProfileImage || finalImage || null
+    }
+  });
+};
+
+export const userProfilePhotoUploadHandler = async ({ auth, files = [], body = {} }) => {
+  if (!auth?.userId) throw unauthorized("Authentication required");
+  const userId = Number(auth.userId);
+
+  let imageUrl = null;
+  if (files && files.length > 0) {
+    const uploadedFile = files[0];
+    imageUrl = `/uploads/${uploadedFile.filename}`;
+  } else if (body.profileImage) {
+    imageUrl = body.profileImage;
+  }
+
+  if (imageUrl) {
+    await pool.query("UPDATE Users SET ProfileImage = ?, UpdatedAt = NOW() WHERE UserId = ?", [imageUrl, userId]);
+  }
+
+  return ok({
+    success: true,
+    message: "Profile photo uploaded successfully",
+    url: imageUrl,
+    fileUrl: imageUrl,
+    profileImage: imageUrl,
+    user: { profileImage: imageUrl, avatar: imageUrl }
+  });
+};
 export const internalTenantDeleteHandler = async () => ok({ success: true });
 export const userChangePasswordHandler = async ({ auth, body = {} }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");

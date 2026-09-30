@@ -18,7 +18,7 @@ export const dashboardData: DashboardData = {
     department: 'Computer Applications',
     admissionYear: 2023,
     studentType: 'Regular',
-    avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d',
+    avatar: '',
     username: 'rahul.sharma.mca',
     accountCreatedDate: '2023-07-15T08:30:00Z',
     lastLogin: '2024-03-20T10:15:22Z',

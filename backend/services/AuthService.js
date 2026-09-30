@@ -120,6 +120,7 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
         id: vlabUserId,
         userId: vlabUserId,
         name: userPayload.name,
+        fullName: userPayload.name,
         email: userPayload.email,
         role: normalizedRole,
         status: userPayload.status || "ACTIVE",
@@ -129,8 +130,13 @@ const createVLabSession = async ({ userPayload, sessionMeta }) => {
         createdFrom: userPayload.createdFrom || null,
         authType: userPayload.authType || null,
         hasPassword: userPayload.hasPassword !== undefined ? Boolean(userPayload.hasPassword) : true,
+        isLmsStudent: Boolean(userPayload.isLmsStudent),
+        studentId: userPayload.studentId || null,
+        studentDegreeAdmissionId: userPayload.studentDegreeAdmissionId || null,
+        externalStudentId: userPayload.externalStudentId || null,
         collegeName: userPayload.tenantName || null,
-        profileImage: userPayload.profileImage || (vlabUsers[0] ? vlabUsers[0].ProfileImage : null)
+        profileImage: userPayload.profileImage || (vlabUsers[0] ? vlabUsers[0].ProfileImage : null),
+        avatar: userPayload.profileImage || (vlabUsers[0] ? vlabUsers[0].ProfileImage : null)
       }
     };
   } catch (err) {
@@ -159,8 +165,14 @@ class AuthService {
 
     if (finalProfileImage && typeof finalProfileImage === 'string' && finalProfileImage.startsWith('data:image')) {
       try {
-        const base64Data = finalProfileImage.replace(/^data:image\/\w+;base64,/, "");
-        const filename = `profile_reg_${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
+        const matches = finalProfileImage.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+        let ext = 'png';
+        let base64Data = finalProfileImage.replace(/^data:image\/\w+;base64,/, "");
+        if (matches && matches[1]) {
+          ext = matches[1].toLowerCase().replace('jpeg', 'jpg');
+          base64Data = matches[2];
+        }
+        const filename = `profile_reg_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
         const uploadsDir = path.join(process.cwd(), "uploads");
         if (!fs.existsSync(uploadsDir)) {
           fs.mkdirSync(uploadsDir, { recursive: true });
@@ -386,8 +398,13 @@ class AuthService {
           createdFrom: user.CreatedFrom || (portal.kind === "university" ? "LMS" : "DIRECT"),
           authType: user.AuthType || (portal.kind === "university" ? "LMS" : "DIRECT"),
           hasPassword: Boolean(user.PasswordHash),
+          isLmsStudent: portal.kind === "university",
+          studentId: user.StudentId || null,
+          studentDegreeAdmissionId: user.StudentDegreeAdmissionId || null,
+          externalStudentId: user.ExternalStudentId || null,
           status: user.Status,
-          profileImage: user.ProfileImage || null
+          profileImage: user.ProfileImage || null,
+          avatar: user.ProfileImage || null
         },
         sessionMeta
       });
@@ -406,7 +423,8 @@ class AuthService {
         roleId: user.RoleId || 1,
         tenantId: activeTenant,
         status: user.Status,
-        profileImage: user.ProfileImage || null
+        profileImage: user.ProfileImage || null,
+        avatar: user.ProfileImage || null
       },
       sessionMeta
     });

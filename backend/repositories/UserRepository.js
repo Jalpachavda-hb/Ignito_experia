@@ -164,9 +164,9 @@ class UserRepository {
       : ROLES.STUDENT;
 
     const [result] = await connection.query(
-      `INSERT INTO Users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, CreatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdFrom, authType, tenantId]
+      `INSERT INTO Users (FullName, Email, PhoneNumber, PasswordHash, Role, Status, CreatedFrom, AuthType, TenantId, ProfileImage, CreatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [fullName, email, phoneNumber, passwordHash, normalizedRole, status, createdFrom, authType, tenantId, profileImage]
     );
 
     const newUserId = result.insertId;

@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { cn } from '@/lib/utils'
 import { getTenantSlug } from '@/lib/tenant-slug'
 import { loginWithCredentials } from '@/services/authService'
+import { loadStudentPortalData, mergeStudentPortalUser } from '@/Utils/lmsApi_paths'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -82,10 +83,18 @@ export function UserAuthForm({
             const { fetchAuthMe } = await import('@/Utils/GetApiHandler')
             const meData: any = await fetchAuthMe()
             if (meData?.user) {
-              finalUser = meData.user
+              finalUser = { ...finalUser, ...meData.user }
             }
           } catch (err) {
             console.warn("Direct login profile fetch warning:", err)
+          }
+
+          try {
+            const studentId = finalUser.studentId || finalUser.studentDegreeAdmissionId || finalUser.externalStudentId
+            const portal = await loadStudentPortalData(studentId)
+            finalUser = mergeStudentPortalUser(finalUser, portal)
+          } catch (err) {
+            console.warn("Direct login LMS data warning:", err)
           }
 
           const user = {

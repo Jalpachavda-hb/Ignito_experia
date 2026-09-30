@@ -110,7 +110,7 @@ export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolea
     user: {
       name: student.name,
       email: student.email,
-      avatar: student.avatar,
+      avatar: '',
     },
     teams: [],
     navGroups,

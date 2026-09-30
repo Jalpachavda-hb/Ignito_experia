@@ -46,11 +46,15 @@ export const parseApiEvent = (event) => {
 };
 
 async function withStudentLmsContext(parsed, fn) {
-  const { runWithStudentLmsToken } = await import("../services/lms/studentLmsToken.js");
+  const { runWithStudentLmsToken, loadRememberedStudentLmsToken } = await import("../services/lms/studentLmsToken.js");
   const raw = parsed.headers?.["x-lms-token"] || parsed.headers?.["x-student-token"] || "";
-  const lmsToken = String(raw).replace(/^Bearer\s+/i, "").trim();
+  let lmsToken = String(raw).replace(/^Bearer\s+/i, "").trim();
+  const userId = parsed.auth?.userId || null;
+  if (!lmsToken && userId) {
+    lmsToken = await loadRememberedStudentLmsToken(userId);
+  }
   return runWithStudentLmsToken(
-    { userId: parsed.auth?.userId || null, lmsToken },
+    { userId, lmsToken },
     () => fn(parsed)
   );
 }

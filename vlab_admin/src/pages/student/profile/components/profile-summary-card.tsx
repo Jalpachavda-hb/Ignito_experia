@@ -42,7 +42,7 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
   const enrollment = u.enrollmentNumber || u.studentCode || programmes[0]?.enrollmentNumber || null;
   const college = u.collegeName || u.tenantName || u.organization || null;
   const isDirectUser = isDirectStudent(u);
-  const rawImg = u.profileImage || u.ProfileImage || u.avatar || u.studentProfileImage || (isDirectUser ? student?.avatar : null) || null;
+  const rawImg = u.profileImage || u.ProfileImage || u.avatar || u.studentProfileImage || null;
   const profileImg = getProfileImgUrl(rawImg);
 
   const handlePhotoClick = () => {
@@ -67,7 +67,7 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
       const imageUrl = res?.url || res?.fileUrl || res?.profileImage;
 
       if (res?.success && imageUrl) {
-        updateUser({ profileImage: imageUrl });
+        updateUser({ profileImage: imageUrl, avatar: imageUrl });
         toast.success('Profile photo updated successfully!');
       } else {
         const reader = new FileReader();
@@ -75,8 +75,8 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
           try {
             const base64 = reader.result as string;
             const updateRes = await updateUserProfile({ profileImage: base64 });
-            const savedUrl = updateRes?.user?.profileImage || base64;
-            updateUser({ profileImage: savedUrl });
+            const savedUrl = updateRes?.user?.profileImage || updateRes?.url || base64;
+            updateUser({ profileImage: savedUrl, avatar: savedUrl });
             toast.success('Profile photo updated successfully!');
           } catch (err: any) {
             toast.error(err?.message || 'Failed to update profile photo');
