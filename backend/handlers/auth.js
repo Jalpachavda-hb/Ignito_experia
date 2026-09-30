@@ -15,6 +15,7 @@ import { mergeProgrammes, programmeMatches } from "../services/lms/programmeNorm
 import { LMS_PROVIDER_CONFIG } from "../config/lms/lmsProviderConfig.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import { unauthorized } from "../lib/errors.js";
+import { getBearerToken } from "../lib/jwt.js";
 import pool from "../lib/mysql.js";
 
 function parseCookies(headers = {}) {
@@ -941,15 +942,22 @@ export const studentAcademicProgressHandler = async ({ auth, queryStringParamete
   return ok(progress);
 };
 
-export const getPracticalAvailableProgramsHandler = async ({ auth }) => {
-  const ctx = await loadAdminLmsContext(auth);
-  if (!ctx.tenant) {
-    return ok({ success: true, programList: [], programmeList: [], lmsStatus: "LMS_TENANT_NOT_FOUND" });
+export const getPracticalAvailableProgramsHandler = async ({ auth, headers = {} }) => {
+  const rawToken = getBearerToken(headers) || headers?.["x-lms-token"] || headers?.["x-student-token"] || null;
+  let ctx = null;
+  try {
+    ctx = await loadAdminLmsContext(auth);
+  } catch (err) {
+    console.warn("[getPracticalAvailableProgramsHandler] Admin LMS context resolution:", err.message);
   }
 
+  const tenantId = ctx?.tenant?.TenantId || ctx?.tenantId || auth?.tenantId || "PLATFORM";
+  const provider = ctx?.provider || "GTU_LMS";
+
   const result = await lmsProgrammeService.getPracticalAvailable({
-    tenantId: ctx.tenant.TenantId,
-    provider: ctx.provider,
+    tenantId,
+    provider,
+    bearerToken: rawToken,
   });
   return ok(result);
 };

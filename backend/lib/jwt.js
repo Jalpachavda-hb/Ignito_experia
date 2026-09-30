@@ -56,8 +56,9 @@ export const getBearerToken = (headers = {}) => {
     headers.Authorization ||
     headers.AUTHORIZATION ||
     "";
-  const match = auth.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : null;
+  if (!auth) return null;
+  const match = String(auth).replace(/^(?:Bearer\s+)+/i, "").trim();
+  return match || null;
 };
 
 export const authFromAuthorizerContext = (event) => {

@@ -117,6 +117,7 @@ export const ROUTES = [
   { method: "GET", path: "/student/semester-labs", handler: studentSemesterLabsHandler, auth: true },
   { method: "GET", path: "/student/academic-progress", handler: studentAcademicProgressHandler, auth: true },
   { method: "POST", path: "/student/practical-available-programs", handler: getPracticalAvailableProgramsHandler, auth: true },
+  { method: "GET", path: "/student/practical-available-programs", handler: getPracticalAvailableProgramsHandler, auth: true },
   { method: "POST", path: "/admin/courses/:courseId/map-lab", handler: mapCourseLabHandler, auth: true },
   { method: "PUT", path: "/user/profile", handler: userProfileUpdateHandler, auth: true },
   { method: "POST", path: "/user/profile-photo", handler: userProfilePhotoUploadHandler, auth: true },

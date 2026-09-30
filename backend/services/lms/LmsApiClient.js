@@ -25,7 +25,8 @@ class LmsApiClient {
     }
 
     const cid = correlationId || crypto.randomUUID();
-    const studentToken = String(bearerToken || resolveStudentLmsToken() || "").trim();
+    const rawStudentToken = bearerToken || resolveStudentLmsToken() || "";
+    const studentToken = String(rawStudentToken).replace(/^(?:Bearer\s+)+/i, "").trim();
 
     if (studentToken) {
       try {
@@ -106,11 +107,12 @@ class LmsApiClient {
 
   async send({ token, url, data, correlationId }) {
     try {
+      const cleanToken = String(token || "").replace(/^(?:Bearer\s+)+/i, "").trim();
       const response = await axios.post(url, data ?? {}, {
         timeout: TIMEOUT_MS,
         validateStatus: () => true,
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${cleanToken}`,
           Accept: "application/json",
           "Content-Type": "application/json",
           "X-Correlation-Id": correlationId,

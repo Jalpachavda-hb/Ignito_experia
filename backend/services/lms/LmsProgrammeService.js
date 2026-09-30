@@ -3,6 +3,7 @@ import { lmsApiClient } from "./LmsApiClient.js";
 import { LmsApiError } from "./LmsApiError.js";
 import { lmsResponseCache } from "./LmsResponseCache.js";
 import { endpointUrl, numericLmsId } from "./lmsIds.js";
+import { resolveStudentLmsToken } from "./studentLmsToken.js";
 
 class LmsProgrammeService {
   cacheKey(tenantId, provider, studentId) {
@@ -58,21 +59,21 @@ class LmsProgrammeService {
     }
   }
 
-  async getPracticalAvailable({ tenantId, provider, forceRefresh = false }) {
-    if (!tenantId) {
-      return { success: true, lmsStatus: "LMS_TENANT_NOT_FOUND", programList: [], programmeList: [] };
-    }
+  async getPracticalAvailable({ tenantId, provider, bearerToken = null, forceRefresh = false }) {
+    const effectiveTenant = tenantId || "PLATFORM";
+    const token = bearerToken || resolveStudentLmsToken() || null;
 
     const url = endpointUrl(LMS_PROVIDER_CONFIG.baseUrl, LMS_PROVIDER_CONFIG.practicalAvailableProgramsEndpoint);
-    const key = `lms:practical-programs:${tenantId}:${provider || LMS_PROVIDER_CONFIG.provider}`;
+    const key = `lms:practical-programs:${effectiveTenant}:${provider || LMS_PROVIDER_CONFIG.provider}`;
 
     try {
       const result = await lmsResponseCache.getOrFetch(key, {
-        forceRefresh,
+        forceRefresh: forceRefresh || Boolean(token),
         fetcher: () => lmsApiClient.post({
-          tenantId,
+          tenantId: effectiveTenant,
           url,
           data: {},
+          bearerToken: token,
         }),
       });
       const raw = result.data || {};
@@ -87,7 +88,7 @@ class LmsProgrammeService {
       };
     } catch (err) {
       const lmsStatus = err instanceof LmsApiError ? err.code : "LMS_PROFILE_UNAVAILABLE";
-      console.warn(`[LmsProgrammeService] practical programs ${lmsStatus} tenant=${tenantId}: ${err.message}`);
+      console.warn(`[LmsProgrammeService] practical programs ${lmsStatus} tenant=${effectiveTenant}: ${err.message}`);
       return { success: true, lmsStatus, programList: [], programmeList: [] };
     }
   }
