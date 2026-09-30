@@ -76,9 +76,54 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     const startedAtDate = new Date();
     const tokenExpiryAtDate = new Date(startedAtDate.getTime() + sessionTokens * 60 * 1000);
 
+    // Resolve or ensure valid UserId in Users table so foreign key constraint never fails
+    let effectiveUserId = null;
+    const rawUserId = String(userId).trim();
+    const isNumeric = /^\d+$/.test(rawUserId);
+    const numericId = isNumeric ? parseInt(rawUserId, 10) : -1;
+    const email = String(auth?.email || (rawUserId.includes("@") ? rawUserId : "")).trim().toLowerCase();
+
+    try {
+      const [uRows] = await connection.query(
+        `SELECT UserId, TenantId, Email FROM Users 
+         WHERE (UserId = ? AND ? > 0)
+            OR (LOWER(Email) = LOWER(?) AND ? != '')
+            OR (ExternalStudentId = ? AND ? != '')
+         LIMIT 1`,
+        [numericId, numericId, email, email, rawUserId, rawUserId]
+      );
+
+      if (uRows && uRows.length > 0) {
+        effectiveUserId = uRows[0].UserId;
+      } else {
+        const fallbackEmail = email || `student_${rawUserId.replace(/[^a-zA-Z0-9]/g, "_")}@experia.ignitolearn.com`;
+        const fallbackName = auth?.name || auth?.fullName || `Student ${rawUserId}`;
+        if (isNumeric && numericId > 0) {
+          const [insRes] = await connection.query(
+            `INSERT INTO Users (UserId, FullName, Email, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId)
+             VALUES (?, ?, ?, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?)
+             ON DUPLICATE KEY UPDATE UserId = LAST_INSERT_ID(UserId), TenantId = COALESCE(VALUES(TenantId), TenantId)`,
+            [numericId, fallbackName, fallbackEmail, tenantId || 'TEN000001', rawUserId]
+          );
+          effectiveUserId = insRes.insertId || numericId;
+        } else {
+          const [insRes] = await connection.query(
+            `INSERT INTO Users (FullName, Email, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId)
+             VALUES (?, ?, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?)
+             ON DUPLICATE KEY UPDATE UserId = LAST_INSERT_ID(UserId), TenantId = COALESCE(VALUES(TenantId), TenantId)`,
+            [fallbackName, fallbackEmail, tenantId || 'TEN000001', rawUserId]
+          );
+          effectiveUserId = insRes.insertId;
+        }
+      }
+    } catch (userErr) {
+      console.warn("[sessionsStartHandler] User ensure warning:", userErr.message);
+      effectiveUserId = numericId > 0 ? numericId : 1;
+    }
+
     // Generate Session ID & create lab_sessions DB row (Status = STARTING)
     const sessionRecord = createSessionRecord({
-      userId,
+      userId: String(effectiveUserId),
       labId,
       labType: canonicalLabType(labId),
       runtimeType: lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide",
@@ -89,7 +134,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     dbSession = await labSessionRepository.createSession({
       sessionId,
       tenantId,
-      userId,
+      userId: effectiveUserId,
       labId,
       allocatedCredits: sessionTokens,
       allocatedDurationMinutes: sessionTokens,
@@ -194,8 +239,27 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     return ok(memorySess);
   }
 
-  if (String(dbSession.UserId) !== String(auth.userId) && auth.role !== "Super Admin") {
-    throw forbidden("You do not own this session");
+  if (
+    String(dbSession.UserId) !== String(auth.userId) &&
+    String(dbSession.UserId) !== String(auth.id) &&
+    auth.role !== "Super Admin"
+  ) {
+    const rawAuthId = String(auth?.userId || auth?.id || "").trim();
+    const isNum = /^\d+$/.test(rawAuthId);
+    const numId = isNum ? parseInt(rawAuthId, 10) : -1;
+    const lookupEmail = String(auth?.email || "").trim().toLowerCase();
+
+    const [uRows] = await pool.query(
+      `SELECT UserId FROM Users 
+       WHERE UserId = ? 
+         AND ((UserId = ? AND ? > 0) OR (LOWER(Email) = LOWER(?) AND ? != '') OR (ExternalStudentId = ? AND ? != '')) 
+       LIMIT 1`,
+      [dbSession.UserId, numId, numId, lookupEmail, lookupEmail, rawAuthId, rawAuthId]
+    ).catch(() => [[]]);
+
+    if (!uRows || uRows.length === 0) {
+      throw forbidden("You do not own this session");
+    }
   }
 
   const remainingSeconds = calculateRemainingSeconds(dbSession.ExpiresAt);

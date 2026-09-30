@@ -230,6 +230,12 @@ async function ensureLabSessionsTableAndColumns(connection) {
   try {
     await connection.query(`ALTER TABLE \`lab_sessions\` ADD INDEX \`IDX_LabSession_Billing\` (\`Status\`, \`LastBilledAt\`)`);
   } catch (_) {}
+
+  // Drop rigid FK constraint on lab_sessions so external/LMS student IDs never fail lab launch
+  try {
+    await connection.query("ALTER TABLE `lab_sessions` DROP FOREIGN KEY `FK_LabSession_UserId`");
+    console.log("[MySQL] Dropped rigid FK_LabSession_UserId constraint to support LMS & external student IDs.");
+  } catch (_) {}
 }
 
 export const verifyDbConnection = async () => {

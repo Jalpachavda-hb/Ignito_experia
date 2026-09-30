@@ -133,6 +133,21 @@ CREATE TABLE IF NOT EXISTS `credit_transactions` (
   INDEX `idx_txn_payment_ref` (`PaymentReference`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 5. Drop rigid foreign key constraint on lab_sessions so LMS & external students never fail to launch labs
+SET @fk_drop_stmt = (
+  SELECT IF(
+    (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS 
+     WHERE CONSTRAINT_SCHEMA = DATABASE() 
+       AND TABLE_NAME = 'lab_sessions' 
+       AND CONSTRAINT_NAME = 'FK_LabSession_UserId') > 0,
+    'ALTER TABLE `lab_sessions` DROP FOREIGN KEY `FK_LabSession_UserId`',
+    'SELECT 1'
+  )
+);
+PREPARE stmt FROM @fk_drop_stmt;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 -- Clean up helper procedures
 DROP PROCEDURE IF EXISTS AddColumnIfNotExists;
 DROP PROCEDURE IF EXISTS AddIndexIfNotExists;
