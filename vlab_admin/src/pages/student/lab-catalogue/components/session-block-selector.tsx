@@ -48,7 +48,7 @@ export function SessionBlockSelector({
       console.error("Start session failed:", err);
     } finally {
       setIsSubmitting(false);
-    }
+    }    
   };
 
   return (

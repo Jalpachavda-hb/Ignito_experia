@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import axios from "axios";
+import pool from "../lib/mysql.js";
 import { ok } from "../lib/apigw.js";
 import { unauthorized, badRequest } from "../lib/errors.js";
 import creditWalletService from "../services/CreditWalletService.js";
@@ -120,13 +121,38 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
 
   // Resolve true integer UserId and TenantId from Users database table
   try {
+    const rawTarget = String(targetUserId).trim();
+    const isTargetNumeric = /^\d+$/.test(rawTarget);
+    const queryUserId = isTargetNumeric ? parseInt(rawTarget, 10) : -1;
+    const lookupEmail = (bodyUserEmail || auth?.email || (rawTarget.includes('@') ? rawTarget : '')).trim().toLowerCase();
+
     const [uRows] = await pool.query(
-      "SELECT UserId, TenantId, Email FROM Users WHERE UserId = ? OR LOWER(Email) = LOWER(?) OR LOWER(Email) = LOWER(?) LIMIT 1",
-      [targetUserId, bodyUserEmail || '', auth?.email || '']
+      `SELECT UserId, TenantId, Email FROM Users 
+       WHERE (UserId = ? AND ? > 0) 
+          OR (LOWER(Email) = LOWER(?) AND ? != '') 
+          OR (ExternalStudentId = ? AND ? != '')
+       LIMIT 1`,
+      [queryUserId, queryUserId, lookupEmail, lookupEmail, rawTarget, rawTarget]
     );
+
     if (uRows && uRows.length > 0) {
       targetUserId = uRows[0].UserId;
       if (!tenantId) tenantId = uRows[0].TenantId;
+    } else {
+      // Auto-provision user in Users so FK constraints on credit_wallets do not fail
+      const fallbackEmail = lookupEmail || `student_${rawTarget.replace(/[^a-zA-Z0-9]/g, '_')}@experia.ignitolearn.com`;
+      const fallbackName = auth?.name || auth?.fullName || bodyUserEmail || `Student ${rawTarget}`;
+      const effectiveTenant = tenantId || 'TEN000001';
+
+      const [insRes] = await pool.query(
+        `INSERT INTO Users (FullName, Email, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId)
+         VALUES (?, ?, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?)
+         ON DUPLICATE KEY UPDATE UserId = LAST_INSERT_ID(UserId), TenantId = COALESCE(VALUES(TenantId), TenantId)`,
+        [fallbackName, fallbackEmail.toLowerCase(), effectiveTenant, rawTarget]
+      );
+      if (insRes && insRes.insertId) {
+        targetUserId = insRes.insertId;
+      }
     }
   } catch (e) {
     console.warn("User lookup warning in payment verification:", e);

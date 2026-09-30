@@ -76,6 +76,162 @@ async function tightenUsersTable(connection) {
   });
 }
 
+async function ensureCreditWalletsTables(connection) {
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS \`credit_wallets\` (
+      \`WalletId\` INT AUTO_INCREMENT PRIMARY KEY,
+      \`TenantId\` VARCHAR(64) NOT NULL,
+      \`UserId\` INT NOT NULL,
+      \`TotalPurchasedCredits\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      \`ConsumedCredits\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      \`ReservedCredits\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      \`Balance\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      \`Status\` VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+      \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+      \`UpdatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY \`idx_wallet_user_tenant_unique\` (\`UserId\`, \`TenantId\`),
+      INDEX \`idx_wallet_tenant\` (\`TenantId\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS \`credit_transactions\` (
+      \`TransactionId\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+      \`TenantId\` VARCHAR(64) NOT NULL,
+      \`UserId\` INT NOT NULL,
+      \`Type\` ENUM('PURCHASE', 'DEDUCTION', 'LAB_USAGE', 'LAB_EXTENSION', 'REFUND', 'BONUS', 'ADJUSTMENT') NOT NULL,
+      \`Source\` VARCHAR(100) NOT NULL DEFAULT 'STUDENT_PORTAL',
+      \`Credits\` DECIMAL(10,2) NOT NULL,
+      \`Amount\` DECIMAL(10,2) DEFAULT 0.00,
+      \`Currency\` VARCHAR(10) DEFAULT 'INR',
+      \`PaymentReference\` VARCHAR(255) NULL,
+      \`LabId\` VARCHAR(100) NULL,
+      \`LabSessionId\` VARCHAR(100) NULL,
+      \`IdempotencyKey\` VARCHAR(255) NULL,
+      \`Status\` VARCHAR(50) NOT NULL DEFAULT 'SUCCESS',
+      \`MetadataJson\` JSON NULL,
+      \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY \`idx_txn_idempotency\` (\`IdempotencyKey\`),
+      INDEX \`idx_txn_user_tenant\` (\`UserId\`, \`TenantId\`),
+      INDEX \`idx_txn_payment_ref\` (\`PaymentReference\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+}
+
+async function ensureStudentLabTokenWalletsTableAndColumns(connection) {
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS \`student_lab_token_wallets\` (
+      \`Id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      \`TenantId\` VARCHAR(64) NOT NULL,
+      \`StudentId\` VARCHAR(64) NOT NULL,
+      \`LabId\` VARCHAR(100) NOT NULL,
+      \`TotalPurchasedTokens\` INT NOT NULL DEFAULT 0,
+      \`TotalUsedTokens\` INT NOT NULL DEFAULT 0,
+      \`ConsumedTokens\` INT UNSIGNED NOT NULL DEFAULT 0,
+      \`RemainingTokens\` INT NOT NULL DEFAULT 0,
+      \`CarryOverSeconds\` INT NOT NULL DEFAULT 0,
+      \`Version\` BIGINT UNSIGNED NOT NULL DEFAULT 1,
+      \`Status\` ENUM('ACTIVE', 'ARCHIVED') NOT NULL DEFAULT 'ACTIVE',
+      \`CreatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      \`UpdatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`Id\`),
+      UNIQUE KEY \`UQ_StudentLabWallet\` (\`TenantId\`, \`StudentId\`, \`LabId\`),
+      INDEX \`IDX_StudentLabWallet\` (\`StudentId\`, \`LabId\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  const [cols] = await connection.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = 'student_lab_token_wallets'`
+  );
+  const existingCols = new Set(cols.map((col) => col.COLUMN_NAME.toLowerCase()));
+
+  const columnsToAdd = [
+    { name: 'ConsumedTokens', ddl: 'ADD COLUMN `ConsumedTokens` INT UNSIGNED NOT NULL DEFAULT 0' },
+    { name: 'RemainingTokens', ddl: 'ADD COLUMN `RemainingTokens` INT NOT NULL DEFAULT 0' },
+    { name: 'Version', ddl: 'ADD COLUMN `Version` BIGINT UNSIGNED NOT NULL DEFAULT 1' },
+    { name: 'CarryOverSeconds', ddl: 'ADD COLUMN `CarryOverSeconds` INT NOT NULL DEFAULT 0' },
+  ];
+
+  for (const { name, ddl } of columnsToAdd) {
+    if (!existingCols.has(name.toLowerCase())) {
+      try {
+        await connection.query(`ALTER TABLE \`student_lab_token_wallets\` ${ddl}`);
+        console.log(`[MySQL] Added column student_lab_token_wallets.${name}`);
+      } catch (err) {
+        console.warn(`[MySQL] Note adding column student_lab_token_wallets.${name}:`, err.message);
+      }
+    }
+  }
+}
+
+async function ensureLabSessionsTableAndColumns(connection) {
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS \`lab_sessions\` (
+      \`SessionId\` VARCHAR(100) PRIMARY KEY,
+      \`TenantId\` VARCHAR(64) NOT NULL,
+      \`UserId\` INT NOT NULL,
+      \`LabId\` VARCHAR(100) NOT NULL,
+      \`AllocatedCredits\` INT NOT NULL DEFAULT 0,
+      \`AllocatedDurationMinutes\` INT NOT NULL DEFAULT 0,
+      \`FinalCreditsConsumed\` DECIMAL(10,2) NULL,
+      \`StartedAt\` DATETIME NOT NULL,
+      \`ExpiresAt\` DATETIME NOT NULL,
+      \`EndedAt\` DATETIME NULL,
+      \`Status\` ENUM('PENDING', 'STARTING', 'RUNNING', 'EXPIRING_SOON', 'STOPPING', 'COMPLETED', 'EXPIRED', 'FAILED') NOT NULL DEFAULT 'STARTING',
+      \`TenMinuteWarningSent\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`TaskArn\` VARCHAR(255) NULL,
+      \`ContainerId\` VARCHAR(255) NULL,
+      \`RuntimeUrl\` VARCHAR(255) NULL,
+      \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+      \`UpdatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX \`IDX_LabSess_User_Tenant\` (\`UserId\`, \`TenantId\`),
+      INDEX \`IDX_LabSess_Status_Expires\` (\`Status\`, \`ExpiresAt\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  const [cols] = await connection.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = 'lab_sessions'`
+  );
+  const existingCols = new Set(cols.map((col) => col.COLUMN_NAME.toLowerCase()));
+
+  const columnsToAdd = [
+    { name: 'TokenExpiryAt', ddl: 'ADD COLUMN `TokenExpiryAt` DATETIME NULL' },
+    { name: 'LastBilledAt', ddl: 'ADD COLUMN `LastBilledAt` DATETIME NULL' },
+    { name: 'UnbilledSeconds', ddl: 'ADD COLUMN `UnbilledSeconds` INT NOT NULL DEFAULT 0' },
+    { name: 'BilledTokens', ddl: 'ADD COLUMN `BilledTokens` INT NOT NULL DEFAULT 0' },
+    { name: 'LowBalanceWarningSent', ddl: 'ADD COLUMN `LowBalanceWarningSent` TINYINT(1) NOT NULL DEFAULT 0' },
+    { name: 'StopRequestedAt', ddl: 'ADD COLUMN `StopRequestedAt` DATETIME NULL' },
+    { name: 'StopRetryCount', ddl: 'ADD COLUMN `StopRetryCount` INT NOT NULL DEFAULT 0' },
+    { name: 'LastStopAttemptAt', ddl: 'ADD COLUMN `LastStopAttemptAt` DATETIME NULL' },
+    { name: 'StopError', ddl: 'ADD COLUMN `StopError` TEXT NULL' },
+    { name: 'BillingStartedAt', ddl: 'ADD COLUMN `BillingStartedAt` DATETIME NULL' },
+    { name: 'BilledSeconds', ddl: 'ADD COLUMN `BilledSeconds` INT UNSIGNED NOT NULL DEFAULT 0' },
+    { name: 'LowTokenWarningSent', ddl: 'ADD COLUMN `LowTokenWarningSent` TINYINT(1) NOT NULL DEFAULT 0' },
+    { name: 'BillingLockUntil', ddl: 'ADD COLUMN `BillingLockUntil` DATETIME NULL' },
+    { name: 'BillingWorkerId', ddl: 'ADD COLUMN `BillingWorkerId` VARCHAR(100) NULL' },
+  ];
+
+  for (const { name, ddl } of columnsToAdd) {
+    if (!existingCols.has(name.toLowerCase())) {
+      try {
+        await connection.query(`ALTER TABLE \`lab_sessions\` ${ddl}`);
+        console.log(`[MySQL] Added column lab_sessions.${name}`);
+      } catch (err) {
+        console.warn(`[MySQL] Note adding column lab_sessions.${name}:`, err.message);
+      }
+    }
+  }
+
+  try {
+    await connection.query(`ALTER TABLE \`lab_sessions\` ADD INDEX \`IDX_LabSession_Expiry\` (\`Status\`, \`TokenExpiryAt\`)`);
+  } catch (_) {}
+  try {
+    await connection.query(`ALTER TABLE \`lab_sessions\` ADD INDEX \`IDX_LabSession_Billing\` (\`Status\`, \`LastBilledAt\`)`);
+  } catch (_) {}
+}
+
 export const verifyDbConnection = async () => {
   let connection;
   try {
@@ -390,6 +546,11 @@ export const verifyDbConnection = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Ensure credit wallets and lab sessions
+    await ensureCreditWalletsTables(connection);
+    await ensureStudentLabTokenWalletsTableAndColumns(connection);
+    await ensureLabSessionsTableAndColumns(connection);
+
     // token_order_items
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`token_order_items\` (
@@ -399,21 +560,37 @@ export const verifyDbConnection = async () => {
         \`PackageId\` BIGINT UNSIGNED NULL,
         \`LabNameSnapshot\` VARCHAR(255) NOT NULL DEFAULT 'Virtual Lab',
         \`PackageNameSnapshot\` VARCHAR(255) NOT NULL DEFAULT 'Token Package',
-        \`TokenAmountSnapshot\` INT NOT NULL,
-        \`UnitPriceSnapshot\` DECIMAL(10,2) NOT NULL,
+        \`TokenAmountSnapshot\` INT NOT NULL DEFAULT 0,
+        \`UnitPriceSnapshot\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
         \`CurrencySnapshot\` VARCHAR(10) NOT NULL DEFAULT 'INR',
-        \`LabNameSnapshot\` VARCHAR(255) NOT NULL,
-        \`TokenQuantity\` INT UNSIGNED NOT NULL,
-        \`UnitPriceAmount\` DECIMAL(12,2) NOT NULL,
-        \`LineTotalAmount\` DECIMAL(12,2) NOT NULL,
+        \`TokenQuantity\` INT UNSIGNED NOT NULL DEFAULT 0,
+        \`UnitPriceAmount\` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+        \`LineTotalAmount\` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
         \`CreatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (\`OrderId\`) REFERENCES \`token_orders\`(\`Id\`) ON DELETE CASCADE
+        PRIMARY KEY (\`Id\`),
+        INDEX \`IDX_TokenOrderItems_Order\` (\`OrderId\`),
+        INDEX \`IDX_TokenOrderItems_Lab\` (\`LabId\`),
+        CONSTRAINT \`FK_TokenOrderItems_Order\` FOREIGN KEY (\`OrderId\`) REFERENCES \`token_orders\`(\`Id\`) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
     // student_lab_token_transactions (Immutable Ledger)
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`student_lab_token_transactions\` (
+        \`Id\` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`TenantId\` VARCHAR(64) NOT NULL,
+        \`StudentId\` VARCHAR(64) NOT NULL,
+        \`LabId\` VARCHAR(100) NOT NULL,
+        \`WalletId\` BIGINT UNSIGNED NOT NULL,
+        \`TransactionType\` ENUM('PURCHASE', 'USAGE', 'CONSUMPTION', 'REFUND', 'ADJUSTMENT', 'ADMIN_GRANT', 'EXPIRE') NOT NULL,
+        \`Tokens\` INT NOT NULL DEFAULT 0,
+        \`TokenChange\` INT NOT NULL DEFAULT 0,
+        \`BalanceBefore\` INT NOT NULL DEFAULT 0,
+        \`BalanceAfter\` INT NOT NULL DEFAULT 0,
+        \`ReferenceType\` VARCHAR(50) NULL,
+        \`ReferenceId\` VARCHAR(255) NULL,
+        \`Description\` VARCHAR(500) NULL,
+        \`IdempotencyKey\` VARCHAR(255) NOT NULL,
         \`CreatedAt\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (\`Id\`),
         UNIQUE KEY \`UQ_TokenTx_Idempotency\` (\`IdempotencyKey\`),
