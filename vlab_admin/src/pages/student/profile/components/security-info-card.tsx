@@ -6,6 +6,7 @@ import { StudentProfile } from '@/pages/student/dashboard/types';
 import { ShieldCheck, CheckCircle2, KeyRound, Lock, Smartphone } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 import { PasswordSetupModal } from '@/components/auth/PasswordSetupModal';
+import { ChangePasswordModal } from './change-password-modal';
 
 interface SecurityInfoCardProps {
   student: StudentProfile;
@@ -15,7 +16,7 @@ export function SecurityInfoCard({ student }: SecurityInfoCardProps) {
   const { auth } = useAuthStore();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
-  const hasPassword = auth.user?.hasPassword ?? Boolean(student.passwordLastChanged);
+  const hasPassword = auth.user?.hasPassword === true;
 
   return (
     <>
@@ -54,12 +55,12 @@ export function SecurityInfoCard({ student }: SecurityInfoCardProps) {
             <div className="pt-2 flex justify-end border-t border-slate-200/60 dark:border-slate-800">
               <Button 
                 onClick={() => setShowPasswordModal(true)} 
-                variant={hasPassword ? 'outline' : 'default'}
+                variant="default"
                 size="sm"
                 className="gap-2 text-xs"
               >
                 <KeyRound className="h-3.5 w-3.5" />
-                {hasPassword ? 'Change Password' : 'Set Password'}
+                {hasPassword ? 'Update Password' : 'Set Password'}
               </Button>
             </div>
           </div>
@@ -87,10 +88,17 @@ export function SecurityInfoCard({ student }: SecurityInfoCardProps) {
         </CardContent>
       </Card>
 
-      <PasswordSetupModal
-        isOpen={showPasswordModal}
-        onClose={() => setShowPasswordModal(false)}
-      />
+      {hasPassword ? (
+        <ChangePasswordModal
+          isOpen={showPasswordModal}
+          onClose={() => setShowPasswordModal(false)}
+        />
+      ) : (
+        <PasswordSetupModal
+          isOpen={showPasswordModal}
+          onClose={() => setShowPasswordModal(false)}
+        />
+      )}
     </>
   );
 }

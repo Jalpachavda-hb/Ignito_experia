@@ -139,23 +139,39 @@ export default function StudentDashboard() {
     return result
   }, [labs, activeSession, labWallets])
 
+  const [portalReady, setPortalReady] = useState(false)
+
   useEffect(() => {
+    let cancelled = false
+    setPortalReady(false)
     const studentId = user?.studentId || user?.studentDegreeAdmissionId || user?.externalStudentId
     loadStudentPortalData(studentId)
       .then((payload: any) => {
+        if (cancelled) return
         const current = useAuthStore.getState().auth.user
         useAuthStore.getState().auth.setUser(mergeStudentPortalUser(current, payload))
       })
       .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPortalReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [user?.studentId, user?.email])
 
   useEffect(() => {
-    // Prompt first-time university students to set a password (if not skipped in this tab)
+    if (!portalReady) return
+    if (auth.user?.hasPassword === true) {
+      setShowPasswordSetup(false)
+      return
+    }
+    // Ask only the first time an SSO student has no password stored.
     const isSkipped = typeof window !== 'undefined' && sessionStorage.getItem('skipPasswordSetup') === 'true'
     if (isUniversityStudent(auth.user) && auth.user?.hasPassword === false && !isSkipped) {
       setShowPasswordSetup(true)
     }
-  }, [auth.user])
+  }, [auth.user, portalReady])
 
   const handleClosePasswordModal = () => {
     if (typeof window !== 'undefined') {

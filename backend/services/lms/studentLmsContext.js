@@ -29,12 +29,12 @@ export async function loadStudentLmsContext(auth) {
 
   let profile = null;
   if (auth?.userId) {
-    const [rows] = await pool.query("SELECT * FROM users WHERE UserId = ? LIMIT 1", [auth.userId]);
+    const [rows] = await pool.query("SELECT * FROM `Users` WHERE UserId = ? LIMIT 1", [auth.userId]);
     profile = rows?.[0] || null;
   }
   if (!profile && auth?.email) {
     const [emailRows] = await pool.query(
-      "SELECT * FROM users WHERE LOWER(TRIM(Email)) = LOWER(TRIM(?)) LIMIT 1",
+      "SELECT * FROM `Users` WHERE LOWER(TRIM(Email)) = LOWER(TRIM(?)) LIMIT 1",
       [auth.email]
     );
     profile = emailRows?.[0] || null;

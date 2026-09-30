@@ -12,6 +12,7 @@ import { ENV } from "../config/env.js";
 import { lmsProfileCacheService } from "./LmsProfileCacheService.js";
 import { lmsProgrammeService } from "./lms/LmsProgrammeService.js";
 import { mergeProgrammes } from "./lms/programmeNormalize.js";
+import { rememberStudentLmsToken } from "./lms/studentLmsToken.js";
 import {
   assertStudentPortal,
   loadLmsProvider,
@@ -247,6 +248,7 @@ class SsoService {
         throw badRequest("Student account could not be saved, so the lab session was not opened.");
       }
       userId = Number(userObj.UserId);
+      rememberStudentLmsToken(userId, token);
       // Commit the student before the session. The foreign key only accepts a saved Users row.
       await connection.commit();
       await connection.beginTransaction();

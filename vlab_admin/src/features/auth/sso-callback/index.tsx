@@ -80,6 +80,7 @@ export function SsoCallback() {
 
         if (res.ok && data.success && data.accessToken) {
           auth.setAccessToken(data.accessToken)
+          auth.setLmsToken?.(token)
           if (data.refreshToken) {
             auth.setRefreshToken?.(data.refreshToken)
           }

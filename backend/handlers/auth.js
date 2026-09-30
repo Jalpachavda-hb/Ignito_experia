@@ -19,20 +19,55 @@ function parseCookies(headers = {}) {
   const cookieHeader = headers.cookie || headers.Cookie || "";
   const cookies = {};
   cookieHeader.split(";").forEach((cookie) => {
-    const parts = cookie.split("=");
-    if (parts.length === 2) {
-      cookies[parts[0].trim()] = decodeURIComponent(parts[1].trim());
+    const eq = cookie.indexOf("=");
+    if (eq <= 0) return;
+    const name = cookie.slice(0, eq).trim();
+    const raw = cookie.slice(eq + 1).trim();
+    try {
+      cookies[name] = decodeURIComponent(raw);
+    } catch {
+      cookies[name] = raw;
     }
   });
   return cookies;
 }
 
-const makeCookieHeader = (token, maxAgeSeconds = 604800) => {
-  return `refreshToken=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${maxAgeSeconds}`;
+function cookieDomain(headers = {}) {
+  const host = String(headers["x-tenant-domain"] || headers.host || headers.origin || "")
+    .replace(/^https?:\/\//, "")
+    .split("/")[0]
+    .split(":")[0]
+    .toLowerCase();
+  if (host === "experia.ignitolearn.com" || host.endsWith(".experia.ignitolearn.com")) {
+    return "experia.ignitolearn.com";
+  }
+  return "";
+}
+
+function requestIsHttps(headers = {}) {
+  const forwarded = String(headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+  if (forwarded) return forwarded === "https";
+  const origin = String(headers.origin || "");
+  if (origin.startsWith("http://")) return false;
+  return true;
+}
+
+const makeCookieHeader = (token, headers = {}, maxAgeSeconds = 604800) => {
+  const domain = cookieDomain(headers);
+  const domainAttr = domain ? ` Domain=${domain};` : "";
+  const https = requestIsHttps(headers);
+  const secure = https ? " Secure;" : "";
+  const sameSite = https ? "None" : "Lax";
+  return `refreshToken=${encodeURIComponent(token)}; HttpOnly;${secure} SameSite=${sameSite}; Path=/;${domainAttr} Max-Age=${maxAgeSeconds}`;
 };
 
-const makeClearCookieHeader = () => {
-  return `refreshToken=; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+const makeClearCookieHeader = (headers = {}) => {
+  const domain = cookieDomain(headers);
+  const domainAttr = domain ? ` Domain=${domain};` : "";
+  const https = requestIsHttps(headers);
+  const secure = https ? " Secure;" : "";
+  const sameSite = https ? "None" : "Lax";
+  return `refreshToken=; HttpOnly;${secure} SameSite=${sameSite}; Path=/;${domainAttr} Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 };
 
 const corsHeaders = (headers = {}) => {
@@ -176,7 +211,7 @@ export const authLoginHandler = async ({ body, headers = {}, requestContext }) =
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": makeCookieHeader(refreshToken),
+      "Set-Cookie": makeCookieHeader(refreshToken, headers),
       ...corsHeaders(headers)
     },
     body: JSON.stringify({
@@ -225,7 +260,8 @@ export const ssoLoginHandler = async ({ body = {}, headers, requestContext }) =>
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      ...corsHeaders(headers) // No frontend cookies trusted or sent for SSO.
+      "Set-Cookie": makeCookieHeader(result.refreshToken, headers),
+      ...corsHeaders(headers)
     },
     body: JSON.stringify({
       success: true,
@@ -238,39 +274,56 @@ export const ssoLoginHandler = async ({ body = {}, headers, requestContext }) =>
   };
 };
 
+function cleanRefreshToken(value) {
+  return String(value || "").trim().replace(/^Bearer\s+/i, "").replace(/^"|"$/g, "");
+}
+
 export const authRefreshHandler = async ({ body, headers, requestContext }) => {
   const cookies = parseCookies(headers || {});
   let parsedBody = body;
-  if (typeof body === 'string') {
-    try { parsedBody = JSON.parse(body); } catch (e) {}
+  if (typeof body === "string") {
+    try { parsedBody = JSON.parse(body); } catch { parsedBody = {}; }
   }
-  const oldRefreshToken =
-    cookies.refreshToken ||
-    parsedBody?.refreshToken ||
-    headers?.['x-refresh-token'] ||
-    headers?.['X-Refresh-Token'] ||
-    headers?.['x-refreshtoken'];
+  const candidates = [];
+  for (const value of [
+    parsedBody?.refreshToken,
+    headers?.["x-refresh-token"],
+    headers?.["x-refreshtoken"],
+    cookies.refreshToken,
+  ]) {
+    const token = cleanRefreshToken(value);
+    if (token && !candidates.includes(token)) candidates.push(token);
+  }
 
-  if (!oldRefreshToken) {
+  if (!candidates.length) {
     throw unauthorized("Missing refresh token in cookie or request body");
   }
-  
-  const ipAddress = requestContext?.identity?.sourceIp || "unknown";
 
-  const result = await authService.refresh({
-    refreshToken: oldRefreshToken,
-    ipAddress,
-    browser: headers['user-agent'] || 'unknown',
-    os: 'unknown',
-    device: 'unknown'
-  });
+  const ipAddress = requestContext?.identity?.sourceIp || "unknown";
+  let result = null;
+  let lastError = null;
+  for (const oldRefreshToken of candidates) {
+    try {
+      result = await authService.refresh({
+        refreshToken: oldRefreshToken,
+        ipAddress,
+        browser: headers["user-agent"] || "unknown",
+        os: "unknown",
+        device: "unknown",
+      });
+      break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (!result) throw lastError || unauthorized("Invalid or expired refresh token");
   const { user, accessToken, refreshToken } = result;
 
   return {
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": makeCookieHeader(refreshToken),
+      "Set-Cookie": makeCookieHeader(refreshToken, headers),
       ...corsHeaders(headers)
     },
     body: JSON.stringify({
@@ -288,7 +341,7 @@ export const authRefreshHandler = async ({ body, headers, requestContext }) => {
 
 export const authLogoutHandler = async ({ body, headers }) => {
   const cookies = parseCookies(headers);
-  const refreshToken = cookies.refreshToken || body?.refreshToken;
+  const refreshToken = cleanRefreshToken(body?.refreshToken) || cleanRefreshToken(cookies.refreshToken);
 
   if (refreshToken) {
     await authService.logout(refreshToken);
@@ -298,7 +351,7 @@ export const authLogoutHandler = async ({ body, headers }) => {
     statusCode: 200,
     headers: {
       "Content-Type": "application/json",
-      "Set-Cookie": makeClearCookieHeader(),
+      "Set-Cookie": makeClearCookieHeader(headers),
       ...corsHeaders(headers)
     },
     body: JSON.stringify({
@@ -331,7 +384,7 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
   let roleCode = auth.role ? String(auth.role).toUpperCase().replace(/\s+/g, '_') : null;
 
   if (auth.userId) {
-    const [uRows] = await pool.query("SELECT * FROM users WHERE UserId = ?", [auth.userId]).catch(() => [[]]);
+    const [uRows] = await pool.query("SELECT * FROM `Users` WHERE UserId = ?", [auth.userId]).catch(() => [[]]);
     profile = uRows[0] || null;
     if (!profile) {
       profile = await userRepository.findById(auth.userId).catch(() => null);
@@ -342,12 +395,12 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
   }
 
   if (!profile && auth.email) {
-    const [emailRows] = await pool.query("SELECT * FROM users WHERE LOWER(TRIM(Email)) = LOWER(TRIM(?))", [auth.email]).catch(() => [[]]);
+    const [emailRows] = await pool.query("SELECT * FROM `Users` WHERE LOWER(TRIM(Email)) = LOWER(TRIM(?))", [auth.email]).catch(() => [[]]);
     profile = emailRows[0] || null;
   }
 
   if (!profile && auth.sub) {
-    const [subRows] = await pool.query("SELECT * FROM users WHERE ExternalStudentId = ? OR StudentDegreeAdmissionId = ?", [auth.sub, auth.sub]).catch(() => [[]]);
+    const [subRows] = await pool.query("SELECT * FROM `Users` WHERE ExternalStudentId = ? OR StudentDegreeAdmissionId = ?", [auth.sub, auth.sub]).catch(() => [[]]);
     profile = subRows[0] || null;
   }
 
@@ -486,6 +539,7 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
   const tenantSlug = universityStudent ? (tenant?.Slug || null) : null;
   const createdFrom = profile.CreatedFrom || (universityStudent ? 'LMS' : 'DIRECT');
   const authType = profile.AuthType || (universityStudent ? 'LMS' : 'DIRECT');
+  const hasPassword = await accountHasPassword(profile, auth.userId);
 
   let walletBalance = 0.00;
   let walletStatus = 'ACTIVE';
@@ -523,7 +577,7 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
       userId: profile.UserId || profile.StudentProfileId,
       email: displayEmail,
       fullName: fullName,
-      hasPassword: Boolean(profile.PasswordHash),
+      hasPassword,
       authType,
       createdFrom,
       status: profile.Status
@@ -587,13 +641,32 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
       createdFrom,
       authType,
       isLmsStudent: universityStudent,
-      hasPassword: Boolean(profile.PasswordHash),
+      hasPassword,
       permissions,
     }
   });
 };
 
 import { hashPassword, verifyPassword } from "../lib/password.js";
+
+function passwordFlagIsSet(value) {
+  return value === true || value === 1 || value === "1";
+}
+
+/** True only when a direct-login hash is stored on the Users row the password writer updates. */
+async function accountHasPassword(profile, userId) {
+  if (profile?.PasswordHash) return true;
+  if (passwordFlagIsSet(profile?.HasPassword) || passwordFlagIsSet(profile?.hasPassword)) return true;
+
+  const id = Number(profile?.UserId || userId);
+  if (!Number.isFinite(id)) return false;
+
+  const [rows] = await pool.query(
+    "SELECT PasswordHash FROM `Users` WHERE UserId = ? LIMIT 1",
+    [id]
+  ).catch(() => [[]]);
+  return Boolean(rows?.[0]?.PasswordHash);
+}
 
 async function persistUserPassword(userId, hashed) {
   const id = Number(userId);
@@ -650,6 +723,7 @@ export const authSetPasswordHandler = async ({ auth, body = {} }) => {
 
   return ok({
     success: true,
+    hasPassword: true,
     message: "Password set successfully. You can now log in directly or via LMS SSO."
   });
 };

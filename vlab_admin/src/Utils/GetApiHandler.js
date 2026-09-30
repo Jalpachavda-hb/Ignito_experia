@@ -3,12 +3,79 @@ import { BASE_URL, API_PATHS } from './Api_path';
 
 export { BASE_URL, API_PATHS };
 
+function readStoredToken(key) {
+  if (typeof window === 'undefined') return '';
+  try {
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function currentAccessToken() {
+  return useAuthStore.getState()?.auth?.accessToken || readStoredToken('auth-access-token') || '';
+}
+
+function currentRefreshToken() {
+  const value = useAuthStore.getState()?.auth?.refreshToken || readStoredToken('auth-refresh-token') || '';
+  return String(value).trim().replace(/^"|"$/g, '');
+}
+
+function currentLmsToken() {
+  const value = useAuthStore.getState()?.auth?.lmsToken || readStoredToken('auth-lms-token') || '';
+  return String(value).trim().replace(/^Bearer\s+/i, '').replace(/^"|"$/g, '');
+}
+
+let refreshInFlight = null;
+
+async function refreshSession(cleanBase) {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const storedRefreshToken = currentRefreshToken();
+    const refreshRes = await fetch(`${cleanBase}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(storedRefreshToken ? { 'X-Refresh-Token': storedRefreshToken } : {}),
+      },
+      body: JSON.stringify(storedRefreshToken ? { refreshToken: storedRefreshToken } : {}),
+    });
+
+    if (!refreshRes.ok) return null;
+    const refreshData = await refreshRes.json();
+    const newToken = refreshData.accessToken;
+    if (!newToken) return null;
+
+    const authApi = useAuthStore.getState().auth;
+    authApi.setAccessToken(newToken);
+    if (refreshData.refreshToken) {
+      authApi.setRefreshToken?.(refreshData.refreshToken);
+    }
+    if (refreshData.user) {
+      authApi.setUser({
+        ...refreshData.user,
+        userId: refreshData.user.id || refreshData.user.userId,
+        fullName: refreshData.user.fullName || refreshData.user.name,
+        exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+    return newToken;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+
+  return refreshInFlight;
+}
+
 export async function executeRequest(path, options = {}) {
   const { headers = {}, auth = true, method = 'GET', body, params, signal, baseUrl } = options;
 
   // Retrieve auth token and tenant directly from Zustand auth store
   const authState = useAuthStore.getState()?.auth;
-  const token = auth ? authState?.accessToken : null;
+  const token = auth ? currentAccessToken() : null;
+  const lmsToken = currentLmsToken();
   const tenantId = authState?.user?.tenantId || authState?.user?.universityId;
 
   // Construct full URL using provided baseUrl or default BASE_URL from Api_path.js
@@ -35,6 +102,7 @@ export async function executeRequest(path, options = {}) {
   const reqHeaders = {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(lmsToken ? { 'X-Lms-Token': lmsToken } : {}),
     ...(tenantId ? { 'X-Tenant-Id': String(tenantId) } : {}),
     ...headers,
   };
@@ -53,34 +121,13 @@ export async function executeRequest(path, options = {}) {
     // Auto Refresh token on 401 Unauthorized for authenticated routes
     if (response.status === 401 && auth && !path.includes('/auth/refresh') && !path.includes('/auth/login')) {
       try {
-        const storedRefreshToken = useAuthStore.getState()?.auth?.refreshToken;
-        const refreshRes = await fetch(`${cleanBase}/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          ...(storedRefreshToken ? { body: JSON.stringify({ refreshToken: storedRefreshToken }) } : {}),
-        });
-
-        if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
-          const newToken = refreshData.accessToken;
-          if (newToken) {
-            useAuthStore.getState().auth.setAccessToken(newToken);
-            if (refreshData.refreshToken) {
-              useAuthStore.getState().auth.setRefreshToken?.(refreshData.refreshToken);
-            }
-            if (refreshData.user) {
-              useAuthStore.getState().auth.setUser({
-                ...refreshData.user,
-                userId: refreshData.user.id || refreshData.user.userId,
-                fullName: refreshData.user.fullName || refreshData.user.name,
-                exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
-              });
-            }
-            reqHeaders.Authorization = `Bearer ${newToken}`;
-            const retryResponse = await fetch(fullUrl, { ...fetchOptions, headers: reqHeaders });
-            return await parseResponse(retryResponse);
-          }
+        const newToken = await refreshSession(cleanBase);
+        if (newToken) {
+          reqHeaders.Authorization = `Bearer ${newToken}`;
+          const latestLmsToken = currentLmsToken();
+          if (latestLmsToken) reqHeaders['X-Lms-Token'] = latestLmsToken;
+          const retryResponse = await fetch(fullUrl, { ...fetchOptions, headers: reqHeaders });
+          return await parseResponse(retryResponse);
         }
       } catch (refreshErr) {
         console.warn("Auto-refresh background attempt warning:", refreshErr);

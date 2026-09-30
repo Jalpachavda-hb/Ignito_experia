@@ -50,7 +50,6 @@ export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolea
       url: '/student/dashboard',
       icon: LayoutDashboard,
     },
-    ...academicCourseItems,
   ];
 
   if (!isDirectUser) {
@@ -102,6 +101,7 @@ export function getStudentSidebarData(lmsPrograms?: any[], isDirectUser?: boolea
           url: '/student/badges-achievements',
           icon: Award,
         },
+        ...academicCourseItems,
       ]
     }
   ];

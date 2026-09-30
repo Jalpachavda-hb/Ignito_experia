@@ -3,6 +3,53 @@ import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
 
 const ACCESS_TOKEN = 'thisisjustarandomstring'
 const REFRESH_TOKEN = 'refresh_token'
+const LMS_TOKEN = 'lms_student_token'
+const ACCESS_TOKEN_STORAGE = 'auth-access-token'
+const REFRESH_TOKEN_STORAGE = 'auth-refresh-token'
+const LMS_TOKEN_STORAGE = 'auth-lms-token'
+
+function readStored(key: string) {
+  if (typeof window === 'undefined') return ''
+  try {
+    return localStorage.getItem(key) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeStored(key: string, value: string) {
+  if (typeof window === 'undefined') return
+  try {
+    if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
+  } catch {
+    // Ignore storage failures; the in-memory session still works for this tab.
+  }
+}
+
+function readToken(cookieName: string, storageKey: string) {
+  const raw = getCookie(cookieName)
+  if (raw) {
+    try {
+      const decoded = decodeURIComponent(raw)
+      if (decoded.startsWith('"')) return JSON.parse(decoded)
+      return decoded
+    } catch {
+      return String(raw).replace(/^"|"$/g, '')
+    }
+  }
+  return readStored(storageKey)
+}
+
+function writeToken(cookieName: string, storageKey: string, token: string) {
+  if (!token) {
+    removeCookie(cookieName)
+    writeStored(storageKey, '')
+    return
+  }
+  setCookie(cookieName, encodeURIComponent(token))
+  writeStored(storageKey, token)
+}
 
 export interface AuthUser {
   userId: number | string
@@ -54,16 +101,17 @@ export interface AuthState {
     refreshToken?: string
     setRefreshToken?: (refreshToken: string) => void
     resetRefreshToken?: () => void
+    lmsToken?: string
+    setLmsToken?: (lmsToken: string) => void
     reset: () => void
   }
 }
 
 
 export const useAuthStore = create<AuthState>()((set) => {
-  const cookieState = getCookie(ACCESS_TOKEN)
-  const initToken = cookieState ? JSON.parse(cookieState) : ''
-  const refreshCookieState = getCookie(REFRESH_TOKEN)
-  const initRefreshToken = refreshCookieState ? JSON.parse(refreshCookieState) : ''
+  const initToken = readToken(ACCESS_TOKEN, ACCESS_TOKEN_STORAGE)
+  const initRefreshToken = readToken(REFRESH_TOKEN, REFRESH_TOKEN_STORAGE)
+  const initLmsToken = readToken(LMS_TOKEN, LMS_TOKEN_STORAGE)
 
   let initUser = null
   if (typeof window !== 'undefined') {
@@ -106,33 +154,40 @@ export const useAuthStore = create<AuthState>()((set) => {
       accessToken: initToken,
       setAccessToken: (accessToken) =>
         set((state) => {
-          setCookie(ACCESS_TOKEN, JSON.stringify(accessToken))
+          writeToken(ACCESS_TOKEN, ACCESS_TOKEN_STORAGE, accessToken)
           return { ...state, auth: { ...state.auth, accessToken } }
         }),
       resetAccessToken: () =>
         set((state) => {
-          removeCookie(ACCESS_TOKEN)
+          writeToken(ACCESS_TOKEN, ACCESS_TOKEN_STORAGE, '')
           return { ...state, auth: { ...state.auth, accessToken: '' } }
         }),
       refreshToken: initRefreshToken,
       setRefreshToken: (refreshToken) =>
         set((state) => {
-          setCookie(REFRESH_TOKEN, JSON.stringify(refreshToken))
+          writeToken(REFRESH_TOKEN, REFRESH_TOKEN_STORAGE, refreshToken)
           return { ...state, auth: { ...state.auth, refreshToken } }
         }),
       resetRefreshToken: () =>
         set((state) => {
-          removeCookie(REFRESH_TOKEN)
+          writeToken(REFRESH_TOKEN, REFRESH_TOKEN_STORAGE, '')
           return { ...state, auth: { ...state.auth, refreshToken: '' } }
+        }),
+      lmsToken: initLmsToken,
+      setLmsToken: (lmsToken) =>
+        set((state) => {
+          writeToken(LMS_TOKEN, LMS_TOKEN_STORAGE, lmsToken)
+          return { ...state, auth: { ...state.auth, lmsToken } }
         }),
       reset: () =>
         set((state) => {
-          removeCookie(ACCESS_TOKEN)
-          removeCookie(REFRESH_TOKEN)
+          writeToken(ACCESS_TOKEN, ACCESS_TOKEN_STORAGE, '')
+          writeToken(REFRESH_TOKEN, REFRESH_TOKEN_STORAGE, '')
+          writeToken(LMS_TOKEN, LMS_TOKEN_STORAGE, '')
           if (typeof window !== 'undefined') localStorage.removeItem('auth-user');
           return {
             ...state,
-            auth: { ...state.auth, user: null, accessToken: '', refreshToken: '' },
+            auth: { ...state.auth, user: null, accessToken: '', refreshToken: '', lmsToken: '' },
           }
         }),
     },

@@ -45,6 +45,16 @@ export const parseApiEvent = (event) => {
   };
 };
 
+async function withStudentLmsContext(parsed, fn) {
+  const { runWithStudentLmsToken } = await import("../services/lms/studentLmsToken.js");
+  const raw = parsed.headers?.["x-lms-token"] || parsed.headers?.["x-student-token"] || "";
+  const lmsToken = String(raw).replace(/^Bearer\s+/i, "").trim();
+  return runWithStudentLmsToken(
+    { userId: parsed.auth?.userId || null, lmsToken },
+    () => fn(parsed)
+  );
+}
+
 export const createHandler = (fn, { auth = false } = {}) => {
   return async (event) => {
     try {
@@ -53,7 +63,7 @@ export const createHandler = (fn, { auth = false } = {}) => {
         const { requireAuth } = await import("./jwt.js");
         parsed.auth = requireAuth(parsed);
       }
-      const result = await fn(parsed);
+      const result = await withStudentLmsContext(parsed, fn);
       if (result?.statusCode) return result;
       return jsonResponse(result?.statusCode ?? 200, result?.body ?? result);
     } catch (err) {
@@ -100,7 +110,7 @@ export const expressRoute = (app, route, apiPrefix) => {
       }
       const parsed = parseApiEvent(event);
       if (route.auth) parsed.auth = event.auth;
-      const result = await route.handler(parsed);
+      const result = await withStudentLmsContext(parsed, route.handler);
       const response =
         result?.statusCode && result?.body
           ? result

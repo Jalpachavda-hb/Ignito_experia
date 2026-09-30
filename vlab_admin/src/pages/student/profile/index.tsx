@@ -151,7 +151,7 @@ export default function Profile() {
                         size="sm" 
                         className="gap-2 text-xs"
                       >
-                        <KeyRound className="h-3.5 w-3.5" /> Change Password
+                        <KeyRound className="h-3.5 w-3.5" /> Update Password
                       </Button>
                     </div>
                   </CardContent>

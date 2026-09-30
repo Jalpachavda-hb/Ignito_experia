@@ -167,7 +167,7 @@ export function mergeStudentPortalUser(currentUser, payload) {
     createdFrom: apiUser.createdFrom || currentUser?.createdFrom,
     authType: apiUser.authType || currentUser?.authType,
     isLmsStudent: apiUser.isLmsStudent ?? currentUser?.isLmsStudent,
-    hasPassword: apiUser.hasPassword ?? currentUser?.hasPassword,
+    hasPassword: apiUser.hasPassword ?? profileRes.identity?.hasPassword ?? currentUser?.hasPassword,
     exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
   };
 }

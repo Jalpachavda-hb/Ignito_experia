@@ -2,6 +2,7 @@ import crypto from "crypto";
 import axios from "axios";
 import { lmsTokenService } from "./LmsTokenService.js";
 import { LmsApiError } from "./LmsApiError.js";
+import { resolveStudentLmsToken } from "./studentLmsToken.js";
 
 const TIMEOUT_MS = 15000;
 
@@ -11,8 +12,9 @@ function sleep(ms) {
 
 class LmsApiClient {
   /**
-   * Authenticated LMS POST. Uses the tenant Auth0 M2M token unless bearerToken is supplied.
-   * The M2M token stays on the server.
+   * Authenticated LMS POST.
+   * The student SSO token is sent first when this request has one.
+   * A rejected student token falls back to the tenant Auth0 M2M credential.
    */
   async post({ tenantId, url, data, correlationId, bearerToken }) {
     if (!url) {
@@ -23,18 +25,36 @@ class LmsApiClient {
     }
 
     const cid = correlationId || crypto.randomUUID();
-    const useM2M = !bearerToken;
-    let token = bearerToken;
+    const studentToken = String(bearerToken || resolveStudentLmsToken() || "").trim();
 
-    if (useM2M) {
+    if (studentToken) {
       try {
-        token = await lmsTokenService.getAccessToken(tenantId);
+        return await this.sendWithRetry({
+          token: studentToken,
+          url,
+          data,
+          correlationId: cid,
+          tenantId,
+          useM2M: false,
+          retriedAuth: false,
+          retriedTransient: false,
+        });
       } catch (err) {
-        const code = err.code === "LMS_M2M_CLIENT_SECRET_MISSING"
-          ? "LMS_PROVIDER_CONFIGURATION_MISSING"
-          : "LMS_AUTHENTICATION_FAILED";
-        throw new LmsApiError(code, err.message || "LMS authentication failed", { cause: err });
+        const canFallBack = err instanceof LmsApiError &&
+          ["LMS_AUTHENTICATION_FAILED", "LMS_API_UNAUTHORIZED"].includes(err.code);
+        if (!canFallBack) throw err;
+        console.warn(`[LmsApiClient] Student token ${err.code}. Retrying with M2M. correlationId=${cid}`);
       }
+    }
+
+    let token;
+    try {
+      token = await lmsTokenService.getAccessToken(tenantId);
+    } catch (err) {
+      const code = err.code === "LMS_M2M_CLIENT_SECRET_MISSING"
+        ? "LMS_PROVIDER_CONFIGURATION_MISSING"
+        : "LMS_AUTHENTICATION_FAILED";
+      throw new LmsApiError(code, err.message || "LMS authentication failed", { cause: err });
     }
 
     return this.sendWithRetry({
@@ -43,26 +63,17 @@ class LmsApiClient {
       data,
       correlationId: cid,
       tenantId,
-      useM2M,
+      useM2M: true,
       retriedAuth: false,
       retriedTransient: false,
     });
   }
 
   /**
-   * Prefer the server M2M credential. If that credential is missing or rejected
-   * and the student SSO token is still available, retry once with that token.
+   * Same authenticated POST. Kept so existing callers still pass the student token through.
    */
   async postWithCredentialFallback({ tenantId, url, data, bearerToken }) {
-    try {
-      return await this.post({ tenantId, url, data });
-    } catch (err) {
-      const canUseStudentToken = bearerToken && err instanceof LmsApiError &&
-        ["LMS_PROVIDER_CONFIGURATION_MISSING", "LMS_AUTHENTICATION_FAILED", "LMS_API_UNAUTHORIZED"].includes(err.code);
-      if (!canUseStudentToken) throw err;
-      console.warn(`[LmsApiClient] M2M ${err.code}. Retrying with the student SSO token.`);
-      return this.post({ tenantId, url, data, bearerToken });
-    }
+    return this.post({ tenantId, url, data, bearerToken });
   }
 
   async sendWithRetry(ctx) {
