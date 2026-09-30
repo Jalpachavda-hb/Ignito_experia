@@ -94,6 +94,16 @@ export const getSsmEnv = () => {
       "C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin",
       "C:\\Program Files\\Amazon\\AWSCLIV2"
     );
+  } else {
+    // Linux / Ubuntu standard locations
+    additions.push(
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      "/usr/local/sessionmanagerplugin/bin",
+      "/snap/bin",
+      path.join(os.homedir(), ".local/bin")
+    );
   }
 
   if (additions.length > 0) {
@@ -104,6 +114,34 @@ export const getSsmEnv = () => {
     env.Path = newPath;
   }
   return env;
+};
+
+export const resolveAwsCliPath = () => {
+  if (ENV.awsCliPath && ENV.awsCliPath !== "aws" && fs.existsSync(ENV.awsCliPath)) {
+    return ENV.awsCliPath;
+  }
+
+  if (os.platform() === "win32") {
+    const defaultWin = "C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe";
+    if (fs.existsSync(defaultWin)) {
+      return defaultWin;
+    }
+  } else {
+    const linuxCandidates = [
+      "/usr/local/bin/aws",
+      "/usr/bin/aws",
+      "/bin/aws",
+      "/snap/bin/aws",
+      path.join(os.homedir(), ".local/bin/aws"),
+    ];
+    for (const cand of linuxCandidates) {
+      if (fs.existsSync(cand)) {
+        return cand;
+      }
+    }
+  }
+
+  return "aws";
 };
 
 export const stripSsmNoise = (stdout) => {
@@ -148,10 +186,11 @@ export const executeAwsCommand = async (session, commandValue, timeoutMs = 12000
     region,
   ];
 
-  console.log(`[awsExecuteCommand] Spawning aws ecs execute-command with args:`, args);
+  const awsBin = resolveAwsCliPath();
+  console.log(`[awsExecuteCommand] Spawning ${awsBin} ecs execute-command with args:`, args);
 
   return new Promise((resolve, reject) => {
-    const child = spawn("aws", args, {
+    const child = spawn(awsBin, args, {
       env: getSsmEnv(),
       shell: false,
     });
@@ -171,6 +210,18 @@ export const executeAwsCommand = async (session, commandValue, timeoutMs = 12000
       child.kill();
       reject(new Error(`SSM command timed out after ${Math.round(timeoutMs / 1000)}s`));
     }, timeoutMs);
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      if (err.code === "ENOENT") {
+        return reject(
+          new Error(
+            `AWS CLI executable '${awsBin}' not found on server. Please run: 'sudo apt update && sudo apt install -y awscli' or install AWS CLI v2.`
+          )
+        );
+      }
+      return reject(err);
+    });
 
     child.on("close", (code) => {
       clearTimeout(timeout);

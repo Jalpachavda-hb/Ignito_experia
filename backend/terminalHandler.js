@@ -82,12 +82,8 @@ export const setupTerminal = (io) => {
 
         console.log(`Connecting terminal socket ${socket.id} to ECS container...`);
 
-        let awsExePath = ENV.awsCliPath || 'aws';
-        if (awsExePath === 'aws' && os.platform() === 'win32') {
-          if (fs.existsSync('C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe')) {
-            awsExePath = 'C:\\Program Files\\Amazon\\AWSCLIV2\\aws.exe';
-          }
-        }
+        const { getSsmEnv, resolveAwsCliPath } = await import('./services/awsExecuteCommand.js');
+        let awsExePath = resolveAwsCliPath();
 
         let actualContainerName = containerName;
         let agentReady = false;
@@ -163,7 +159,6 @@ export const setupTerminal = (io) => {
           region,
         ];
 
-        const { getSsmEnv } = await import('./services/awsExecuteCommand.js');
         const ptyEnv = {
           ...process.env,
           ...getSsmEnv(),
