@@ -14,36 +14,13 @@ import { getStudentSidebarData } from './data/student-sidebar-data'
 import { NavGroup } from './nav-group'
 import { NavUser } from './nav-user'
 
-import { fetchTenantResolve } from '@/Utils/GetApiHandler'
-import { getTenantSlug } from '@/lib/tenant-slug'
 import { isDirectStudent, isUniversityStudent } from '@/lib/student-kind'
-import { getTenantLogoUrl } from '@/features/auth/sign-in'
 
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   const location = useLocation()
   const { auth } = useAuthStore()
-  const [tenantBranding, setTenantBranding] = useState<{ name?: string; logoUrl?: string } | null>(null)
   const [lmsPrograms, setLmsPrograms] = useState<any[]>([])
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const host = window.location.hostname
-      fetchTenantResolve(host, getTenantSlug())
-        .then((resData: any) => {
-          let data = resData
-          if (resData?.payload) {
-            try {
-              data = JSON.parse(atob(resData.payload))
-            } catch (e) { }
-          }
-          if (data?.success && data?.isTenant && data?.tenant) {
-            setTenantBranding(data.tenant)
-          }
-        })
-        .catch(() => { })
-    }
-  }, [])
 
   useEffect(() => {
     const isStudentRoute = location.pathname.startsWith('/student')
@@ -76,23 +53,12 @@ export function AppSidebar() {
     <Sidebar collapsible={collapsible} variant={variant}>
       <SidebarHeader>
         <div className="flex items-center justify-center px-3 py-4 border-b border-sidebar-border/40">
-          {tenantBranding?.logoUrl ? (
-            <img
-              src={getTenantLogoUrl(tenantBranding.logoUrl)}
-              alt={tenantBranding.name || 'University Logo'}
-              className="h-12 max-h-14 w-auto max-w-[190px] object-contain transition-all group-data-[collapsible=icon]:hidden"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = '/images/logo.png'
-              }}
-            />
-          ) : (
-            <img
-              src="/images/logo.png"
-              alt="ignitolearn"
-              className="h-12 max-h-14 w-auto max-w-[190px] object-contain transition-all group-data-[collapsible=icon]:hidden"
-            />
-          )}
-          <img src="/images/favicon.png" alt="icon" className="h-8 w-8 object-contain hidden group-data-[collapsible=icon]:block" />
+          <img
+            src="/images/logo.png"
+            alt="Ignito Experia"
+            className="h-12 max-h-14 w-auto max-w-[190px] object-contain transition-all group-data-[collapsible=icon]:hidden"
+          />
+          <img src="/images/logo.png" alt="Ignito Experia" className="h-8 w-8 object-cover object-left hidden group-data-[collapsible=icon]:block" />
         </div>
       </SidebarHeader>
       <SidebarContent>
