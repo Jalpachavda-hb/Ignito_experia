@@ -47,7 +47,7 @@ export const programsColumns: ColumnDef<Program>[] = [
       <DataTableColumnHeader column={column} title='Duration' />
     ),
     cell: ({ row }) => (
-      <div className='text-sm'>{row.original.durationText || `${row.getValue('durationYears') || 2} Years`}</div>
+      <div className='text-sm'>{row.original.durationText || (row.original.durationYears ? `${row.original.durationYears} Years` : '—')}</div>
     ),
   },
   {
@@ -58,7 +58,7 @@ export const programsColumns: ColumnDef<Program>[] = [
     cell: ({ row }) => (
       <div className='flex items-center gap-1.5 text-sm'>
         <BookOpen className="h-4 w-4 text-muted-foreground" />
-        <span>{row.original.totalSemesters || row.original.totalCourses || 4} Semesters</span>
+        <span>{row.original.totalSemesters != null ? `${row.original.totalSemesters} Semesters` : '—'}</span>
       </div>
     ),
   },
@@ -70,7 +70,7 @@ export const programsColumns: ColumnDef<Program>[] = [
     cell: ({ row }) => (
       <div className='flex items-center gap-1.5 text-sm'>
         <Users className="h-4 w-4 text-muted-foreground" />
-        <span>{Number(row.getValue('totalStudents')).toLocaleString()}</span>
+        <span>{row.original.totalStudents != null ? Number(row.original.totalStudents).toLocaleString() : '—'}</span>
       </div>
     ),
   },
@@ -82,7 +82,7 @@ export const programsColumns: ColumnDef<Program>[] = [
     cell: ({ row }) => (
       <div className='flex items-center gap-1.5 text-sm'>
         <FlaskConical className="h-4 w-4 text-muted-foreground" />
-        <span>{row.getValue('totalLabs')}</span>
+        <span>{row.original.totalLabs != null ? row.original.totalLabs : '—'}</span>
       </div>
     ),
   },

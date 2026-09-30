@@ -131,7 +131,7 @@ export function LabCreditHistory({ }: LabCreditHistoryProps) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-bold flex items-center gap-2">
-            <Flame className="h-5 w-5 text-rose-500" /> Lab Tokens & Credits
+            <Flame className="h-5 w-5 text-rose-500" /> Lab Tokens
           </CardTitle>
 
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] font-bold">
@@ -160,7 +160,7 @@ export function LabCreditHistory({ }: LabCreditHistoryProps) {
         <CardDescription>
           {activeTab === 'consumed'
             ? `Exact token consumption recorded per lab session (${totalTokensConsumed} Total Tokens Consumed).`
-            : 'Virtual lab modules with verified successful credit/token top-ups.'}
+            : 'Virtual lab modules with verified successful token top-ups.'}
         </CardDescription>
       </CardHeader>
 

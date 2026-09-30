@@ -44,7 +44,7 @@ export function MonthlyActivityChart({}: MonthlyActivityChartProps) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const mName = d.toLocaleString('en-US', { month: 'short' });
       monthNames.push(mName);
-      monthMap[mName] = { 'Credits Added': 0 };
+      monthMap[mName] = { 'Tokens Added': 0 };
     }
 
     const dynamicLabList = [...LAB_COLOR_CONFIG];
@@ -82,12 +82,12 @@ export function MonthlyActivityChart({}: MonthlyActivityChartProps) {
       const txDate = new Date(tx.date);
       const mName = txDate.toLocaleString('en-US', { month: 'short' });
       if (monthMap[mName] && (tx.type === 'Credit' || (tx.type as string) === 'Token' || !tx.type)) {
-        monthMap[mName]['Credits Added'] += Number(tx.amount) || 0;
+        monthMap[mName]['Tokens Added'] += Number(tx.amount) || 0;
       }
     });
 
     if (summary && summary.totalPurchased > 0) {
-      monthMap[currentMonthKey]['Credits Added'] = Math.max(monthMap[currentMonthKey]['Credits Added'], summary.totalPurchased);
+      monthMap[currentMonthKey]['Tokens Added'] = Math.max(monthMap[currentMonthKey]['Tokens Added'], summary.totalPurchased);
     }
 
     // Determine active labs with usage > 0 (or default top 2 if zero usage)
@@ -116,7 +116,7 @@ export function MonthlyActivityChart({}: MonthlyActivityChartProps) {
           <Activity className="h-5 w-5 text-indigo-500" /> Lab-Wise Token Consumption & Activity
         </CardTitle>
         <CardDescription>
-          Real-time credit consumption lines per virtual lab environment vs. total credits added.
+          Real-time token consumption lines per virtual lab environment vs. total tokens added.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -157,11 +157,11 @@ export function MonthlyActivityChart({}: MonthlyActivityChartProps) {
                   wrapperStyle={{ fontSize: '11px', fontWeight: 600, paddingBottom: '12px' }}
                 />
 
-                {/* Total Credits Added Line */}
+                {/* Total Tokens Added Line */}
                 <Area
                   type="monotone"
-                  dataKey="Credits Added"
-                  name="Credits Added"
+                  dataKey="Tokens Added"
+                  name="Tokens Added"
                   stroke="#10b981"
                   strokeWidth={2}
                   strokeDasharray="4 4"

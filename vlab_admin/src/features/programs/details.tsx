@@ -13,21 +13,15 @@ import {
   GraduationCap,
   BookOpen,
   CalendarDays,
-  Plus,
   Search as SearchIcon,
   Filter,
-  CheckCircle2,
-  MoreHorizontal,
   Layers,
   LayoutGrid,
   List,
-  Edit,
-  Trash2,
-  Eye,
   Loader2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { mockPrograms, mockProgramCourses, type ProgramCourseItem } from './data/mock-data'
+import { type Program, type ProgramCourseItem } from './data/schema'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import {
@@ -47,123 +41,133 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MapLabDialog } from './components/map-lab-dialog'
-import { toast } from 'sonner'
-import { getSemesterCourseListByProgrammeId } from '@/Utils/lmsApi_paths'
+import { getPracticalAvailablePrograms, getSemesterCourseListByProgrammeId } from '@/Utils/lmsApi_paths'
+import { extractProgramList, findLmsProgram, mapLmsProgram } from './data/map-lms-program'
+
+function extractSemesterList(res: any): any[] {
+  return res?.semesterList || res?.rawData?.semesterList || []
+}
+
+function extractCourseList(res: any): any[] {
+  const nested: any[] = []
+  const semesters = extractSemesterList(res)
+  for (const sem of semesters) {
+    nested.push(...(sem?.courseList || sem?.courselist || []))
+  }
+  const flat = res?.courseList || res?.courselist || res?.rawData?.courseList || res?.rawData?.courselist || []
+  return flat.length ? flat : nested
+}
 
 export default function ProgramDetailsView() {
   const params = useParams({ strict: false })
-  const rawProgramId = params.programId || '2'
+  const rawProgramId = String(params.programId || '')
 
-  // Resolve numeric LMS programmeId (e.g. 2 for MCA, 1 for MBA)
-  const resolvedProgrammeId = useMemo(() => {
-    if (!rawProgramId) return '2'
-    const lower = String(rawProgramId).toLowerCase()
-    if (lower.includes('mca') || lower === '2') return '2'
-    if (lower.includes('mba') || lower === '1') return '1'
-    const parsed = rawProgramId.replace(/\D/g, '')
-    return parsed || '2'
-  }, [rawProgramId])
-
-  // Find target program or default to MCA
-  const program = mockPrograms.find((p) => p.id === rawProgramId || p.code.toLowerCase() === rawProgramId.toLowerCase()) || {
-    id: resolvedProgrammeId,
-    name: 'Master of Computer Applications',
-    code: 'MCAOL',
-    degree: 'Masters',
-    durationYears: 2,
-    totalCourses: 12,
-    totalSemesters: 4,
-    totalStudents: 150,
-    totalLabs: 8,
-    status: 'active'
-  }
-
-  // LMS State
+  const [program, setProgram] = useState<Program | null>(null)
   const [lmsSemesters, setLmsSemesters] = useState<any[]>([])
   const [lmsCourses, setLmsCourses] = useState<any[]>([])
-  const [isLmsLoading, setIsLmsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // State for courses data (allowing live update when lab is mapped)
-  const [coursesData, setCoursesData] = useState<ProgramCourseItem[]>(mockProgramCourses)
-
-  // Filter state (default to 'all' or '1' to show active courses immediately)
   const [selectedSemester, setSelectedSemester] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [viewMode, setViewMode] = useState<'table' | 'board'>('table')
 
-  // Map Lab dialog state
   const [mapLabOpen, setMapLabOpen] = useState(false)
   const [selectedCourseForMap, setSelectedCourseForMap] = useState<ProgramCourseItem | null>(null)
 
-  // Fetch API No 3: GetSemesterCourseListByProgrammeId
+  const [programmeIdForCourses, setProgrammeIdForCourses] = useState('')
+
   useEffect(() => {
-    setIsLmsLoading(true)
-    console.log(`[ProgramDetails] Fetching GetSemesterCourseListByProgrammeId for programmeId=${resolvedProgrammeId}`)
+    let cancelled = false
+    setIsLoading(true)
+    setError(null)
+    setLmsSemesters([])
+    setLmsCourses([])
+    setProgrammeIdForCourses('')
 
-    getSemesterCourseListByProgrammeId(resolvedProgrammeId)
-      .then((res: any) => {
-        const sems = res?.semesterList || res?.rawData?.semesterList || []
-        const courses = res?.courseList || res?.courselist || res?.rawData?.courseList || res?.rawData?.courselist || []
+    ;(async () => {
+      try {
+        const programsRes: any = await getPracticalAvailablePrograms()
+        if (cancelled) return
+        const list = extractProgramList(programsRes)
+        const found = findLmsProgram(list, rawProgramId)
+        const mapped = found ? mapLmsProgram(found) : null
+        setProgram(mapped)
 
-        if (sems && sems.length > 0) setLmsSemesters(sems)
-        if (courses && courses.length > 0) setLmsCourses(courses)
-      })
-      .catch((err: any) => {
-        console.error("Failed to fetch semester course list by programmeId:", err)
-      })
-      .finally(() => {
-        setIsLmsLoading(false)
-      })
-  }, [resolvedProgrammeId])
+        const courseProgrammeId = String(
+          mapped?.id || mapped?.rawLmsData?.programId || (/^\d+$/.test(rawProgramId) ? rawProgramId : '')
+        )
+        setProgrammeIdForCourses(courseProgrammeId)
 
-  // Generate dynamic semesters array from LMS response or totalSemesters
-  const semesterList = useMemo(() => {
-    if (lmsSemesters && lmsSemesters.length > 0) {
-      return lmsSemesters.map((s: any) => ({
-        num: s.semesterNumber || s.semesterId,
-        id: String(s.semesterNumber || s.semesterId),
-        semesterId: String(s.semesterId || s.semesterNumber),
-        name: `Sem ${s.semesterNumber || s.semesterId}`,
-      }))
+        if (!mapped && !courseProgrammeId) {
+          setError('Program not found in LMS catalogue')
+          return
+        }
+
+        if (!courseProgrammeId) {
+          setError('Program is missing a numeric LMS programmeId')
+          return
+        }
+
+        const coursesRes: any = await getSemesterCourseListByProgrammeId(courseProgrammeId)
+        if (cancelled) return
+        setLmsSemesters(extractSemesterList(coursesRes))
+        setLmsCourses(extractCourseList(coursesRes))
+      } catch (err: any) {
+        console.error('Failed to load program details:', err)
+        if (!cancelled) {
+          setProgram(null)
+          setError(err?.message || 'Failed to load program')
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
+  }, [rawProgramId])
 
-    const count = program.totalSemesters || 4
-    return Array.from({ length: count }, (_, i) => ({
-      num: i + 1,
-      id: `${i + 1}`,
-      semesterId: `${i + 1}`,
-      name: `Sem ${i + 1}`,
-    }))
-  }, [lmsSemesters, program.totalSemesters])
+  const semesterList = useMemo(() => {
+    return (lmsSemesters || [])
+      .map((s: any) => ({
+        num: Number(s.semesterNumber ?? s.semesterId),
+        id: String(s.semesterNumber ?? ''),
+        semesterId: String(s.semesterId ?? s.semesterNumber ?? ''),
+        name: `Sem ${s.semesterNumber ?? s.semesterId}`,
+      }))
+      .filter((s) => s.id || s.semesterId)
+  }, [lmsSemesters])
 
-  // Get courses belonging to this program from LMS or mock fallback
-  const programCourses = useMemo(() => {
-    if (lmsCourses && lmsCourses.length > 0) {
-      return lmsCourses.map((c: any, idx: number) => ({
+  const programCourses = useMemo<ProgramCourseItem[]>(() => {
+    if (!program || !lmsCourses.length) return []
+    return lmsCourses.map((c: any, idx: number) => {
+      const semesterNumber = Number(c.semesterNumber ?? 0)
+      const semesterId = String(c.semesterId ?? '')
+      const mapped = Boolean(c.mappedLab)
+      return {
         id: String(c.programCourseId || c.courseDetailsId || c.courseId || idx + 1),
         name: c.courseName || c.name || 'Course',
-        code: c.courseCode || c.code || `COURSE-${idx + 1}`,
+        code: c.courseCode || c.code || '',
         programId: String(program.id),
         programCode: program.code,
-        semesterNumber: c.semesterNumber || (selectedSemester !== 'all' ? Number(selectedSemester) : 1),
-        semesterId: c.semesterId || (selectedSemester !== 'all' ? selectedSemester : '1'),
-        semesterName: `Sem ${c.semesterNumber || (selectedSemester !== 'all' ? selectedSemester : '1')}`,
-        program: program.code || 'MCA',
-        totalSemesters: program.totalSemesters || 4,
-        studentsCount: c.studentsCount || 50,
-        credits: c.practicalCredit || c.credits || 4,
-        mappedLabTitle: c.mappedLab?.title || (c.mappedLab ? 'Mapped Lab' : null),
-        labsAssigned: c.mappedLab ? 1 : 0,
-        status: (c.isElectiveCourse ? 'elective' : 'active') as any,
-        description: c.courseDescprition || c.description || ''
-      }))
-    }
+        semesterNumber,
+        semesterId,
+        semesterName: `Sem ${semesterNumber || semesterId}`,
+        program: program.code,
+        totalSemesters: program.totalSemesters || semesterList.length,
+        studentsCount: Number.isFinite(Number(c.studentsCount)) ? Number(c.studentsCount) : undefined,
+        mappedLabTitle: c.mappedLab?.title || (mapped ? 'Mapped Lab' : null),
+        labsAssigned: mapped ? 1 : 0,
+        status: (c.isElectiveCourse ? 'elective' : 'active') as ProgramCourseItem['status'],
+        description: c.courseDescription || c.courseDescprition || c.description || '',
+        courseType: c.courseType || '',
+      }
+    })
+  }, [lmsCourses, program, semesterList.length])
 
-    return []
-  }, [lmsCourses, program, selectedSemester])
-
-  // Filter courses by selected semester, search query & status
   const filteredCourses = useMemo(() => {
     return programCourses.filter((course) => {
       const matchesSemester =
@@ -181,32 +185,33 @@ export default function ProgramDetailsView() {
     })
   }, [programCourses, selectedSemester, searchQuery, statusFilter])
 
-  // Handle opening Map Lab modal
   const handleOpenMapLab = (course: ProgramCourseItem) => {
     setSelectedCourseForMap(course)
     setMapLabOpen(true)
   }
 
-  // Handle live update of lab count & title when saved in MapLabDialog
-  const handleLabsUpdated = (newCount: number, mappedLabTitle?: string) => {
+  const handleLabsUpdated = (_newCount: number, mappedLabTitle?: string) => {
     if (!selectedCourseForMap) return
     setLmsCourses((prev) =>
       prev.map((c) => {
-        const idMatches = String(c.programCourseId || c.courseDetailsId || c.courseId || c.id) === String(selectedCourseForMap.id) ||
-                          String(c.courseCode || c.code) === String(selectedCourseForMap.code)
+        const idMatches =
+          String(c.programCourseId || c.courseDetailsId || c.courseId || c.id) === String(selectedCourseForMap.id) ||
+          String(c.courseCode || c.code) === String(selectedCourseForMap.code)
         return idMatches
           ? {
               ...c,
               mappedLab: {
                 ...(c.mappedLab || {}),
                 title: mappedLabTitle || 'Mapped Lab',
-                status: 'active'
-              }
+                status: 'active',
+              },
             }
           : c
       })
     )
   }
+
+  const assignedLabs = programCourses.reduce((acc, c) => acc + c.labsAssigned, 0)
 
   return (
     <>
@@ -219,7 +224,6 @@ export default function ProgramDetailsView() {
       </Header>
 
       <Main className='bg-muted/10 pb-12'>
-        {/* Navigation Back Button & Title Header */}
         <div className='mb-6'>
           <Button variant='link' asChild className='px-0 text-muted-foreground mb-2 h-auto hover:text-primary'>
             <Link to='/programs'>
@@ -228,37 +232,51 @@ export default function ProgramDetailsView() {
             </Link>
           </Button>
 
-          <div className='flex flex-col items-start justify-between gap-y-4 sm:flex-row sm:items-center'>
-            <div>
-              <div className='flex items-center gap-3 flex-wrap'>
-                <h1 className='text-3xl font-bold tracking-tight text-foreground'>{program.name}</h1>
-                <Badge variant='secondary' className='font-mono text-xs px-2.5 py-0.5'>
-                  {program.code}
-                </Badge>
-                <Badge
-                  variant={program.status === 'active' ? 'default' : 'outline'}
-                  className='capitalize shadow-2xs'
-                >
-                  {program.status}
-                </Badge>
-              </div>
+          {program ? (
+            <div className='flex flex-col items-start justify-between gap-y-4 sm:flex-row sm:items-center'>
+              <div>
+                <div className='flex items-center gap-3 flex-wrap'>
+                  <h1 className='text-3xl font-bold tracking-tight text-foreground'>{program.name}</h1>
+                  {program.code ? (
+                    <Badge variant='secondary' className='font-mono text-xs px-2.5 py-0.5'>
+                      {program.code}
+                    </Badge>
+                  ) : null}
+                  <Badge
+                    variant={program.status === 'active' ? 'default' : 'outline'}
+                    className='capitalize shadow-2xs'
+                  >
+                    {program.status}
+                  </Badge>
+                </div>
 
-              <p className='text-muted-foreground mt-1 text-sm flex items-center gap-2 flex-wrap'>
-                <span className='flex items-center gap-1.5 font-medium'>
-                  <GraduationCap className='h-4 w-4 text-primary' />
-                  {program.degree} Degree
-                </span>
-                <span>•</span>
-                <span className='flex items-center gap-1.5'>
-                  <CalendarDays className='h-4 w-4 text-amber-500' />
-                  {program.durationYears} Years ({program.totalSemesters} Semesters)
-                </span>
-              </p>
+                <p className='text-muted-foreground mt-1 text-sm flex items-center gap-2 flex-wrap'>
+                  {program.degree ? (
+                    <span className='flex items-center gap-1.5 font-medium'>
+                      <GraduationCap className='h-4 w-4 text-primary' />
+                      {program.degree} Degree
+                    </span>
+                  ) : null}
+                  {(program.durationText || program.durationYears || program.totalSemesters) ? (
+                    <>
+                      {program.degree ? <span>•</span> : null}
+                      <span className='flex items-center gap-1.5'>
+                        <CalendarDays className='h-4 w-4 text-amber-500' />
+                        {program.durationText || (program.durationYears ? `${program.durationYears} Years` : '')}
+                        {program.totalSemesters != null ? ` (${program.totalSemesters} Semesters)` : ''}
+                      </span>
+                    </>
+                  ) : null}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <h1 className='text-3xl font-bold tracking-tight text-foreground'>
+              {isLoading ? 'Loading program...' : 'Program'}
+            </h1>
+          )}
         </div>
 
-        {/* KPI Metrics Row */}
         <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6'>
           <Card className='border-border/60 shadow-xs relative overflow-hidden bg-card'>
             <CardContent className='p-4 flex items-center justify-between'>
@@ -266,7 +284,9 @@ export default function ProgramDetailsView() {
                 <p className='text-xs font-medium text-muted-foreground uppercase tracking-wider'>
                   Total Semesters
                 </p>
-                <h3 className='text-2xl font-bold mt-0.5 text-foreground'>{program.totalSemesters} Terms</h3>
+                <h3 className='text-2xl font-bold mt-0.5 text-foreground'>
+                  {isLoading ? '—' : `${semesterList.length || program?.totalSemesters || 0} Terms`}
+                </h3>
               </div>
               <div className='h-10 w-10 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center'>
                 <Layers className='h-5 w-5' />
@@ -280,7 +300,9 @@ export default function ProgramDetailsView() {
                 <p className='text-xs font-medium text-muted-foreground uppercase tracking-wider'>
                   Total Courses
                 </p>
-                <h3 className='text-2xl font-bold mt-0.5 text-primary'>{programCourses.length} Courses</h3>
+                <h3 className='text-2xl font-bold mt-0.5 text-primary'>
+                  {isLoading ? '—' : `${programCourses.length} Courses`}
+                </h3>
               </div>
               <div className='h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center'>
                 <BookOpen className='h-5 w-5' />
@@ -295,7 +317,7 @@ export default function ProgramDetailsView() {
                   Enrolled Students
                 </p>
                 <h3 className='text-2xl font-bold mt-0.5 text-emerald-600 dark:text-emerald-400'>
-                  {program.totalStudents?.toLocaleString() ?? 0}
+                  {program?.totalStudents != null ? program.totalStudents.toLocaleString() : '—'}
                 </h3>
               </div>
               <div className='h-10 w-10 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center'>
@@ -311,7 +333,7 @@ export default function ProgramDetailsView() {
                   Assigned Labs
                 </p>
                 <h3 className='text-2xl font-bold mt-0.5 text-purple-600 dark:text-purple-400'>
-                  {programCourses.reduce((acc, c) => acc + c.labsAssigned, 0)} Labs
+                  {isLoading ? '—' : `${assignedLabs} Labs`}
                 </h3>
               </div>
               <div className='h-10 w-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center'>
@@ -321,7 +343,6 @@ export default function ProgramDetailsView() {
           </Card>
         </div>
 
-        {/* --- SEMESTER SELECTION TABS --- */}
         <div className='mb-6 bg-card border border-border/60 rounded-xl p-3 shadow-2xs'>
           <div className='flex items-center justify-between mb-2 px-1'>
             <h2 className='text-sm font-semibold text-foreground flex items-center gap-2'>
@@ -334,7 +355,6 @@ export default function ProgramDetailsView() {
           </div>
 
           <div className='flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none'>
-            {/* All Semesters option */}
             <button
               type='button'
               onClick={() => setSelectedSemester('all')}
@@ -353,17 +373,17 @@ export default function ProgramDetailsView() {
               </Badge>
             </button>
 
-            {/* Individual Semester Tabs */}
             {semesterList.map((sem) => {
               const semCoursesCount = programCourses.filter(
-                (c) => c.semesterNumber.toString() === sem.id
+                (c) =>
+                  String(c.semesterNumber) === String(sem.id) ||
+                  String(c.semesterId) === String(sem.semesterId)
               ).length
-
-              const isSelected = selectedSemester === sem.id
+              const isSelected = selectedSemester === sem.id || selectedSemester === sem.semesterId
 
               return (
                 <button
-                  key={sem.id}
+                  key={sem.semesterId || sem.id}
                   type='button'
                   onClick={() => setSelectedSemester(sem.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium transition-all shrink-0 cursor-pointer ${isSelected
@@ -385,9 +405,7 @@ export default function ProgramDetailsView() {
           </div>
         </div>
 
-        {/* --- COURSES TABLE SECTION (Matching Image 2 UI Structure) --- */}
         <div className='bg-card border border-border/60 rounded-xl shadow-xs overflow-hidden'>
-          {/* Table Header Controls */}
           <div className='p-4 border-b border-border/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-muted/10'>
             <div className='flex items-center gap-3 flex-1 max-w-md'>
               <div className='relative flex-1'>
@@ -400,7 +418,6 @@ export default function ProgramDetailsView() {
                 />
               </div>
 
-              {/* Status Filter */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant='outline' size='sm' className='gap-1.5 text-xs shadow-2xs shrink-0'>
@@ -413,13 +430,13 @@ export default function ProgramDetailsView() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => setStatusFilter('all')}>All Statuses</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setStatusFilter('active')}>Active</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter('elective')}>Elective</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setStatusFilter('draft')}>Draft</DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setStatusFilter('archived')}>Archived</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
 
-            {/* View Mode Switcher */}
             <div className='flex items-center gap-1 self-end sm:self-auto bg-muted/40 p-1 rounded-lg border border-border/40'>
               <Button
                 variant={viewMode === 'table' ? 'secondary' : 'ghost'}
@@ -442,7 +459,6 @@ export default function ProgramDetailsView() {
             </div>
           </div>
 
-          {/* TABLE VIEW */}
           {viewMode === 'table' ? (
             <div className='overflow-x-auto'>
               <Table>
@@ -473,10 +489,24 @@ export default function ProgramDetailsView() {
                 </TableHeader>
 
                 <TableBody>
-                  {filteredCourses.length > 0 ? (
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className='h-32 text-center text-muted-foreground'>
+                        <div className='flex items-center justify-center gap-2'>
+                          <Loader2 className='h-5 w-5 animate-spin text-primary' />
+                          <span className='text-sm'>Loading courses from LMS...</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : error && !programCourses.length ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className='h-32 text-center text-muted-foreground'>
+                        <p className='font-medium text-sm text-foreground'>{error}</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredCourses.length > 0 ? (
                     filteredCourses.map((course) => (
                       <TableRow key={course.id} className='group hover:bg-muted/20 transition-colors'>
-                        {/* Course Details Column (Name & Code in red styled tone matching Image 2) */}
                         <TableCell className='py-3.5'>
                           <div className='flex flex-col'>
                             <span className='font-semibold text-red-600 dark:text-red-400 group-hover:underline cursor-pointer text-sm'>
@@ -488,7 +518,6 @@ export default function ProgramDetailsView() {
                           </div>
                         </TableCell>
 
-                        {/* Program Badge */}
                         <TableCell>
                           <Badge variant='secondary' className='gap-1 font-normal text-xs px-2 py-0.5'>
                             <GraduationCap className='h-3 w-3 text-muted-foreground' />
@@ -496,20 +525,18 @@ export default function ProgramDetailsView() {
                           </Badge>
                         </TableCell>
 
-                        {/* Semesters Column */}
                         <TableCell className='text-sm text-foreground/80 font-medium'>
-                          {course.semesterName} ({course.totalSemesters} Terms)
+                          {course.semesterName}
+                          {course.totalSemesters ? ` (${course.totalSemesters} Terms)` : ''}
                         </TableCell>
 
-                        {/* Enrollment Column */}
                         <TableCell>
                           <div className='flex items-center gap-1.5 text-sm text-foreground/90'>
                             <Users className='h-4 w-4 text-muted-foreground' />
-                            <span>{course.studentsCount}</span>
+                            <span>{course.studentsCount != null ? course.studentsCount : '—'}</span>
                           </div>
                         </TableCell>
 
-                        {/* Assigned Labs Column */}
                         <TableCell>
                           {course.mappedLabTitle ? (
                             <Badge variant='outline' className='gap-1.5 text-xs font-semibold px-2.5 py-1 bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800'>
@@ -523,7 +550,6 @@ export default function ProgramDetailsView() {
                           )}
                         </TableCell>
 
-                        {/* Status Badge */}
                         <TableCell>
                           <Badge
                             variant={course.status === 'active' ? 'default' : 'outline'}
@@ -533,10 +559,8 @@ export default function ProgramDetailsView() {
                           </Badge>
                         </TableCell>
 
-                        {/* Action Column with Light Red Map Lab Button! */}
                         <TableCell className='text-right pr-6 py-3.5'>
                           <div className='flex items-center justify-end gap-2'>
-                            {/* Prominent MAP LAB Button in Crimson Red (matching primary buttons across UI) */}
                             <Button
                               size='sm'
                               onClick={() => handleOpenMapLab(course)}
@@ -568,7 +592,6 @@ export default function ProgramDetailsView() {
               </Table>
             </div>
           ) : (
-            /* BOARD / GRID VIEW */
             <div className='p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
               {filteredCourses.map((course) => (
                 <Card key={course.id} className='border-border/60 hover:border-primary/40 shadow-2xs transition-all'>
@@ -589,7 +612,7 @@ export default function ProgramDetailsView() {
                       </span>
                       <span>•</span>
                       <span className='flex items-center gap-1'>
-                        <Users className='h-3.5 w-3.5' /> {course.studentsCount} Students
+                        <Users className='h-3.5 w-3.5' /> {course.studentsCount != null ? `${course.studentsCount} Students` : '—'}
                       </span>
                     </div>
 
@@ -616,15 +639,14 @@ export default function ProgramDetailsView() {
         </div>
       </Main>
 
-      {/* MAP LAB MODAL DIALOG */}
       {selectedCourseForMap && (
         <MapLabDialog
           open={mapLabOpen}
           onOpenChange={setMapLabOpen}
           courseName={selectedCourseForMap.name}
           courseCode={selectedCourseForMap.code}
-          programId={resolvedProgrammeId}
-          semesterId={selectedSemester !== 'all' ? selectedSemester : '1'}
+          programId={programmeIdForCourses}
+          semesterId={selectedCourseForMap.semesterId || (selectedSemester !== 'all' ? selectedSemester : '')}
           currentLabsCount={selectedCourseForMap.labsAssigned}
           onLabsUpdated={handleLabsUpdated}
         />

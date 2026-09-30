@@ -71,7 +71,7 @@ export function TransactionDrawer({ transaction, open, onOpenChange }: Transacti
               </div>
               <div>
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  {isFailed ? 'Payment Failed' : isCredit ? 'Credits Top-Up' : 'Credits Usage'}
+                  {isFailed ? 'Payment Failed' : isCredit ? 'Tokens Top-Up' : 'Tokens Usage'}
                 </span>
                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200 line-clamp-1">
                   {transaction.description || 'Lab Transaction'}
@@ -90,7 +90,7 @@ export function TransactionDrawer({ transaction, open, onOpenChange }: Transacti
                 ₹{transaction.amountRupees ?? transaction.amount}
               </div>
               <span className="text-[10px] font-bold text-slate-500">
-                {isFailed ? '0 Credits' : `+${transaction.amount} Credits`}
+                {isFailed ? '0 Tokens' : `+${transaction.amount} Tokens`}
               </span>
             </div>
           </div>
@@ -176,7 +176,7 @@ export function TransactionDrawer({ transaction, open, onOpenChange }: Transacti
                   </div>
                   <div>
                     <div className="text-xs font-bold text-rose-600 dark:text-rose-400">Payment Failed</div>
-                    <div className="text-[11px] text-slate-500 font-medium">Transaction failed or declined by bank. No credits added.</div>
+                    <div className="text-[11px] text-slate-500 font-medium">Transaction failed or declined by bank. No tokens added.</div>
                   </div>
                 </div>
               ) : (
@@ -186,7 +186,7 @@ export function TransactionDrawer({ transaction, open, onOpenChange }: Transacti
                   </div>
                   <div>
                     <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Completed</div>
-                    <div className="text-[11px] text-slate-500 font-medium">Credits credited to lab balance.</div>
+                    <div className="text-[11px] text-slate-500 font-medium">Tokens credited to lab balance.</div>
                   </div>
                 </div>
               )}

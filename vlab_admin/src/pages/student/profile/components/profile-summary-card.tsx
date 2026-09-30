@@ -1,11 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { StudentProfile } from '@/pages/student/dashboard/types';
-import { CheckCircle2, GraduationCap, Camera, Loader2, UserCheck, Shield, Mail } from 'lucide-react';
+import { CheckCircle2, GraduationCap, UserCheck, Shield, Mail } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
-import { uploadProfilePhoto, updateUserProfile } from '@/Utils/PostApiHandler';
-import { toast } from 'sonner';
 import { BASE_URL } from '@/Utils/Api_path';
 import { isDirectStudent } from '@/lib/student-kind';
 
@@ -25,9 +23,6 @@ interface ProfileSummaryCardProps {
 export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
   const { auth } = useAuthStore();
   const u: any = auth.user || {};
-  const { updateUser } = auth;
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const name = u.fullName || u.name || 'Student';
   const initials = name
@@ -45,53 +40,6 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
   const rawImg = u.profileImage || u.ProfileImage || u.avatar || u.studentProfileImage || null;
   const profileImg = getProfileImgUrl(rawImg);
 
-  const handlePhotoClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size exceeds 5MB limit');
-      return;
-    }
-
-    try {
-      setUploading(true);
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await uploadProfilePhoto(formData);
-      const imageUrl = res?.url || res?.fileUrl || res?.profileImage;
-
-      if (res?.success && imageUrl) {
-        updateUser({ profileImage: imageUrl, avatar: imageUrl });
-        toast.success('Profile photo updated successfully!');
-      } else {
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          try {
-            const base64 = reader.result as string;
-            const updateRes = await updateUserProfile({ profileImage: base64 });
-            const savedUrl = updateRes?.user?.profileImage || updateRes?.url || base64;
-            updateUser({ profileImage: savedUrl, avatar: savedUrl });
-            toast.success('Profile photo updated successfully!');
-          } catch (err: any) {
-            toast.error(err?.message || 'Failed to update profile photo');
-          }
-        };
-        reader.readAsDataURL(file);
-      }
-    } catch (err: any) {
-      console.error('Error uploading profile photo:', err);
-      toast.error(err.message || 'Error uploading profile photo');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   return (
     <Card className="border border-border/70 shadow-xs rounded-xl overflow-hidden bg-card">
       <CardContent className="p-6 md:p-8">
@@ -101,7 +49,7 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
           <div className="flex flex-col md:flex-row items-center md:items-center gap-6 text-center md:text-left">
             
             {/* Clean Minimalist Avatar */}
-            <div className="relative group shrink-0">
+            <div className="relative shrink-0">
               <div className="w-24 h-24 md:w-28 md:h-28 rounded-full border border-border/80 bg-slate-100 dark:bg-slate-900 shadow-xs overflow-hidden relative flex items-center justify-center">
                 <div className="w-full h-full font-bold text-2xl md:text-3xl bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-300 flex items-center justify-center absolute inset-0 z-0">
                   {initials}
@@ -117,35 +65,6 @@ export function ProfileSummaryCard({ student }: ProfileSummaryCardProps) {
                   />
                 ) : null}
               </div>
-
-              {isDirectUser && (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/png, image/jpeg, image/webp"
-                    className="hidden"
-                    onChange={handleFileChange}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={handlePhotoClick}
-                    disabled={uploading}
-                    className="absolute inset-0 rounded-full bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col items-center justify-center text-white cursor-pointer z-20"
-                    title="Change Profile Photo"
-                  >
-                    {uploading ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-white" />
-                    ) : (
-                      <>
-                        <Camera className="h-5 w-5 mb-0.5 text-white" />
-                        <span className="text-[10px] font-medium tracking-wide uppercase">Change</span>
-                      </>
-                    )}
-                  </button>
-                </>
-              )}
             </div>
 
             {/* Student Identity Information */}

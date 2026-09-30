@@ -63,7 +63,7 @@ export function CatalogueLabCard({
           <div className="w-[1px] h-3 bg-slate-300 shrink-0"></div>
           <div className="flex items-center gap-1.5 whitespace-nowrap">
             <Database className="w-3.5 h-3.5 text-red-500 shrink-0" /> 
-            <span className="font-semibold text-slate-700">Credits: {credits}</span>
+            <span className="font-semibold text-slate-700">Tokens: {credits}</span>
           </div>
         </div>
       </div>
@@ -79,7 +79,7 @@ export function CatalogueLabCard({
           className="w-full border-2 border-red-500/80 text-red-600 bg-red-50/20 hover:bg-red-600 hover:text-white font-bold text-[11px] sm:text-[12px] h-10 rounded-[12px] transition-all duration-300 flex items-center justify-center gap-2 shadow-none"
         >
           <CreditCard className="w-4 h-4 shrink-0" />
-          <span>Purchase Credit to perform your tasks</span>
+          <span>Purchase Tokens to perform your tasks</span>
         </Button>
       </div>
     </Card>

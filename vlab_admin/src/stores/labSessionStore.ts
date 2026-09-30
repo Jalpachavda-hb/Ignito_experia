@@ -5,6 +5,7 @@ import { useAuthStore } from './auth-store';
 import { useLabStore } from './labStore';
 import { useTransactionStore } from './transactionStore';
 import { useLabCreditUsageStore } from './labCreditUsageStore';
+import { useLabTokenStore } from './labTokenStore';
 
 interface LabSessionStore {
   activeSession: LabSession | null;
@@ -106,6 +107,8 @@ const startCountdownTimer = (get: any, set: any) => {
             }
           });
         }
+        // Dynamically sync remaining lab token balance
+        useLabTokenStore.getState().fetchStudentLabTokens();
       } catch (err) {
         console.warn("[labSessionStore] Server sync warning:", err);
       }
@@ -194,6 +197,7 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
       });
 
       startCountdownTimer(get, set);
+      useLabTokenStore.getState().fetchStudentLabTokens();
 
       // Poll in background until ready
       waitForLabSessionReady(startResponse.sessionId)
@@ -301,6 +305,12 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
       if (typeof stopRes?.newWalletBalance === 'number') {
         useAuthStore.getState().auth.updateUser({ credits: stopRes.newWalletBalance });
       }
+
+      // Synchronize latest lab tokens and transactions after stop
+      try {
+        useLabTokenStore.getState().fetchStudentLabTokens();
+        useTransactionStore.getState().fetchTransactions();
+      } catch (e) {}
 
       set({
         activeSession: null,

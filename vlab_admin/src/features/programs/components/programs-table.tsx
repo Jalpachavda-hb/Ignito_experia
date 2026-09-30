@@ -128,7 +128,8 @@ export function ProgramsTable({ data }: DataTableProps) {
                     if (target.closest('button') || target.closest('a') || target.closest('[role="checkbox"]') || target.closest('[data-state]')) {
                       return;
                     }
-                    const pid = String(row.original.id || row.original.rawLmsData?.programId || '2');
+                    const pid = String(row.original.id || row.original.rawLmsData?.programId || '');
+                    if (!pid) return;
                     navigate({
                       to: '/programs/$programId',
                       params: { programId: pid }

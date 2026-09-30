@@ -61,7 +61,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     }
 
     // Lock lab-specific token wallet FOR UPDATE
-    let labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, connection);
+    let labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, auth?.email, connection);
     let remainingTokens = Number(labWallet?.RemainingTokens || 0);
 
     const isAdmin = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';

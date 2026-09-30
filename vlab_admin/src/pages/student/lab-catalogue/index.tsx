@@ -1,23 +1,15 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
 import { useLabStore } from '@/stores/labStore';
-import { useAuthStore } from '@/stores/auth-store';
-import { useLabSessionStore } from '@/stores/labSessionStore';
 import { CatalogueLabCard } from './components/catalogue-lab-card';
-import { SessionBlockSelector } from './components/session-block-selector';
 import { Code2, TerminalSquare, Database, LayoutGrid, Server, Beaker, Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useNavigate } from '@tanstack/react-router';
 
 export default function LabCatalogue() {
   const { labs, isLoading, error, loadLabs } = useLabStore();
-  const { auth } = useAuthStore();
-  const { user } = auth;
-  const { startLab } = useLabSessionStore();
   const navigate = useNavigate();
-
-  const [selectedLabForBlocks, setSelectedLabForBlocks] = useState<any | null>(null);
 
   useEffect(() => {
     loadLabs();
@@ -63,15 +55,8 @@ export default function LabCatalogue() {
 
   const getLabId = (lab: any) => lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?._id || '';
 
-  const handlePurchaseCredit = (lab: any) => {
-    setSelectedLabForBlocks(lab);
-  };
-
-  const handleStartLabWithBlocks = async (labId: string, blocks: number) => {
-    const session = await startLab(labId, blocks);
-    if (session?.sessionId) {
-      navigate({ to: `/admin/compute/rdp`, search: { labId, sessionId: session.sessionId } });
-    }
+  const handlePurchaseCredit = (_lab?: any) => {
+    navigate({ to: '/student/credit-wallet' });
   };
 
   return (
@@ -100,7 +85,7 @@ export default function LabCatalogue() {
                   Our Lab <span className="text-red-500">Catalogue</span>
                 </h1>
                 <p className="text-slate-500 dark:text-slate-400 text-sm md:text-base leading-relaxed">
-                  Explore our hands-on virtual labs. Select session blocks and launch your workspace with wallet credits.
+                  Explore our hands-on virtual labs. Select session blocks and launch your workspace with tokens.
                 </p>
               </div>
 
@@ -177,14 +162,6 @@ export default function LabCatalogue() {
         </div>
       </Main>
 
-      <SessionBlockSelector
-        isOpen={Boolean(selectedLabForBlocks)}
-        onClose={() => setSelectedLabForBlocks(null)}
-        lab={selectedLabForBlocks}
-        walletBalance={user?.credits ?? 0}
-        onStart={handleStartLabWithBlocks}
-        onPurchaseCredits={() => navigate({ to: '/student/credit-wallet' })}
-      />
     </>
   );
 }

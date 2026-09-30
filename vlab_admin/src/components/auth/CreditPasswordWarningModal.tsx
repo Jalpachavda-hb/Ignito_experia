@@ -31,7 +31,7 @@ export function CreditPasswordWarningModal({
             <ShieldAlert className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-slate-900">Secure Your Experia Credits</h3>
+            <h3 className="text-xl font-bold text-slate-900">Secure Your Experia Tokens</h3>
             <p className="text-xs text-amber-600 font-semibold">Important Account Security Notice</p>
           </div>
         </div>
@@ -45,7 +45,7 @@ export function CreditPasswordWarningModal({
             You are accessing Experia through your university LMS without an Experia password. If your university LMS access ends after your academic program completes, you may no longer be able to log in through LMS.
           </p>
           <p className="text-xs text-amber-900 font-semibold pt-1">
-            Your purchased credits will remain safely stored in your account (`EXP10001`), but setting an Experia password guarantees direct access at any time.
+            Your purchased tokens will remain safely stored in your account (`EXP10001`), but setting an Experia password guarantees direct access at any time.
           </p>
         </div>
 

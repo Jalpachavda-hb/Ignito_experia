@@ -75,7 +75,7 @@ export function OwnerSidebar() {
       <SidebarHeader>
         <div className="flex items-center justify-center gap-2 px-2 py-4">
           <img src="/images/logo.png" alt="Ignito Experia" className="h-16 w-auto object-contain transition-all group-data-[collapsible=icon]:hidden" />
-          <img src="/images/logo.png" alt="Ignito Experia" className="h-8 w-8 object-cover object-left hidden group-data-[collapsible=icon]:block" />
+          <img src="/images/favicon.png" alt="Ignito Experia" className="h-8 w-8 object-contain hidden group-data-[collapsible=icon]:block" />
         </div>
       </SidebarHeader>
 

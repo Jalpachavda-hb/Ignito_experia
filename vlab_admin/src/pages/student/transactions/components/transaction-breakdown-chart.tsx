@@ -140,12 +140,12 @@ export function TransactionBreakdownChart({ mode = 'consumed' }: TransactionBrea
       <CardHeader>
         <CardTitle className="text-lg font-bold flex items-center gap-2">
           <PieChartIcon className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-          {mode === 'consumed' ? 'Lab Practice Share & Runtime' : 'Lab Credit Allocation'}
+          {mode === 'consumed' ? 'Lab Practice Share & Runtime' : 'Lab Token Allocation'}
         </CardTitle>
         <CardDescription>
           {mode === 'consumed'
             ? 'Real-time share of runtime tokens consumed per virtual lab.'
-            : 'Share of credits allocated per virtual lab module.'}
+            : 'Share of tokens allocated per virtual lab module.'}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -180,7 +180,7 @@ export function TransactionBreakdownChart({ mode = 'consumed' }: TransactionBrea
           ) : (
             <div className="h-full w-full flex flex-col items-center justify-center text-slate-400 text-sm border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
               <PieChartIcon className="h-8 w-8 text-slate-300 mb-2" />
-              <span>{mode === 'consumed' ? 'No practice token usage recorded yet.' : 'No credit distribution data.'}</span>
+              <span>{mode === 'consumed' ? 'No practice token usage recorded yet.' : 'No token distribution data.'}</span>
               <span className="text-xs text-slate-400 mt-1">
                 {mode === 'consumed' ? 'Practice in a lab to view runtime consumption share.' : 'Complete a lab top-up to view distribution.'}
               </span>

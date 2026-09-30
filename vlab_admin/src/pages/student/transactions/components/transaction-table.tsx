@@ -131,7 +131,7 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
       <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 gap-4 bg-white dark:bg-card">
         <div>
           <CardTitle className="text-xl font-bold">Transaction History</CardTitle>
-          <p className="text-xs text-slate-500 mt-1 font-medium">All student payments (Completed & Failed with Bank Details), Razorpay checkout receipts, and credit allocations.</p>
+          <p className="text-xs text-slate-500 mt-1 font-medium">All student payments (Completed & Failed with Bank Details), Razorpay checkout receipts, and token allocations.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -274,7 +274,7 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
                             ₹{tx.amountRupees ?? tx.amount}
                           </span>
                           <span className="text-[10px] font-bold text-slate-400">
-                            {isFailed ? '0 Credits' : `+${tx.amount} Credits`}
+                            {isFailed ? '0 Tokens' : `+${tx.amount} Tokens`}
                           </span>
                         </div>
                       </td>

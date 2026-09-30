@@ -25,3 +25,22 @@ export const programSchema = z.object({
   rawLmsData: z.any().optional(),
 })
 export type Program = z.infer<typeof programSchema>
+
+export interface ProgramCourseItem {
+  id: string
+  programId: string
+  programCode: string
+  semesterNumber: number
+  semesterId?: string
+  semesterName: string
+  name: string
+  code: string
+  program: string
+  totalSemesters: number
+  studentsCount?: number
+  labsAssigned: number
+  mappedLabTitle?: string | null
+  status: 'active' | 'draft' | 'archived' | 'elective'
+  description?: string
+  courseType?: string
+}

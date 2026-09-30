@@ -61,7 +61,7 @@ export function SessionBlockSelector({
             </Badge>
             <div className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
               <CreditCard className="w-3.5 h-3.5 text-red-500" />
-              <span>Wallet: <strong>{walletBalance} Cr</strong></span>
+              <span>Wallet: <strong>{walletBalance} Tokens</strong></span>
             </div>
           </div>
           <DialogTitle className="text-xl font-extrabold text-slate-900 leading-snug">
@@ -79,7 +79,7 @@ export function SessionBlockSelector({
               <Clock className="w-4 h-4 text-slate-400" /> Base Block: {unitDuration} Minutes
             </span>
             <span className="flex items-center gap-1.5 font-bold text-slate-800">
-              <Database className="w-4 h-4 text-red-500" /> {unitCredits} Credits / Block
+              <Database className="w-4 h-4 text-red-500" /> {unitCredits} Tokens / Block
             </span>
           </div>
 
@@ -128,7 +128,7 @@ export function SessionBlockSelector({
                 }`}
               >
                 <div className="text-[12px] font-extrabold">{b} Block{b > 1 ? 's' : ''}</div>
-                <div className="text-[10px] text-slate-500 mt-0.5">{unitCredits * b} Cr</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{unitCredits * b} Tokens</div>
               </button>
             ))}
           </div>
@@ -137,17 +137,17 @@ export function SessionBlockSelector({
           <div className={`p-4 rounded-2xl border ${isSufficient ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/60 border-amber-200'}`}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[13px] font-bold text-slate-800">Total Payment Required:</span>
-              <span className="text-base font-black text-slate-900">{totalCredits} Credits</span>
+              <span className="text-base font-black text-slate-900">{totalCredits} Tokens</span>
             </div>
             <div className="flex items-center justify-between text-[12px]">
               <span className="text-slate-600">Wallet Status:</span>
               {isSufficient ? (
                 <span className="flex items-center gap-1 font-bold text-emerald-600">
-                  <ShieldCheck className="w-4 h-4" /> Sufficient Credits
+                  <ShieldCheck className="w-4 h-4" /> Sufficient Tokens
                 </span>
               ) : (
                 <span className="flex items-center gap-1 font-bold text-amber-600">
-                  <AlertTriangle className="w-4 h-4" /> Need {shortage} More Credits
+                  <AlertTriangle className="w-4 h-4" /> Need {shortage} More Tokens
                 </span>
               )}
             </div>
@@ -169,14 +169,14 @@ export function SessionBlockSelector({
               onClick={handleStart}
               className="rounded-xl font-bold bg-red-600 hover:bg-red-700 text-white text-[13px] px-6 h-10 shadow-md transition-all"
             >
-              {isSubmitting ? 'Starting Lab...' : `Start Lab (${totalCredits} Cr)`}
+              {isSubmitting ? 'Starting Lab...' : `Start Lab (${totalCredits} Tokens)`}
             </Button>
           ) : (
             <Button
               onClick={() => { onClose(); onPurchaseCredits?.(); }}
               className="rounded-xl font-bold bg-amber-600 hover:bg-amber-700 text-white text-[13px] px-6 h-10 shadow-md transition-all flex items-center gap-2"
             >
-              <CreditCard className="w-4 h-4" /> Purchase Credits
+              <CreditCard className="w-4 h-4" /> Purchase Tokens
             </Button>
           )}
         </DialogFooter>

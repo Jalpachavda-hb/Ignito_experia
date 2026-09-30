@@ -9,7 +9,7 @@ import { lmsCourseService } from "../services/lms/LmsCourseService.js";
 import { lmsAcademicProgressService } from "../services/lms/LmsAcademicProgressService.js";
 import { lmsSemesterService } from "../services/lms/LmsSemesterService.js";
 import { lmsResponseCache } from "../services/lms/LmsResponseCache.js";
-import { identityFromUser, loadOwnedProgrammes, loadStudentLmsContext } from "../services/lms/studentLmsContext.js";
+import { identityFromUser, loadAdminLmsContext, loadOwnedProgrammes, loadStudentLmsContext } from "../services/lms/studentLmsContext.js";
 import { cleanLmsId } from "../services/lms/lmsIds.js";
 import { mergeProgrammes, programmeMatches } from "../services/lms/programmeNormalize.js";
 import { LMS_PROVIDER_CONFIG } from "../config/lms/lmsProviderConfig.js";
@@ -836,23 +836,33 @@ export const studentPurchasedProgrammesHandler = async ({ auth, body = {} }) => 
 
 export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
   const ctx = await loadStudentLmsContext(auth);
-  if (!ctx.universityStudent || !ctx.tenant) {
-    return ok({ success: true, semesterList: [], courseList: [] });
-  }
-
   const requestedId = body.programmeId || body.programId || body.programme_id || body.program_id;
   if (!requestedId) throw badRequest("programmeId is required");
 
   const requestedSemester = body.semester ?? body.semesterNumber ?? body.semesterId ?? body.semester_id ?? null;
 
-  const owned = await loadOwnedProgrammes(ctx);
-  const match = owned.programmes.find((programme) => programmeMatches(programme, requestedId));
-  const targetProgrammeId = match ? (match.programmeId ?? match.programId) : requestedId;
+  let tenant = ctx.tenant;
+  let provider = ctx.provider;
+  if (!tenant) {
+    const adminCtx = await loadAdminLmsContext(auth);
+    tenant = adminCtx.tenant;
+    provider = adminCtx.provider;
+  }
+  if (!tenant) {
+    return ok({ success: true, semesterList: [], courseList: [], lmsStatus: "LMS_TENANT_NOT_FOUND" });
+  }
+
+  let targetProgrammeId = requestedId;
+  if (ctx.universityStudent) {
+    const owned = await loadOwnedProgrammes(ctx);
+    const match = owned.programmes.find((programme) => programmeMatches(programme, requestedId));
+    if (match) targetProgrammeId = match.programmeId ?? match.programId;
+  }
 
   try {
     const result = await lmsCourseService.getByProgramme({
-      tenantId: ctx.tenant.TenantId,
-      provider: ctx.provider,
+      tenantId: tenant.TenantId,
+      provider,
       programmeId: targetProgrammeId,
       externalStudentId: ctx.externalStudentId,
       semester: requestedSemester,
@@ -931,7 +941,18 @@ export const studentAcademicProgressHandler = async ({ auth, queryStringParamete
   return ok(progress);
 };
 
-export const getPracticalAvailableProgramsHandler = async () => ok({ success: true, programList: [] });
+export const getPracticalAvailableProgramsHandler = async ({ auth }) => {
+  const ctx = await loadAdminLmsContext(auth);
+  if (!ctx.tenant) {
+    return ok({ success: true, programList: [], programmeList: [], lmsStatus: "LMS_TENANT_NOT_FOUND" });
+  }
+
+  const result = await lmsProgrammeService.getPracticalAvailable({
+    tenantId: ctx.tenant.TenantId,
+    provider: ctx.provider,
+  });
+  return ok(result);
+};
 export const mapCourseLabHandler = async () => ok({ success: true });
 export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");

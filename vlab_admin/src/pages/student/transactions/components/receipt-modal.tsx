@@ -156,7 +156,7 @@ export function ReceiptModal({ transaction, open, onClose }: ReceiptModalProps) 
                   <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-800 w-12 text-center">Sr.</th>
                   <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-800">Item Description</th>
                   <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-800 text-center">Rate</th>
-                  <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-800 text-center">Credits</th>
+                  <th className="py-2.5 px-3 border-r border-slate-200 dark:border-slate-800 text-center">Tokens</th>
                   <th className="py-2.5 px-3 text-right">Total Amount</th>
                 </tr>
               </thead>
@@ -165,7 +165,7 @@ export function ReceiptModal({ transaction, open, onClose }: ReceiptModalProps) 
                   <td className="py-3 px-3 text-center text-slate-500 border-r border-slate-200 dark:border-slate-800 font-mono">01</td>
                   <td className="py-3 px-3 border-r border-slate-200 dark:border-slate-800">
                     <div className="font-bold text-slate-900 dark:text-white">
-                      {transaction.description || 'Lab Credit Top-Up'}
+                      {transaction.description || 'Lab Token Top-Up'}
                     </div>
                     {transaction.labName && (
                       <div className="text-[11px] text-slate-500 mt-0.5">
@@ -173,9 +173,9 @@ export function ReceiptModal({ transaction, open, onClose }: ReceiptModalProps) 
                       </div>
                     )}
                   </td>
-                  <td className="py-3 px-3 text-center border-r border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-mono">₹1.00 / Cr</td>
+                  <td className="py-3 px-3 text-center border-r border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-mono">₹1.00 / Token</td>
                   <td className="py-3 px-3 text-center border-r border-slate-200 dark:border-slate-800 font-bold text-indigo-600 dark:text-indigo-400">
-                    +{creditsAdded} Cr
+                    +{creditsAdded} Tokens
                   </td>
                   <td className="py-3 px-3 text-right font-bold text-slate-900 dark:text-white font-mono">
                     ₹{amountPaid}.00
@@ -190,7 +190,7 @@ export function ReceiptModal({ transaction, open, onClose }: ReceiptModalProps) 
             <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-1 max-w-sm">
               <div className="font-bold text-slate-700 dark:text-slate-300">Notes & Authorization:</div>
               <p>
-                Computer generated payment receipt. Credits have been allocated to your student account balance.
+                Computer generated payment receipt. Tokens have been allocated to your lab wallet balance.
               </p>
             </div>
 

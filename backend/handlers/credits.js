@@ -57,7 +57,7 @@ export const getTransactionHistoryHandler = async ({ auth, queryStringParameters
   const limit = Number(queryStringParameters.limit || 50);
   const offset = Number(queryStringParameters.offset || 0);
 
-  const transactions = await creditWalletService.getTransactionHistory(auth.userId, tenantId, limit, offset);
+  const transactions = await creditWalletService.getTransactionHistory(auth.userId, tenantId, limit, offset, auth.email);
   return ok({
     success: true,
     transactions: (transactions || []).map(t => ({

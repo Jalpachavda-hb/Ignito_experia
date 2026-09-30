@@ -67,6 +67,33 @@ export async function loadStudentLmsContext(auth) {
   };
 }
 
+/** Tenant LMS context for university admins (not limited to student identities). */
+export async function loadAdminLmsContext(auth) {
+  const ctx = await loadStudentLmsContext(auth);
+  if (ctx.tenant) return ctx;
+
+  let tenantId = ctx.tenantId || ctx.profile?.TenantId || auth.tenantId || null;
+  if (!tenantId || String(tenantId).toUpperCase() === PLATFORM_TENANT_ID) {
+    const [utmRows] = await pool.query(
+      "SELECT TenantId FROM user_tenant_mapping WHERE UserId = ? AND Status = 'ACTIVE' AND TenantId <> 'PLATFORM' ORDER BY MappingId DESC LIMIT 1",
+      [ctx.profile.UserId]
+    ).catch(() => [[]]);
+    if (utmRows?.[0]?.TenantId) tenantId = utmRows[0].TenantId;
+  }
+
+  const tenant =
+    (tenantId ? await loadTenantById(tenantId) : null) ||
+    (await resolvePortalTenant({ tenantId }));
+  const provider = tenant ? await loadLmsProvider(ctx.profile.UserId, tenant) : null;
+
+  return {
+    ...ctx,
+    tenant,
+    tenantId: tenant?.TenantId || ctx.tenantId,
+    provider,
+  };
+}
+
 export async function loadOwnedProgrammes(ctx) {
   if (!ctx?.universityStudent || !ctx?.tenant) {
     return { programmes: [], lmsStatus: null, profile: null, profileStatus: null };

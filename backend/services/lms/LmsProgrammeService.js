@@ -57,6 +57,40 @@ class LmsProgrammeService {
       };
     }
   }
+
+  async getPracticalAvailable({ tenantId, provider, forceRefresh = false }) {
+    if (!tenantId) {
+      return { success: true, lmsStatus: "LMS_TENANT_NOT_FOUND", programList: [], programmeList: [] };
+    }
+
+    const url = endpointUrl(LMS_PROVIDER_CONFIG.baseUrl, LMS_PROVIDER_CONFIG.practicalAvailableProgramsEndpoint);
+    const key = `lms:practical-programs:${tenantId}:${provider || LMS_PROVIDER_CONFIG.provider}`;
+
+    try {
+      const result = await lmsResponseCache.getOrFetch(key, {
+        forceRefresh,
+        fetcher: () => lmsApiClient.post({
+          tenantId,
+          url,
+          data: {},
+        }),
+      });
+      const raw = result.data || {};
+      const list = raw.programList || raw.programmeList || (Array.isArray(raw) ? raw : []);
+      return {
+        success: true,
+        lmsStatus: "LIVE",
+        isSuccess: raw.isSuccess !== false,
+        programList: list,
+        programmeList: list,
+        rawData: raw,
+      };
+    } catch (err) {
+      const lmsStatus = err instanceof LmsApiError ? err.code : "LMS_PROFILE_UNAVAILABLE";
+      console.warn(`[LmsProgrammeService] practical programs ${lmsStatus} tenant=${tenantId}: ${err.message}`);
+      return { success: true, lmsStatus, programList: [], programmeList: [] };
+    }
+  }
 }
 
 export const lmsProgrammeService = new LmsProgrammeService();

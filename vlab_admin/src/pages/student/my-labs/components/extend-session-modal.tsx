@@ -54,7 +54,7 @@ export function ExtendSessionModal({ walletBalance, onPurchaseCredits }: ExtendS
             </Badge>
             <div className="flex items-center gap-1.5 text-[12px] font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
               <CreditCard className="w-3.5 h-3.5 text-red-500" />
-              <span>Wallet: <strong>{walletBalance} Cr</strong></span>
+              <span>Wallet: <strong>{walletBalance} Tokens</strong></span>
             </div>
           </div>
           <DialogTitle className="text-xl font-extrabold text-slate-900 leading-snug">
@@ -88,7 +88,7 @@ export function ExtendSessionModal({ walletBalance, onPurchaseCredits }: ExtendS
 
               <div className="text-center">
                 <span className="text-lg font-black text-slate-900 block">+{totalDuration} Minutes</span>
-                <span className="text-[12px] font-semibold text-red-600">{totalCredits} Credits</span>
+                <span className="text-[12px] font-semibold text-red-600">{totalCredits} Tokens</span>
               </div>
 
               <Button
@@ -117,7 +117,7 @@ export function ExtendSessionModal({ walletBalance, onPurchaseCredits }: ExtendS
                 }`}
               >
                 <div className="text-[12px] font-extrabold">+{unitDuration * b} Mins</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">{unitCredits * b} Credits</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">{unitCredits * b} Tokens</div>
               </button>
             ))}
           </div>
@@ -125,17 +125,17 @@ export function ExtendSessionModal({ walletBalance, onPurchaseCredits }: ExtendS
           <div className={`p-3.5 rounded-2xl border ${isSufficient ? 'bg-emerald-50/60 border-emerald-200' : 'bg-amber-50/60 border-amber-200'}`}>
             <div className="flex items-center justify-between text-[12px]">
               <span className="text-slate-600 font-medium">Extension Cost:</span>
-              <span className="font-extrabold text-slate-900">{totalCredits} Credits</span>
+              <span className="font-extrabold text-slate-900">{totalCredits} Tokens</span>
             </div>
             <div className="flex items-center justify-between text-[12px] mt-1">
               <span className="text-slate-600 font-medium">Wallet Status:</span>
               {isSufficient ? (
                 <span className="flex items-center gap-1 font-bold text-emerald-600">
-                  <ShieldCheck className="w-3.5 h-3.5" /> Sufficient Credits
+                  <ShieldCheck className="w-3.5 h-3.5" /> Sufficient Tokens
                 </span>
               ) : (
                 <span className="flex items-center gap-1 font-bold text-amber-600">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Shortage: {shortage} Credits
+                  <AlertTriangle className="w-3.5 h-3.5" /> Shortage: {shortage} Tokens
                 </span>
               )}
             </div>
@@ -157,14 +157,14 @@ export function ExtendSessionModal({ walletBalance, onPurchaseCredits }: ExtendS
               onClick={handleExtend}
               className="rounded-xl font-bold bg-red-600 hover:bg-red-700 text-white text-[13px] px-6 h-10 shadow-md transition-all"
             >
-              {extendingSessionId ? 'Extending...' : `Confirm Extension (${totalCredits} Cr)`}
+              {extendingSessionId ? 'Extending...' : `Confirm Extension (${totalCredits} Tokens)`}
             </Button>
           ) : (
             <Button
               onClick={() => { setShowExtensionModal(false); onPurchaseCredits?.(); }}
               className="rounded-xl font-bold bg-amber-600 hover:bg-amber-700 text-white text-[13px] px-6 h-10 shadow-md transition-all flex items-center gap-2"
             >
-              <CreditCard className="w-4 h-4" /> Purchase Credits
+              <CreditCard className="w-4 h-4" /> Purchase Tokens
             </Button>
           )}
         </DialogFooter>

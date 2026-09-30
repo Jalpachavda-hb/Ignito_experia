@@ -42,10 +42,10 @@ export function PurchaseCreditModal({
             <Coins className="h-7 w-7" />
           </div>
           <DialogTitle className="text-xl font-bold text-slate-900 dark:text-white">
-            Purchase Credits Required
+            Purchase Tokens Required
           </DialogTitle>
           <DialogDescription className="text-sm text-slate-500 dark:text-slate-400 max-w-sm text-center">
-            You need credits to use this lab environment. Please purchase credits first to launch the lab and perform your tasks.
+            You need tokens to use this lab environment. Please purchase tokens first to launch the lab and perform your tasks.
           </DialogDescription>
         </DialogHeader>
 
@@ -58,12 +58,12 @@ export function PurchaseCreditModal({
             </span>
           </div>
           <div className="flex justify-between items-center text-sm">
-            <span className="text-slate-500 font-medium">Required Credits</span>
-            <span className="font-bold text-red-600 dark:text-red-400">{labCost} Credits</span>
+            <span className="text-slate-500 font-medium">Required Tokens</span>
+            <span className="font-bold text-red-600 dark:text-red-400">{labCost} Tokens</span>
           </div>
           <div className="flex justify-between items-center text-sm">
             <span className="text-slate-500 font-medium">Your Wallet Balance</span>
-            <span className="font-bold text-amber-600 dark:text-amber-400">{currentBal} Credits</span>
+            <span className="font-bold text-amber-600 dark:text-amber-400">{currentBal} Tokens</span>
           </div>
         </div>
 
@@ -82,7 +82,7 @@ export function PurchaseCreditModal({
             className="w-full sm:w-1/2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-md shadow-red-500/20"
           >
             <CreditCard className="mr-2 h-4 w-4" />
-            Buy Credits Now
+            Buy Tokens Now
           </Button>
         </DialogFooter>
       </DialogContent>

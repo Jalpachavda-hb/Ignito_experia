@@ -85,9 +85,10 @@ class CreditWalletService {
     paymentReference,
     idempotencyKey
   }) {
-    if (!userId || !tenantId) {
-      throw badRequest("UserId and TenantId are required for purchase.");
+    if (!userId) {
+      throw badRequest("UserId is required for purchase.");
     }
+    const effectiveTenantId = tenantId || 'TEN000001';
 
     const lines = normalizePurchaseLines({ credits, amount, labId, labName, items });
     const totalTokens = lines.reduce((sum, line) => sum + line.tokens, 0);
@@ -113,10 +114,10 @@ class CreditWalletService {
     await connection.beginTransaction();
 
     try {
-      let wallet = await creditWalletRepository.getWalletForUpdate(userId, tenantId, connection);
+      let wallet = await creditWalletRepository.getWalletForUpdate(userId, effectiveTenantId, connection);
       if (!wallet) {
-        await creditWalletRepository.createWallet({ userId, tenantId, initialBalance: 0.00 }, connection);
-        wallet = await creditWalletRepository.getWalletForUpdate(userId, tenantId, connection);
+        await creditWalletRepository.createWallet({ userId, tenantId: effectiveTenantId, initialBalance: 0.00 }, connection);
+        wallet = await creditWalletRepository.getWalletForUpdate(userId, effectiveTenantId, connection);
       }
 
       const newBalance = Number(wallet.Balance) + totalTokens;
@@ -130,7 +131,7 @@ class CreditWalletService {
       );
 
       const txnId = await creditWalletRepository.insertTransaction({
-        tenantId,
+        tenantId: effectiveTenantId,
         userId,
         type: 'PURCHASE',
         source: 'STUDENT_PURCHASE',
@@ -151,7 +152,7 @@ class CreditWalletService {
 
       for (const line of lines) {
         await studentLabTokenWalletRepository.creditWalletTokens(
-          tenantId,
+          effectiveTenantId,
           userId,
           line.labId,
           line.tokens,
@@ -395,8 +396,8 @@ class CreditWalletService {
     };
   }
 
-  async getTransactionHistory(userId, tenantId, limit = 50, offset = 0) {
-    const rows = await creditWalletRepository.getTransactions(userId, tenantId, limit, offset);
+  async getTransactionHistory(userId, tenantId, limit = 50, offset = 0, userEmail = null) {
+    const rows = await creditWalletRepository.getTransactions(userId, tenantId, limit, offset, userEmail);
     const refs = rows.map((row) => row.PaymentReference).filter(Boolean);
     const labRows = await studentLabTokenTransactionRepository.getByReferenceIds(refs);
     return this.expandPurchaseRows(rows, labRows);
@@ -405,3 +406,4 @@ class CreditWalletService {
 
 export const creditWalletService = new CreditWalletService();
 export default creditWalletService;
+

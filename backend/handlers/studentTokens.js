@@ -9,7 +9,7 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
   const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "DIRECT";
   const studentId = auth.userId;
 
-  const wallets = await studentLabTokenWalletRepository.getAllWalletsForStudent(tenantId, studentId);
+  const wallets = await studentLabTokenWalletRepository.getAllWalletsForStudent(tenantId, studentId, auth.email);
 
   // Group & deduplicate by clean lab identifier
   const groupedWallets = new Map();
@@ -65,7 +65,7 @@ export const studentLabSingleTokenBalanceHandler = async ({ pathParameters, auth
   const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
   const labId = pathParameters?.labId;
 
-  const wallet = await studentLabTokenWalletRepository.getWallet(tenantId, auth.userId, labId);
+  const wallet = await studentLabTokenWalletRepository.getWallet(tenantId, auth.userId, labId, auth.email);
   return ok({
     labId,
     purchasedTokens: wallet ? Number(wallet.TotalPurchasedTokens) : 0,

@@ -58,7 +58,7 @@ export function AppSidebar() {
             alt="Ignito Experia"
             className="h-12 max-h-14 w-auto max-w-[190px] object-contain transition-all group-data-[collapsible=icon]:hidden"
           />
-          <img src="/images/logo.png" alt="Ignito Experia" className="h-8 w-8 object-cover object-left hidden group-data-[collapsible=icon]:block" />
+          <img src="/images/favicon.png" alt="Ignito Experia" className="h-8 w-8 object-contain hidden group-data-[collapsible=icon]:block" />
         </div>
       </SidebarHeader>
       <SidebarContent>

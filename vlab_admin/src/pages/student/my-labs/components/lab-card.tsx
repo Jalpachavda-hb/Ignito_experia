@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles } from 'lucide-react';
+import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles, Zap } from 'lucide-react';
 import { Lab } from '../types';
 
 interface LabCardProps {
@@ -111,6 +111,12 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
                   }`}>
                     {accessType === 'personal' ? <Sparkles className="w-2.5 h-2.5 mr-1" /> : <GraduationCap className="w-2.5 h-2.5 mr-1" />}
                     {accessLabel}
+                  </Badge>
+                )}
+                {(lab.remainingTokens !== undefined && lab.remainingTokens > 0) && (
+                  <Badge variant="outline" className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
+                    <Zap className="w-2.5 h-2.5 mr-1 text-emerald-600 fill-emerald-500" />
+                    {lab.remainingTokens} Tokens • {lab.remainingTokens} Mins Runtime
                   </Badge>
                 )}
               </div>
@@ -221,14 +227,21 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
           </div>
         )}
 
-        {isStatusVisible && (
+        {isStatusVisible ? (
           <div className="absolute top-3.5 right-3.5 z-10">
             <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
               <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
               {labStatus}
             </div>
           </div>
-        )}
+        ) : (lab.remainingTokens !== undefined && lab.remainingTokens > 0) ? (
+          <div className="absolute top-3.5 right-3.5 z-10">
+            <div className="bg-emerald-500/15 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-xs border border-emerald-500/30 flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+              <Zap className="w-3 h-3 text-emerald-600 dark:text-emerald-400 fill-emerald-500" />
+              <span>{lab.remainingTokens} Tokens</span>
+            </div>
+          </div>
+        ) : null}
       </CardHeader>
 
       <CardContent className="px-5 pt-5 pb-0 flex-1 flex flex-col relative z-20 bg-white dark:bg-slate-950">
@@ -242,6 +255,18 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         <p className="text-[13px] text-slate-500 dark:text-slate-400 line-clamp-2 mb-4 leading-relaxed">
           {lab.description || 'Learn and explore various concepts through this interactive lab environment.'}
         </p>
+
+        {!isRunning && (lab.remainingTokens !== undefined && lab.remainingTokens > 0) && (
+          <div className="mt-auto mb-3 flex items-center justify-between text-xs py-2 px-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60">
+            <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-500" />
+              {lab.remainingTokens} Tokens
+            </span>
+            <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+              {lab.remainingTokens} Mins Runtime
+            </span>
+          </div>
+        )}
 
         {isRunning && (
           <div className="mt-auto mb-2 w-full">

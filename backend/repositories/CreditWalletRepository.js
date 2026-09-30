@@ -130,11 +130,11 @@ class CreditWalletRepository {
     return result.insertId;
   }
 
-  async getTransactions(userId, tenantId, limit = 50, offset = 0, db = pool) {
+  async getTransactions(userId, tenantId, limit = 50, offset = 0, userEmail = null, db = pool) {
     let query = `SELECT TransactionId, TenantId, UserId, Type, Source, Credits, Amount, Currency, PaymentReference, LabId, LabSessionId, IdempotencyKey, Status, MetadataJson, CreatedAt
        FROM credit_transactions
-       WHERE UserId = ?`;
-    const params = [userId];
+       WHERE (UserId = ? OR ? IS NOT NULL AND LOWER(CAST(UserId AS CHAR)) = LOWER(?))`;
+    const params = [userId, userEmail, userEmail || ''];
 
     if (tenantId && tenantId !== 'DEFAULT') {
       query += ` AND (TenantId = ? OR TenantId IS NULL OR TenantId = 'DEFAULT')`;

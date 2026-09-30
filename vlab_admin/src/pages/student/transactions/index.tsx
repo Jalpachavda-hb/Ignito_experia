@@ -43,7 +43,7 @@ export default function Transactions() {
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Transaction History</h1>
               <p className="text-slate-500 mt-1.5 max-w-2xl">
-                Track all credit-related activities including lab launches, allocations, purchases, and rewards.
+                Track all token-related activities including lab launches, allocations, purchases, and rewards.
               </p>
             </div>
             

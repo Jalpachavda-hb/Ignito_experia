@@ -73,7 +73,7 @@ export default function BadgesAchievementsPage() {
         category: cat,
         iconUrl: lab.logo || lab.image || lab.icon || '',
         earnedDate: 'Assigned Lab',
-        difficulty: lab.credits ? `${lab.credits} Credits` : 'Practical',
+        difficulty: lab.credits ? `${lab.credits} Tokens` : 'Practical',
         isUnlocked: true,
       };
     });

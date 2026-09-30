@@ -114,9 +114,26 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
   }
 
   // Credit user wallet in database
-  const targetUserId = auth?.userId || bodyUserId || bodyUserEmail || "1";
-  const tenantId = auth?.tenantId || auth?.universityId || bodyTenantId || null;
+  let targetUserId = auth?.userId || bodyUserId || bodyUserEmail || "1";
+  let tenantId = auth?.tenantId || auth?.universityId || bodyTenantId;
   const creditsToAdd = Number(credits || amount || 0);
+
+  // Resolve true integer UserId and TenantId from Users database table
+  try {
+    const [uRows] = await pool.query(
+      "SELECT UserId, TenantId, Email FROM Users WHERE UserId = ? OR LOWER(Email) = LOWER(?) OR LOWER(Email) = LOWER(?) LIMIT 1",
+      [targetUserId, bodyUserEmail || '', auth?.email || '']
+    );
+    if (uRows && uRows.length > 0) {
+      targetUserId = uRows[0].UserId;
+      if (!tenantId) tenantId = uRows[0].TenantId;
+    }
+  } catch (e) {
+    console.warn("User lookup warning in payment verification:", e);
+  }
+
+  if (!tenantId) tenantId = "TEN000001";
+  if (!targetUserId || isNaN(Number(targetUserId))) targetUserId = 1;
 
   if (creditsToAdd > 0 && targetUserId) {
     try {
@@ -136,21 +153,23 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
       console.warn("Wallet database credit warning for userId:", targetUserId, e.message);
     }
 
-    // Also credit by userEmail if different from userId.
-    // Multi-lab carts are already split on the primary user, so this must not run again.
-    if (!Array.isArray(items) && bodyUserEmail && bodyUserEmail !== targetUserId) {
+    // Also credit student_lab_token_wallets for bodyUserEmail if distinct string
+    if (bodyUserEmail && String(bodyUserEmail) !== String(targetUserId)) {
       try {
-        await creditWalletService.processPurchase({
-          userId: bodyUserEmail,
-          tenantId,
-          credits: creditsToAdd,
-          amount: Number(amount || creditsToAdd),
-          currency: "INR",
-          paymentReference: razorpay_payment_id,
-          idempotencyKey: `EMAIL-${razorpay_order_id || razorpay_payment_id}`,
-        });
-      } catch (e) {
-        // Ignored
+        const rawLabId = String(labId || "python").toLowerCase().trim();
+        const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+        await pool.query(
+          `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+           VALUES (?, ?, ?, ?, 0, ?, 1)
+           ON DUPLICATE KEY UPDATE 
+             TotalPurchasedTokens = TotalPurchasedTokens + VALUES(TotalPurchasedTokens), 
+             RemainingTokens = RemainingTokens + VALUES(RemainingTokens),
+             Version = Version + 1, 
+             UpdatedAt = CURRENT_TIMESTAMP`,
+          [tenantId, String(bodyUserEmail).toLowerCase(), cleanLabId, creditsToAdd, creditsToAdd]
+        );
+      } catch (aliasErr) {
+        console.warn("Email alias wallet sync warning:", aliasErr.message);
       }
     }
   }

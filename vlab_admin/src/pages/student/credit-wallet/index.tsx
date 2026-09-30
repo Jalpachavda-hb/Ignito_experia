@@ -36,6 +36,12 @@ export default function CreditWallet() {
   useEffect(() => {
     loadLabs();
     fetchStudentLabTokens();
+
+    const searchParams = new URLSearchParams(window.location.search);
+    const q = searchParams.get('search') || searchParams.get('q');
+    if (q) {
+      setSearchQuery(q);
+    }
   }, [loadLabs, fetchStudentLabTokens]);
 
   // Compute live lab token info map from real database labWallets

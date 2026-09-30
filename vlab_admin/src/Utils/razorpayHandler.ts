@@ -157,7 +157,7 @@ export const initiateRazorpayPayment = async ({
     amount: Math.round(amountInRupees * 100), // Amount in paise (1 INR = 100 Paise)
     currency: 'INR',
     name: 'Ignito Experia Labs',
-    description: `Lab Credit Top-Up: ${amountInRupees} Credits`,
+    description: `Lab Token Top-Up: ${amountInRupees} Tokens`,
     image: 'https://razorpay.com/favicon.ico',
     prefill: {
       name: userName,
@@ -167,7 +167,7 @@ export const initiateRazorpayPayment = async ({
     notes: {
       lab_id: labId,
       credits_added: amountInRupees,
-      purpose: 'Lab Credit Allocation',
+      purpose: 'Lab Token Allocation',
     },
     theme: {
       color: '#4f46e5',
@@ -183,6 +183,8 @@ export const initiateRazorpayPayment = async ({
         const authState = useAuthStore.getState()?.auth;
         const token = authState?.accessToken || '';
         const currentUserId = authState?.user?.userId || (authState?.user as any)?.id;
+        
+        const currentTenantId = authState?.user?.tenantId || (authState?.user as any)?.universityId || 'TEN000001';
         
         await fetch(`${apiBaseUrl}/payments/razorpay/verify`, {
           method: 'POST',
@@ -202,6 +204,7 @@ export const initiateRazorpayPayment = async ({
             userId: currentUserId || userEmail,
             userEmail,
             userName,
+            tenantId: currentTenantId,
           }),
         });
       } catch (verifyErr) {

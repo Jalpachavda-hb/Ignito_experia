@@ -7,62 +7,43 @@ import { ThemeSwitch } from '@/components/theme-switch'
 import { Button } from '@/components/ui/button'
 import { Plus, GraduationCap, Users, FlaskConical, Loader2 } from 'lucide-react'
 import { ProgramsTable } from './components/programs-table'
-import { mockPrograms } from './data/mock-data'
 import { ProgramsProvider, usePrograms } from './context/programs-context'
 import { ProgramActionDialogs } from './components/programs-action-dialogs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getPracticalAvailablePrograms } from '@/Utils/lmsApi_paths'
 import { Program } from './data/schema'
+import { extractProgramList, mapLmsProgram } from './data/map-lms-program'
 
 function ProgramsViewContent() {
   const { dialogOpen, setDialogOpen, currentRow, setCurrentRow } = usePrograms()
   const [programsList, setProgramsList] = useState<Program[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     setLoading(true)
+    setError(null)
     getPracticalAvailablePrograms()
       .then((res: any) => {
-        const rawList = res?.programList || res?.rawData?.programList || (Array.isArray(res) ? res : [])
-        if (rawList && rawList.length > 0) {
-          const mapped: Program[] = rawList.map((p: any) => {
-            const name = p.programName || p.programmeNameAndCode || 'Academic Program'
-            const code = p.programCode || `PROG-${p.programId}`
-            const degree = name.toLowerCase().includes('master') ? 'Masters'
-              : name.toLowerCase().includes('bachelor') ? 'Bachelors'
-                : name.toLowerCase().includes('doctorate') ? 'Doctorate' : 'Masters'
-            const duration = p.programmeDuration ? p.programmeDuration.trim() : `${p.totalSemesters ? Math.ceil(p.totalSemesters / 2) : 2} Years`
-            const semesters = p.totalSemesters || 4
-
-            return {
-              id: String(p.programId || p.id),
-              name: name,
-              code: code,
-              degree: degree,
-              durationYears: p.durationYears || Math.ceil(semesters / 2) || 2,
-              durationText: duration,
-              totalCourses: p.totalCourses || 12,
-              totalSemesters: semesters,
-              totalStudents: p.totalStudents || 150,
-              totalLabs: p.totalLabs || 8,
-              status: p.isActive !== false ? 'active' : 'inactive',
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              rawLmsData: p
-            }
-          })
-          setProgramsList(mapped)
-        } else {
-          setProgramsList(mockPrograms as any)
-        }
+        if (cancelled) return
+        const mapped = extractProgramList(res)
+          .map(mapLmsProgram)
+          .filter((p) => p.id)
+        setProgramsList(mapped)
       })
       .catch((err: any) => {
         console.error('Failed to load LMS programs:', err)
-        setProgramsList(mockPrograms as any)
+        if (cancelled) return
+        setProgramsList([])
+        setError(err?.message || 'Failed to load programs from LMS')
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleCreate = () => {
@@ -77,10 +58,9 @@ function ProgramsViewContent() {
     }
   }
 
-  const displayPrograms = programsList.length > 0 ? programsList : (mockPrograms as any)
-  const totalPrograms = displayPrograms.length
-  const totalStudents = displayPrograms.reduce((acc: number, p: any) => acc + (p.totalStudents || 0), 0)
-  const totalLabs = displayPrograms.reduce((acc: number, p: any) => acc + (p.totalLabs || 0), 0)
+  const totalPrograms = programsList.length
+  const totalStudents = programsList.reduce((acc, p) => acc + (p.totalStudents || 0), 0)
+  const totalLabs = programsList.reduce((acc, p) => acc + (p.totalLabs || 0), 0)
 
   return (
     <>
@@ -106,7 +86,6 @@ function ProgramsViewContent() {
           </Button>
         </div>
 
-        {/* KPI Cards */}
         <div className='grid grid-cols-1 md:grid-cols-3 gap-4 mb-6'>
           <Card className="border-border/50 shadow-sm relative overflow-hidden">
             <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-bl-full -mr-4 -mt-4"></div>
@@ -115,7 +94,7 @@ function ProgramsViewContent() {
               <GraduationCap className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-primary">{totalPrograms}</div>
+              <div className="text-2xl font-bold text-primary">{loading ? '—' : totalPrograms}</div>
               <p className="text-xs text-muted-foreground mt-1">Active degrees offered</p>
             </CardContent>
           </Card>
@@ -127,7 +106,9 @@ function ProgramsViewContent() {
               <Users className="h-4 w-4 text-emerald-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{totalStudents.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                {loading ? '—' : totalStudents.toLocaleString()}
+              </div>
               <p className="text-xs text-muted-foreground mt-1">Students across all programs</p>
             </CardContent>
           </Card>
@@ -139,7 +120,9 @@ function ProgramsViewContent() {
               <FlaskConical className="h-4 w-4 text-purple-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{totalLabs.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                {loading ? '—' : totalLabs.toLocaleString()}
+              </div>
               <p className="text-xs text-muted-foreground mt-1">Virtual environments utilized</p>
             </CardContent>
           </Card>
@@ -151,8 +134,13 @@ function ProgramsViewContent() {
               <Loader2 className="h-8 w-8 animate-spin text-primary mr-3" />
               <span className="text-sm text-muted-foreground font-medium">Loading LMS programs...</span>
             </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <p className="font-medium text-sm">Could not load programs</p>
+              <p className="text-xs text-muted-foreground mt-1">{error}</p>
+            </div>
           ) : (
-            <ProgramsTable data={displayPrograms} />
+            <ProgramsTable data={programsList} />
           )}
         </div>
       </Main>

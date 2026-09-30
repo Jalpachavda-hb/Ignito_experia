@@ -17,8 +17,8 @@ export function RecentActivityTimeline() {
     },
     {
       id: 2,
-      title: 'Credits Added',
-      subtitle: '+50 Credits',
+      title: 'Tokens Added',
+      subtitle: '+50 Tokens',
       time: 'Yesterday, 4:15 PM',
       icon: Wallet,
       color: 'text-orange-500',

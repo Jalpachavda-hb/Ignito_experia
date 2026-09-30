@@ -1,9 +1,10 @@
 import pool from "../lib/mysql.js";
 
 class StudentLabTokenWalletRepository {
-  async getWallet(tenantId, studentId, labId, db = pool) {
+  async getWallet(tenantId, studentId, labId, userEmail = null, db = pool) {
     if (!studentId || !labId) return null;
     const sId = String(studentId);
+    const email = userEmail ? String(userEmail).toLowerCase() : null;
     const rawLabId = String(labId).toLowerCase().trim();
     const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
 
@@ -14,17 +15,18 @@ class StudentLabTokenWalletRepository {
                    ELSE 0 END AS RemainingTokens, 
               Version, CreatedAt, UpdatedAt
        FROM student_lab_token_wallets
-       WHERE StudentId = ? 
+       WHERE (StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?)))
          AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)
        ORDER BY (CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED)) DESC, Id DESC LIMIT 1`,
-      [sId, rawLabId, cleanLabId, cleanLabId]
+      [sId, email, email, rawLabId, cleanLabId, cleanLabId]
     );
     return rows[0] || null;
   }
 
-  async getWalletForUpdate(tenantId, studentId, labId, db = pool) {
+  async getWalletForUpdate(tenantId, studentId, labId, userEmail = null, db = pool) {
     if (!studentId || !labId) return null;
     const sId = String(studentId);
+    const email = userEmail ? String(userEmail).toLowerCase() : null;
     const rawLabId = String(labId).toLowerCase().trim();
     const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
 
@@ -35,16 +37,17 @@ class StudentLabTokenWalletRepository {
                    ELSE 0 END AS RemainingTokens, 
               Version, CreatedAt, UpdatedAt
        FROM student_lab_token_wallets
-       WHERE StudentId = ? 
+       WHERE (StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?)))
          AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)
        ORDER BY (CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED)) DESC, Id DESC LIMIT 1 FOR UPDATE`,
-      [sId, rawLabId, cleanLabId, cleanLabId]
+      [sId, email, email, rawLabId, cleanLabId, cleanLabId]
     );
     return rows[0] || null;
   }
 
-  async getAllWalletsForStudent(tenantId, studentId, db = pool) {
+  async getAllWalletsForStudent(tenantId, studentId, userEmail = null, db = pool) {
     const sId = String(studentId);
+    const email = userEmail ? String(userEmail).toLowerCase() : null;
     const [rows] = await db.query(
       `SELECT Id, TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, 
               CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) 
@@ -52,9 +55,9 @@ class StudentLabTokenWalletRepository {
                    ELSE 0 END AS RemainingTokens, 
               Version, CreatedAt, UpdatedAt
        FROM student_lab_token_wallets
-       WHERE StudentId = ?
+       WHERE StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?))
        ORDER BY LabId ASC`,
-      [sId]
+      [sId, email, email]
     );
     return rows;
   }
@@ -64,10 +67,11 @@ class StudentLabTokenWalletRepository {
     const rawLabId = String(labId).toLowerCase().trim();
     const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
     const tokens = Number(tokensToAdd) || 0;
+    const effTenantId = tenantId || 'DEFAULT';
 
     await db.query(
       `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
-       VALUES ('DEFAULT', ?, ?, ?, 0, ?, 1)
+       VALUES (?, ?, ?, ?, 0, ?, 1)
        ON DUPLICATE KEY UPDATE 
          TotalPurchasedTokens = TotalPurchasedTokens + VALUES(TotalPurchasedTokens), 
          RemainingTokens = CASE WHEN (CAST(TotalPurchasedTokens AS SIGNED) + CAST(VALUES(TotalPurchasedTokens) AS SIGNED)) >= CAST(ConsumedTokens AS SIGNED)
@@ -75,13 +79,14 @@ class StudentLabTokenWalletRepository {
                                 ELSE 0 END,
          Version = Version + 1, 
          UpdatedAt = CURRENT_TIMESTAMP`,
-      [sId, cleanLabId, tokens, tokens]
+      [effTenantId, sId, cleanLabId, tokens, tokens]
     );
-    return await this.getWallet(tenantId, studentId, labId, db);
+    return await this.getWallet(effTenantId, studentId, labId, null, db);
   }
 
-  async consumeWalletTokens(tenantId, studentId, labId, tokensToDeduct, db = pool) {
+  async consumeWalletTokens(tenantId, studentId, labId, tokensToDeduct, userEmail = null, db = pool) {
     const sId = String(studentId);
+    const email = userEmail ? String(userEmail).toLowerCase() : null;
     const rawLabId = String(labId).toLowerCase().trim();
     const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
     const tokens = Number(tokensToDeduct) || 0;
@@ -94,9 +99,9 @@ class StudentLabTokenWalletRepository {
                                   ELSE 0 END,
            Version = Version + 1,
            UpdatedAt = CURRENT_TIMESTAMP
-       WHERE StudentId = ? 
+       WHERE (StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?)))
          AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)`,
-      [tokens, tokens, tokens, sId, rawLabId, cleanLabId, cleanLabId]
+      [tokens, tokens, tokens, sId, email, email, rawLabId, cleanLabId, cleanLabId]
     );
 
     // ALSO deduct from credit_wallets to keep total balance in sync
@@ -111,7 +116,7 @@ class StudentLabTokenWalletRepository {
       );
     } catch (e) {}
 
-    return await this.getWallet(tenantId, studentId, labId, db);
+    return await this.getWallet(tenantId, studentId, labId, email, db);
   }
 }
 
