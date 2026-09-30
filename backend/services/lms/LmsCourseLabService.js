@@ -25,11 +25,11 @@ class LmsCourseLabService {
       ...list.map((course) => (course?.semesterNumber != null ? String(course.semesterNumber) : null)),
     ].filter(Boolean))];
 
-    const params = [tenantId, ...codes];
+    const params = [tenantId, tenantId, ...codes];
     let sql = `
       SELECT program_id, semester_id, course_code, lab_id
       FROM course_lab_mappings
-      WHERE tenant_id = ?
+      WHERE (tenant_id = ? OR tenant_id = 'PLATFORM')
         AND status = 'active'
         AND course_code IN (${codes.map(() => "?").join(",")})
     `;
@@ -41,23 +41,24 @@ class LmsCourseLabService {
       sql += " AND program_id = ?";
       params.push(String(programmeId));
     }
+    sql += ` ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END, id DESC`;
+    params.push(tenantId);
 
     let rows = [];
     try {
       const [matched] = await pool.query(sql, params);
       rows = matched || [];
-      if (rows.length === 0 && programmeId != null && programmeId !== "") {
-        const fallbackParams = [tenantId, ...codes, ...semesterValues];
-        let fallbackSql = `
+      if (rows.length === 0) {
+        // Fallback: match by course_code regardless of program_id or semester_id
+        const fallbackParams = [tenantId, ...codes, tenantId];
+        const fallbackSql = `
           SELECT program_id, semester_id, course_code, lab_id
           FROM course_lab_mappings
-          WHERE tenant_id = ?
+          WHERE (tenant_id = ? OR tenant_id = 'PLATFORM')
             AND status = 'active'
             AND course_code IN (${codes.map(() => "?").join(",")})
+          ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END, id DESC
         `;
-        if (semesterValues.length) {
-          fallbackSql += ` AND semester_id IN (${semesterValues.map(() => "?").join(",")})`;
-        }
         const [fallback] = await pool.query(fallbackSql, fallbackParams);
         rows = fallback || [];
       }
@@ -72,15 +73,71 @@ class LmsCourseLabService {
       byCode.get(code).push(row);
     }
 
+    // Default title resolver for standard lab IDs
+    const resolveLabTitle = (labId) => {
+      const id = String(labId || "").toLowerCase();
+      if (id.includes("linux")) return "Linux Administration Lab";
+      if (id.includes("dbms")) return "DBMS & SQL Lab";
+      if (id.includes("python")) return "Python";
+      if (id.includes("java")) return "Java Development Lab";
+      if (id.includes("dotnet")) return "Web Technology Using .NET";
+      if (id.includes("mobile") || id.includes("android")) return "Fundamental of Mobile Application";
+      if (id.includes("testing")) return "Software Testing Automation";
+      if (id.includes("agile")) return "Agile Methodology";
+      if (id.includes("data-science")) return "Data Science-I";
+      if (id.includes("big-data")) return "Big Data Analytics-I";
+      if (id.includes("software-eng")) return "Software Engineering";
+      return "Virtual Lab";
+    };
+
+    // Auto-map courses by keywords if not in database
+    const resolveFallbackMapping = (course) => {
+      const name = String(course?.courseName || course?.name || course?.subjectName || "").toLowerCase();
+      const code = this.courseCode(course).toUpperCase();
+
+      if (name.includes("database") || name.includes("dbms") || name.includes("sql") || name.includes("rdbms") || code.includes("4031")) {
+        return { lab_id: "dbms-lab", title: "DBMS & SQL Lab" };
+      }
+      if (name.includes("programming with c") || name.includes(" c ") || name.startsWith("c ") || name.endsWith(" c") || name === "c" || name.includes("c++") || code.includes("4011")) {
+        return { lab_id: "linux-lab", title: "Linux Administration Lab" };
+      }
+      if (name.includes("python")) return { lab_id: "python-lab", title: "Python" };
+      if (name.includes("java")) return { lab_id: "java-lab", title: "Java Development Lab" };
+      if (name.includes("dotnet") || name.includes(".net")) return { lab_id: "dotnet-lab", title: "Web Technology Using .NET" };
+      if (name.includes("linux")) return { lab_id: "linux-lab", title: "Linux Administration Lab" };
+      if (name.includes("data science")) return { lab_id: "data-science-lab", title: "Data Science-I" };
+      if (name.includes("big data")) return { lab_id: "big-data-lab", title: "Big Data Analytics-I" };
+      if (name.includes("android") || name.includes("mobile")) return { lab_id: "mobile-app-lab", title: "Fundamental of Mobile Application" };
+      if (name.includes("testing")) return { lab_id: "testing-lab", title: "Software Testing Automation" };
+      if (name.includes("agile")) return { lab_id: "agile-lab", title: "Agile Methodology" };
+      if (name.includes("software eng")) return { lab_id: "software-eng-lab", title: "Software Engineering" };
+      return null;
+    };
+
     return list.map((course) => {
       const code = this.courseCode(course);
-      const mapped = byCode.get(code)?.[0];
+      let mapped = byCode.get(code)?.[0];
+      if (!mapped) {
+        const fallback = resolveFallbackMapping(course);
+        if (fallback) {
+          mapped = {
+            lab_id: fallback.lab_id,
+            title: fallback.title,
+            course_code: code,
+            semester_id: semester || course?.semesterNumber || course?.semesterId || "1",
+            program_id: programmeId || course?.programId || "2",
+          };
+        }
+      }
+
       if (!mapped) return { ...course, mappedLab: null };
+
       return {
         ...course,
         mappedLab: {
           labId: mapped.lab_id,
-          courseCode: mapped.course_code,
+          title: mapped.title || resolveLabTitle(mapped.lab_id),
+          courseCode: mapped.course_code || code,
           semesterId: mapped.semester_id,
           programId: mapped.program_id,
         },

@@ -51,10 +51,10 @@ class UsageBillingService {
         return { billed: true, chargedTokens: 0, unbilledSeconds };
       }
 
-      const availableTokens = Number(wallet.RemainingTokens || 0);
-      const actualTokensToCharge = Math.min(tokensToCharge, availableTokens);
+      const availableTokens = Number(wallet?.RemainingTokens || 0);
+      const actualTokensToCharge = wallet ? Math.min(tokensToCharge, availableTokens) : 0;
 
-      if (actualTokensToCharge <= 0 && availableTokens <= 0) {
+      if (wallet && actualTokensToCharge <= 0 && availableTokens <= 0) {
         // Zero balance - transition immediately to STOPPING
         await connection.query(
           `UPDATE lab_sessions SET Status = 'STOPPING', EndedAt = CURRENT_TIMESTAMP, UpdatedAt = CURRENT_TIMESTAMP WHERE SessionId = ?`,
@@ -231,13 +231,13 @@ class UsageBillingService {
 
       const tokensToCharge = Math.floor(unbilledSeconds / 60);
 
-      const availableTokens = Number(wallet.RemainingTokens || 0);
-      const actualTokensToCharge = Math.min(tokensToCharge, availableTokens);
+      const availableTokens = Number(wallet?.RemainingTokens || 0);
+      const actualTokensToCharge = wallet ? Math.min(tokensToCharge, availableTokens) : 0;
 
       let balanceBefore = availableTokens;
       let balanceAfter = availableTokens;
 
-      if (actualTokensToCharge > 0) {
+      if (wallet && actualTokensToCharge > 0) {
         balanceAfter = Math.max(0, balanceBefore - actualTokensToCharge);
         const newBilledTokens = Number(session.BilledTokens || 0) + actualTokensToCharge;
         const newBilledSeconds = billedSeconds + (actualTokensToCharge * 60);

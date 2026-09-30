@@ -20,6 +20,7 @@ import {
   isEcsEnabled,
   startEcsTask,
   stopEcsTask,
+  describeTask,
   resolveTaskNetworking,
 } from "../services/ecsService.js";
 import { clearSessionFiles } from "../services/fileRepository.js";
@@ -275,17 +276,26 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
   }
 
   const memorySess = await getSession(sessionId);
-  if (memorySess && isEcsEnabled() && dbSession.TaskArn) {
-    if (memorySess.status === 'starting' || currentStatus === 'STARTING') {
-      const net = await resolveTaskNetworking(dbSession.TaskArn, dbSession.LabId);
-      if (net.status === 'running' || net.publicIp) {
-        currentStatus = 'RUNNING';
-        await labSessionRepository.updateSession(sessionId, { Status: 'RUNNING' });
-        if (!memorySess.bootstrapState || memorySess.bootstrapState === 'NOT_STARTED') {
-          await updateSession(sessionId, net);
-          bootstrapSession(memorySess, net).catch(e => console.error(e));
+  if (isEcsEnabled() && dbSession.TaskArn) {
+    try {
+      const task = await describeTask(dbSession.TaskArn);
+      if (!task || task.lastStatus === 'STOPPED') {
+        currentStatus = 'STOPPED';
+        await labSessionRepository.updateSession(sessionId, { Status: 'STOPPED', EndedAt: new Date() }).catch(() => {});
+        await deleteSession(sessionId).catch(() => {});
+      } else if (memorySess && (memorySess.status === 'starting' || currentStatus === 'STARTING')) {
+        const net = await resolveTaskNetworking(dbSession.TaskArn, dbSession.LabId);
+        if (net.status === 'running' || net.publicIp) {
+          currentStatus = 'RUNNING';
+          await labSessionRepository.updateSession(sessionId, { Status: 'RUNNING' });
+          if (!memorySess.bootstrapState || memorySess.bootstrapState === 'NOT_STARTED') {
+            await updateSession(sessionId, net);
+            bootstrapSession(memorySess, net).catch(e => console.error(e));
+          }
         }
       }
+    } catch (ecsCheckErr) {
+      console.warn(`[sessionsStatusHandler] ECS task check error:`, ecsCheckErr.message);
     }
   }
 
@@ -434,13 +444,28 @@ export const sessionsStopHandler = async ({ pathParameters, auth }) => {
   }
 
   // 1. Finalize billing (charges partial minutes according to commercial rule)
-  const billingResult = await usageBillingService.finalizeSessionBilling(sessionId);
+  let billingResult = null;
+  try {
+    billingResult = await usageBillingService.finalizeSessionBilling(sessionId);
+  } catch (billingErr) {
+    console.warn(`[sessionsStopHandler] Billing finalization error for ${sessionId}:`, billingErr.message);
+  }
 
   // 2. Submit container stop request
-  await runtimeStopService.processStop(sessionId);
+  try {
+    await runtimeStopService.processStop(sessionId);
+  } catch (stopErr) {
+    console.warn(`[sessionsStopHandler] Container stop error for ${sessionId}:`, stopErr.message);
+  }
+
+  // 3. Mark session stopped in DB to guarantee status consistency
+  await labSessionRepository.updateSession(sessionId, {
+    Status: 'STOPPED',
+    EndedAt: new Date()
+  }).catch(() => {});
 
   clearSessionFiles(sessionId);
-  await deleteSession(sessionId);
+  await deleteSession(sessionId).catch(() => {});
 
   return ok({
     sessionId,
@@ -472,6 +497,36 @@ export const sessionsListByUserHandler = async ({
 
   const activeSession = await labSessionRepository.findActiveSessionForUser(auth.userId, tenantId);
   if (activeSession) {
+    // 1. Check expiration
+    const remainingSeconds = calculateRemainingSeconds(activeSession.ExpiresAt);
+    if (remainingSeconds <= 0 && ['STARTING', 'RUNNING', 'EXPIRING_SOON'].includes(activeSession.Status)) {
+      console.log(`[sessionsListByUserHandler] Session ${activeSession.SessionId} has expired. Updating to EXPIRED.`);
+      await labSessionRepository.updateSession(activeSession.SessionId, {
+        Status: 'EXPIRED',
+        EndedAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
+      }).catch(() => {});
+      await deleteSession(activeSession.SessionId).catch(() => {});
+      return ok({ success: false, message: "No active session found" });
+    }
+
+    // 2. Check actual ECS container status if TaskArn is present
+    if (activeSession.TaskArn && isEcsEnabled()) {
+      try {
+        const task = await describeTask(activeSession.TaskArn);
+        if (!task || task.lastStatus === 'STOPPED') {
+          console.log(`[sessionsListByUserHandler] Detected ECS task ${activeSession.TaskArn} is STOPPED. Syncing session ${activeSession.SessionId} to STOPPED.`);
+          await labSessionRepository.updateSession(activeSession.SessionId, {
+            Status: 'STOPPED',
+            EndedAt: new Date()
+          }).catch(() => {});
+          await deleteSession(activeSession.SessionId).catch(() => {});
+          return ok({ success: false, message: "No active session found" });
+        }
+      } catch (ecsErr) {
+        console.warn(`[sessionsListByUserHandler] Could not describe ECS task ${activeSession.TaskArn}:`, ecsErr.message);
+      }
+    }
+
     const memorySess = await getSession(activeSession.SessionId);
     return ok({
       session: {
@@ -480,7 +535,7 @@ export const sessionsListByUserHandler = async ({
         status: activeSession.Status,
         startedAt: activeSession.StartedAt,
         expiresAt: activeSession.ExpiresAt,
-        remainingSeconds: calculateRemainingSeconds(activeSession.ExpiresAt),
+        remainingSeconds,
         allocatedCredits: activeSession.AllocatedCredits,
         allocatedDurationMinutes: activeSession.AllocatedDurationMinutes,
         tenMinuteWarningSent: Boolean(activeSession.TenMinuteWarningSent),

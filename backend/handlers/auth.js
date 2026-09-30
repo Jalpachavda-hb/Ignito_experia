@@ -961,7 +961,40 @@ export const getPracticalAvailableProgramsHandler = async ({ auth, headers = {} 
   });
   return ok(result);
 };
-export const mapCourseLabHandler = async () => ok({ success: true });
+export const mapCourseLabHandler = async ({ auth, pathParameters = {}, body = {} }) => {
+  const tenantId = auth?.tenantId || "PLATFORM";
+  const courseCode = body.courseCode || pathParameters.courseId;
+  const programId = String(body.programId || "2");
+  const semesterId = String(body.semesterId || "1");
+  const labId = String(body.labId || "");
+
+  if (!courseCode || !labId) {
+    return badRequest("courseCode and labId are required");
+  }
+
+  try {
+    const pool = (await import("../lib/mysql.js")).default;
+    const tenantsToMap = Array.from(new Set([tenantId, "PLATFORM", "tnt_4925e025aa50"]));
+    for (const tId of tenantsToMap) {
+      await pool.query(
+        `INSERT INTO course_lab_mappings (tenant_id, program_id, semester_id, course_code, lab_id, status, mapped_by)
+         VALUES (?, ?, ?, ?, ?, 'active', ?)
+         ON DUPLICATE KEY UPDATE lab_id = VALUES(lab_id), status = 'active', updated_at = CURRENT_TIMESTAMP`,
+        [tId, programId, semesterId, courseCode, labId, auth?.email || String(auth?.userId || "admin")]
+      );
+    }
+
+    try {
+      const { lmsResponseCache } = await import("../services/lms/LmsResponseCache.js");
+      lmsResponseCache.clear?.();
+    } catch (_) {}
+
+    return ok({ success: true, message: "Course lab mapped successfully", courseCode, labId });
+  } catch (err) {
+    console.error("[mapCourseLabHandler] Error mapping course lab:", err);
+    return internalServerError("Failed to map course lab: " + err.message);
+  }
+};
 export const userProfileUpdateHandler = async ({ auth, body = {} }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
   const userId = Number(auth.userId);

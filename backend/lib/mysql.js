@@ -508,6 +508,25 @@ export const verifyDbConnection = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    try {
+      const [existingMappings] = await connection.query("SELECT COUNT(*) AS cnt FROM \`course_lab_mappings\`");
+      if (!existingMappings?.[0]?.cnt) {
+        await connection.query(`
+          INSERT INTO \`course_lab_mappings\` (tenant_id, program_id, semester_id, course_code, lab_id, status, mapped_by)
+          VALUES 
+            ('tnt_4925e025aa50', '2', '1', 'MC01094011', 'linux-lab', 'active', 'system'),
+            ('tnt_4925e025aa50', '2', '1', 'MC01094031', 'dbms-lab', 'active', 'system'),
+            ('tnt_4925e025aa50', '2', '5', 'MC01094011', 'linux-lab', 'active', 'system'),
+            ('tnt_4925e025aa50', '2', '5', 'MC01094031', 'dbms-lab', 'active', 'system'),
+            ('PLATFORM', '2', '1', 'MC01094011', 'linux-lab', 'active', 'system'),
+            ('PLATFORM', '2', '1', 'MC01094031', 'dbms-lab', 'active', 'system'),
+            ('PLATFORM', '2', '5', 'MC01094011', 'linux-lab', 'active', 'system'),
+            ('PLATFORM', '2', '5', 'MC01094031', 'dbms-lab', 'active', 'system')
+          ON DUPLICATE KEY UPDATE lab_id = VALUES(lab_id)
+        `);
+      }
+    } catch (_) {}
+
     // lab_token_packages
     await connection.query(`
       CREATE TABLE IF NOT EXISTS \`lab_token_packages\` (

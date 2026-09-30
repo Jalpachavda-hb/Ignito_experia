@@ -94,7 +94,23 @@ export default function MyLabs() {
           setSemesterNotice('This programme or semester is not part of your LMS enrolment.');
           return;
         }
-        const courses = res?.courses || res?.courseList || [];
+        let courses = res?.courses || res?.courseList || [];
+        if (Array.isArray(courses) && Array.isArray(res?.labs) && res.labs.length > 0) {
+          courses = courses.map((c: any) => {
+            if (c.mappedLab && (c.mappedLab.labId || c.mappedLab.LabId)) return c;
+            const matchedInLabs = res.labs.find((l: any) =>
+              (l.courseCode && l.courseCode === (c.courseCode || c.code)) ||
+              (l.courseName && l.courseName === (c.courseName || c.name))
+            );
+            if (matchedInLabs?.mappedLab) {
+              return { ...c, mappedLab: matchedInLabs.mappedLab };
+            }
+            if (matchedInLabs?.lab) {
+              return { ...c, mappedLab: { labId: matchedInLabs.lab.id || matchedInLabs.lab.labId, title: matchedInLabs.lab.title } };
+            }
+            return c;
+          });
+        }
         setSemesterCourses(Array.isArray(courses) ? courses : []);
         setSemesterNotice('');
       })
@@ -198,6 +214,35 @@ export default function MyLabs() {
                       courseCode: cCode,
                       courseName: cName,
                       mappedLabTitle: mappedLabObj.title,
+                    });
+                  }
+                }
+              } else {
+                const cNameLower = cName.toLowerCase();
+                const autoMatch = labs.find((l) => {
+                  const lTitle = String(l.title || l.name || '').toLowerCase();
+                  const lId = String(l.id || l.labId || '').toLowerCase();
+                  if (cNameLower.includes('database') || cNameLower.includes('dbms') || cNameLower.includes('sql') || cNameLower.includes('rdbms')) {
+                    return lId.includes('dbms') || lTitle.includes('dbms') || lTitle.includes('sql');
+                  }
+                  if (cNameLower.includes('programming with c') || cNameLower.includes('c programming') || cNameLower.includes('c++')) {
+                    return lId.includes('linux') || lTitle.includes('linux') || lId.includes('c-lab');
+                  }
+                  if (cNameLower.includes('python')) return lId.includes('python') || lTitle.includes('python');
+                  if (cNameLower.includes('java')) return lId.includes('java') || lTitle.includes('java');
+                  if (cNameLower.includes('.net') || cNameLower.includes('dotnet')) return lId.includes('dotnet') || lTitle.includes('.net');
+                  return false;
+                });
+                if (autoMatch) {
+                  const uniqueKey = `${autoMatch.id}-${cCode}`;
+                  if (!seenLabKeys.has(uniqueKey)) {
+                    seenLabKeys.add(uniqueKey);
+                    allMapped.push({
+                      ...autoMatch,
+                      title: cName,
+                      mappedLabTitle: autoMatch.title,
+                      courseCode: cCode,
+                      courseName: cName,
                     });
                   }
                 }
@@ -494,6 +539,51 @@ export default function MyLabs() {
               mappedLabTitle: labTitle,
             });
           }
+        } else {
+          // If no explicit mappedLab is found, resolve matching lab from system catalog by keywords
+          const cNameLower = cName.toLowerCase();
+          const autoMatch = labs.find((l) => {
+            const lTitle = String(l.title || l.name || '').toLowerCase();
+            const lId = String(l.id || l.labId || '').toLowerCase();
+            if (cNameLower.includes('database') || cNameLower.includes('dbms') || cNameLower.includes('sql') || cNameLower.includes('rdbms')) {
+              return lId.includes('dbms') || lTitle.includes('dbms') || lTitle.includes('sql');
+            }
+            if (cNameLower.includes('programming with c') || cNameLower.includes('c programming') || cNameLower.includes('c++')) {
+              return lId.includes('linux') || lTitle.includes('linux') || lId.includes('c-lab');
+            }
+            if (cNameLower.includes('python')) return lId.includes('python') || lTitle.includes('python');
+            if (cNameLower.includes('java')) return lId.includes('java') || lTitle.includes('java');
+            if (cNameLower.includes('.net') || cNameLower.includes('dotnet')) return lId.includes('dotnet') || lTitle.includes('.net');
+            if (cNameLower.includes('android') || cNameLower.includes('mobile')) return lId.includes('mobile') || lId.includes('android');
+            if (cNameLower.includes('linux')) return lId.includes('linux') || lTitle.includes('linux');
+            if (cNameLower.includes('data science')) return lId.includes('data-science') || lTitle.includes('data science');
+            if (cNameLower.includes('big data')) return lId.includes('big-data') || lTitle.includes('big data');
+            return false;
+          }) || (labs.length > 0 ? labs[idx % labs.length] : null);
+
+          if (autoMatch) {
+            mappedResults.push({
+              ...autoMatch,
+              title: autoMatch.title || cName,
+              subtitle: cName,
+              mappedLabTitle: autoMatch.title,
+              courseCode: cCode,
+              courseName: cName,
+            });
+          } else {
+            mappedResults.push({
+              id: `course-lab-${cCode.toLowerCase()}`,
+              title: cName,
+              subtitle: 'Course Assigned Lab',
+              category: 'Course Lab',
+              durationMinutes: 90,
+              credits: 30,
+              status: 'active',
+              courseCode: cCode,
+              courseName: cName,
+              mappedLabTitle: cName,
+            });
+          }
         }
       });
 
@@ -585,7 +675,14 @@ export default function MyLabs() {
     // Also check if assigned via enrolled LMS curriculum (for university/institution students)
     const isEnrolledInCurriculum = !isDirectUser && (
       allEnrolledMappedLabs.some((l: any) => (l.id || l.labId || l.LabId) === labId || (l.id || l.labId || l.LabId) === getLabId(lab)) ||
-      (semesterCourses && semesterCourses.some((c: any) => c.labId === labId || c.labCode === labId))
+      (semesterCourses && semesterCourses.some((c: any) => 
+        c.labId === labId || 
+        c.labCode === labId || 
+        c.mappedLab?.labId === labId || 
+        c.courseCode === (lab as any)?.courseCode ||
+        c.courseName === (lab as any)?.courseName
+      )) ||
+      (hasCourseFilter && Boolean((lab as any)?.courseCode))
     );
 
     // Check lab-specific token wallet balance

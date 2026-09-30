@@ -33,6 +33,10 @@ class RuntimeStopService {
     }
   }
 
+  async stopSessionContainers(sessionId) {
+    return this.processStop(sessionId);
+  }
+
   async getPendingStopSessions() {
     const [rows] = await pool.query(
       `SELECT SessionId, TenantId, UserId, LabId, TaskArn, Status, StopRetryCount, CreatedAt
