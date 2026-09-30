@@ -75,7 +75,7 @@ jobs:
 
       - name: Run Build
         env:
-          VITE_API_URL: https://experia.ignitolearn.com/owner-api
+          VITE_API_URL: https://experia.ignitolearn.com/ownerbackend
           VITE_BASE: /owner/
         run: npm run build -- --base=/owner/
         working-directory: ignito_Experia_Main_Dashboard/ignito_experia_admin
@@ -163,10 +163,10 @@ jobs:
             npm ci --legacy-peer-deps
             VITE_API_URL="$APP_URL/owner-api" npm run build -- --base=/owner/
 
-            echo "==> Restart PM2 apps"
-            pm2 restart vlab-api owner-api || {
-              pm2 start "$DEPLOY_PATH/backend/index.js" --name vlab-api
-              pm2 start "$DEPLOY_PATH/ignito_Experia_Main_Dashboard/Backend/index.js" --name owner-api
+            echo "==> Restart  apps"
+            pm2 restart vlab-backend ownerbackend || {
+              pm2 start "$DEPLOY_PATH/backend/index.js" --name vlab-backend
+              pm2 start "$DEPLOY_PATH/ignito_Experia_Main_Dashboard/Backend/index.js" --name ownerbackend
             }
             pm2 save
 
@@ -188,11 +188,11 @@ jobs:
               exit 1
             fi
 
-            VLAB_STATUS="$(pm2 jlist | python3 -c "import sys,json; apps={a['name']:a['pm2_env']['status'] for a in json.load(sys.stdin)}; print(apps.get('vlab-api','missing'))")"
-            OWNER_STATUS="$(pm2 jlist | python3 -c "import sys,json; apps={a['name']:a['pm2_env']['status'] for a in json.load(sys.stdin)}; print(apps.get('owner-api','missing'))")"
-            echo "PM2 vlab-api=$VLAB_STATUS owner-api=$OWNER_STATUS"
-            [ "$VLAB_STATUS" = "online" ] || { echo "FAIL: vlab-api is not online"; exit 1; }
-            [ "$OWNER_STATUS" = "online" ] || { echo "FAIL: owner-api is not online"; exit 1; }
+            VLAB_STATUS="$(pm2 jlist | python3 -c "import sys,json; apps={a['name']:a['pm2_env']['status'] for a in json.load(sys.stdin)}; print(apps.get('vlab-backend','missing'))")"
+            OWNER_STATUS="$(pm2 jlist | python3 -c "import sys,json; apps={a['name']:a['pm2_env']['status'] for a in json.load(sys.stdin)}; print(apps.get('ownerbackend','missing'))")"
+            echo "PM2 vlab-backend=$VLAB_STATUS ownerbackend=$OWNER_STATUS"
+            [ "$VLAB_STATUS" = "online" ] || { echo "FAIL: vlab-backend is not online"; exit 1; }
+            [ "$OWNER_STATUS" = "online" ] || { echo "FAIL: ownerbackend is not online"; exit 1; }
 
             curl -fsS "http://127.0.0.1:8080/api/health" >/dev/null
             echo "OK: Main API /api/health"
