@@ -98,7 +98,16 @@ const startCountdownTimer = (get: any, set: any) => {
     if (current?.sessionId) {
       try {
         const latest = await fetchLabSessionStatus(current.sessionId);
-        if (latest && latest.expiresAt) {
+        const latestStatus = String(latest?.status || (latest as any)?.Status || '').toLowerCase();
+        if (latest && ['stopping', 'stopped', 'completed', 'expired', 'failed'].includes(latestStatus)) {
+          set({
+            activeSession: null,
+            elapsedTime: null,
+            remainingSeconds: null
+          });
+          if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+          if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+        } else if (latest && latest.expiresAt) {
           set({
             activeSession: {
               ...current,
@@ -139,23 +148,27 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
       const response = await fetchUserActiveSession(targetUserId);
       const session = response.session || response.activeSession || null;
 
-      set({ activeSession: session });
-      if (!session && get().startError?.includes('active lab session')) {
+      const rawStatus = String(session?.status || (session as any)?.Status || '').toLowerCase();
+      const isSessionActive = session && ['running', 'starting', 'expiring_soon'].includes(rawStatus);
+      const activeSessionToSet = isSessionActive ? session : null;
+
+      set({ activeSession: activeSessionToSet });
+      if (!activeSessionToSet && get().startError?.includes('active lab session')) {
         set({ startError: null });
       }
       get().setElapsedTime(null);
 
-      if (session && ['running', 'starting', 'expiring_soon', 'RUNNING', 'STARTING', 'EXPIRING_SOON'].includes(session.status)) {
+      if (activeSessionToSet && ['running', 'starting', 'expiring_soon', 'RUNNING', 'STARTING', 'EXPIRING_SOON'].includes(activeSessionToSet.status)) {
         startCountdownTimer(get, set);
         const labs = useLabStore.getState()?.labs || [];
-        const matchedLab = labs.find((l: any) => (l.id || l.labId || l.LabId || l.labCode || l._id) === session.labId);
+        const matchedLab = labs.find((l: any) => (l.id || l.labId || l.LabId || l.labCode || l._id) === activeSessionToSet.labId);
         saveLabActivity(String(targetUserId), {
-          id: session.labId,
-          labName: matchedLab?.title || matchedLab?.name || session.labId,
+          id: activeSessionToSet.labId,
+          labName: matchedLab?.title || matchedLab?.name || activeSessionToSet.labId,
           status: 'In Progress',
-          creditsUsed: session.allocatedCredits || matchedLab?.credits || 40,
+          creditsUsed: activeSessionToSet.allocatedCredits || matchedLab?.credits || 40,
           completionPercentage: 50,
-          lastAccessed: session.startedAt || new Date().toISOString()
+          lastAccessed: activeSessionToSet.startedAt || new Date().toISOString()
         });
       } else {
         if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }

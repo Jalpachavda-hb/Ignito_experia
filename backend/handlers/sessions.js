@@ -374,7 +374,19 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
       }
     } catch (ecsCheckErr) {
       console.warn(`[sessionsStatusHandler] ECS task check error:`, ecsCheckErr.message);
+      const msg = (ecsCheckErr.message || "").toLowerCase();
+      if (msg.includes("not found") || msg.includes("missing") || msg.includes("invalidparameter") || msg.includes("does not exist")) {
+        currentStatus = 'STOPPED';
+        await labSessionRepository.updateSession(sessionId, { Status: 'STOPPED', EndedAt: new Date() }).catch(() => {});
+        await deleteSession(sessionId).catch(() => {});
+      }
     }
+  }
+
+  if (currentStatus === 'STOPPING' && (!dbSession.TaskArn || !isEcsEnabled() || !memorySess?.publicIp)) {
+    currentStatus = 'STOPPED';
+    await labSessionRepository.updateSession(sessionId, { Status: 'STOPPED', EndedAt: new Date() }).catch(() => {});
+    await deleteSession(sessionId).catch(() => {});
   }
 
   const effectiveStatus = (memorySess?.status || currentStatus || 'RUNNING').toLowerCase();
@@ -603,6 +615,18 @@ export const sessionsListByUserHandler = async ({
 
   const activeSession = await labSessionRepository.findActiveSessionForUser(auth.userId, tenantId);
   if (activeSession) {
+    // 0. Check if session is stopping or in a terminal state
+    if (['STOPPING', 'STOPPED', 'COMPLETED', 'EXPIRED', 'FAILED'].includes(activeSession.Status)) {
+      if (activeSession.Status === 'STOPPING') {
+        await labSessionRepository.updateSession(activeSession.SessionId, {
+          Status: 'STOPPED',
+          EndedAt: new Date()
+        }).catch(() => {});
+        await deleteSession(activeSession.SessionId).catch(() => {});
+      }
+      return ok({ success: false, message: "No active session found" });
+    }
+
     // 1. Check expiration
     const remainingSeconds = calculateRemainingSeconds(activeSession.ExpiresAt);
     if (remainingSeconds <= 0 && ['STARTING', 'RUNNING', 'EXPIRING_SOON'].includes(activeSession.Status)) {

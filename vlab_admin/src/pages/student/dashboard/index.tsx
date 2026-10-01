@@ -89,7 +89,9 @@ export default function StudentDashboard() {
     const result: any[] = []
 
     // 1. If student currently has an active running session, place it at top as "In Progress"
-    if (activeSession) {
+    const sessionStatus = String(activeSession?.status || (activeSession as any)?.Status || '').toLowerCase();
+    const isRunning = Boolean(activeSession && ['running', 'starting', 'expiring_soon'].includes(sessionStatus));
+    if (isRunning && activeSession) {
       const activeLabId = activeSession.labId
       const cleanId = String(activeLabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
       const matchedLab = labs.find(l => {

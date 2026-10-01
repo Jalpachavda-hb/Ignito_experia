@@ -11,7 +11,7 @@ class LabSessionRepository {
        FROM lab_sessions
        WHERE (UserId = ? OR UserId = (SELECT UserId FROM Users WHERE Email = ? LIMIT 1))
          AND (TenantId = ? OR TenantId IS NULL OR TenantId = 'DEFAULT' OR TenantId = 'DIRECT' OR TenantId = 'PLATFORM')
-         AND Status IN ('STARTING', 'RUNNING', 'EXPIRING_SOON', 'STOPPING')
+         AND Status IN ('STARTING', 'RUNNING', 'EXPIRING_SOON')
        ORDER BY CreatedAt DESC LIMIT 1`,
       [uStr, uStr, tenantId || 'DEFAULT']
     );
@@ -62,10 +62,35 @@ class LabSessionRepository {
     fields.push("UpdatedAt = CURRENT_TIMESTAMP");
     params.push(sessionId);
 
-    await db.query(
-      `UPDATE lab_sessions SET ${fields.join(", ")} WHERE SessionId = ?`,
-      params
-    );
+    try {
+      await db.query(
+        `UPDATE lab_sessions SET ${fields.join(", ")} WHERE SessionId = ?`,
+        params
+      );
+    } catch (err) {
+      // Fallback: If DB enum does not yet have STOPPED, fallback to COMPLETED
+      if (updates.Status === 'STOPPED') {
+        try {
+          const fallbackUpdates = { ...updates, Status: 'COMPLETED' };
+          const fbFields = [];
+          const fbParams = [];
+          for (const [key, value] of Object.entries(fallbackUpdates)) {
+            fbFields.push(`${key} = ?`);
+            fbParams.push(value);
+          }
+          fbFields.push("UpdatedAt = CURRENT_TIMESTAMP");
+          fbParams.push(sessionId);
+          await db.query(
+            `UPDATE lab_sessions SET ${fbFields.join(", ")} WHERE SessionId = ?`,
+            fbParams
+          );
+        } catch (_) {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
     return await this.getSessionById(sessionId, db);
   }
 

@@ -330,6 +330,8 @@ export default function MyLabs() {
 
   const isLabActive = (lab: any) => {
     if (!activeSession?.labId) return false;
+    const sessionStatus = String(activeSession.status || (activeSession as any)?.Status || '').toLowerCase();
+    if (!['running', 'starting', 'expiring_soon'].includes(sessionStatus)) return false;
     const sLabId = String(activeSession.labId).toLowerCase().replace(/-lab$/, '');
     const lId = String(lab.id || lab.labId || '').toLowerCase().replace(/-lab$/, '');
     const lTitle = String(lab.title || lab.name || '').toLowerCase();
@@ -338,6 +340,9 @@ export default function MyLabs() {
 
   // Derived state for active labs
   const activeLabs = useMemo(() => {
+    if (!activeSession) return [];
+    const sessionStatus = String(activeSession.status || (activeSession as any)?.Status || '').toLowerCase();
+    if (!['running', 'starting', 'expiring_soon'].includes(sessionStatus)) return [];
     return labs.filter(isLabActive);
   }, [labs, activeSession]);
 
