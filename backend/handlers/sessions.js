@@ -218,6 +218,16 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       effectiveUserId = numericId > 0 ? numericId : 1;
     }
 
+    const rawSubtype = String(body?.dotnetSubtype || body?.subtype || body?.subType || "").toLowerCase().trim();
+    const dotnetSubtype = rawSubtype.includes("mvc") ? "mvc" : (rawSubtype.includes("console") ? "console" : (rawSubtype || null));
+
+    let starterAssetKey = null;
+    if (dotnetSubtype === "mvc") {
+      starterAssetKey = "lab-assets/dotnet/mvc/latest.tar.gz";
+    } else if (dotnetSubtype === "console" || dotnetSubtype === "console-snippet") {
+      starterAssetKey = "lab-assets/dotnet/console-snippet/latest.tar.gz";
+    }
+
     // Generate Session ID & create lab_sessions DB row (Status = STARTING)
     const sessionRecord = createSessionRecord({
       userId: String(effectiveUserId),
@@ -225,6 +235,8 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       labType: canonicalLabType(labId),
       runtimeType: lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide",
       durationMinutes: sessionTokens,
+      dotnetSubtype,
+      starterAssetKey,
     });
     const sessionId = sessionRecord.sessionId;
 
@@ -238,6 +250,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       startedAt: startedAtDate,
       tokenExpiryAt: tokenExpiryAtDate,
       expiresAt: tokenExpiryAtDate,
+      subtype: dotnetSubtype,
       status: 'STARTING'
     }, connection);
 
@@ -248,6 +261,8 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     sessionRecord.expiresAt = expiresIso;
     sessionRecord.allocatedCredits = sessionTokens;
     sessionRecord.allocatedDurationMinutes = sessionTokens;
+    sessionRecord.dotnetSubtype = dotnetSubtype;
+    sessionRecord.starterAssetKey = starterAssetKey;
     sessionRecord.status = 'starting';
     await saveSession(sessionRecord);
 
@@ -314,6 +329,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       remainingSeconds: calculateRemainingSeconds(dbSession.ExpiresAt),
       allocatedCredits: dbSession.AllocatedCredits || 60,
       allocatedDurationMinutes: dbSession.AllocatedDurationMinutes || 60,
+      dotnetSubtype: dotnetSubtype || null,
       message: 'Provisioning lab container environment...'
     });
   } catch (ecsErr) {
@@ -389,6 +405,12 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     await deleteSession(sessionId).catch(() => {});
   }
 
+  if (memorySess && !memorySess.dotnetSubtype && dbSession.Subtype) {
+    memorySess.dotnetSubtype = dbSession.Subtype;
+    memorySess.starterAssetKey = dbSession.Subtype === "mvc" ? "lab-assets/dotnet/mvc/latest.tar.gz" : "lab-assets/dotnet/console-snippet/latest.tar.gz";
+    await saveSession(memorySess).catch(() => {});
+  }
+
   const effectiveStatus = (memorySess?.status || currentStatus || 'RUNNING').toLowerCase();
 
   return ok({
@@ -401,6 +423,7 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     remainingSeconds,
     allocatedCredits: dbSession.AllocatedCredits,
     allocatedDurationMinutes: dbSession.AllocatedDurationMinutes,
+    dotnetSubtype: memorySess?.dotnetSubtype || dbSession.Subtype || null,
     tenMinuteWarningSent: Boolean(dbSession.TenMinuteWarningSent),
     publicIp: memorySess?.publicIp || null,
     tools: memorySess?.tools || null
@@ -686,6 +709,7 @@ export const sessionsListByUserHandler = async ({
         remainingSeconds,
         allocatedCredits: activeSession.AllocatedCredits,
         allocatedDurationMinutes: activeSession.AllocatedDurationMinutes,
+        dotnetSubtype: memorySess?.dotnetSubtype || activeSession.Subtype || null,
         tenMinuteWarningSent: Boolean(activeSession.TenMinuteWarningSent),
         publicIp: memorySess?.publicIp || null,
         tools: memorySess?.tools || null

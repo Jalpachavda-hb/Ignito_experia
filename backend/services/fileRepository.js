@@ -10,6 +10,7 @@ import {
   getPresignedUrl,
   getStarterAssetKey,
 } from "./containerClient.js";
+import labSessionRepository from "../repositories/LabSessionRepository.js";
 import { ENV } from "../config/env.js";
 
 // Dynamically resolve the parent directory of backend as the local workspace root
@@ -214,6 +215,14 @@ const isBinaryExt = (name) => {
 const s3StarterCache = new Map();
 
 export const fetchStarterFilesFromS3 = async (session) => {
+  if (session && !session.dotnetSubtype && session.sessionId) {
+    try {
+      const dbSess = await labSessionRepository.getSessionById(session.sessionId);
+      if (dbSess?.Subtype) {
+        session.dotnetSubtype = dbSess.Subtype;
+      }
+    } catch (_) {}
+  }
   const key = getStarterAssetKey(session);
   if (!key) return [];
 
@@ -288,6 +297,14 @@ const getCacheKey = (sessionId, filePath) => `${sessionId}:${filePath}`;
 export const listFiles = async (sessionId) => {
   console.log(`[listFiles] Fetching session details for sessionId: ${sessionId}`);
   const session = await getSession(sessionId);
+  if (session && !session.dotnetSubtype) {
+    try {
+      const dbSess = await labSessionRepository.getSessionById(sessionId);
+      if (dbSess?.Subtype) {
+        session.dotnetSubtype = dbSess.Subtype;
+      }
+    } catch (_) {}
+  }
 
   // Phase 2: In-memory index hit
   if (workspaceIndexCache.has(sessionId)) {
@@ -414,6 +431,14 @@ export const getFile = async (sessionId, filePath) => {
   }
 
   const session = await getSession(sessionId);
+  if (session && !session.dotnetSubtype) {
+    try {
+      const dbSess = await labSessionRepository.getSessionById(sessionId);
+      if (dbSess?.Subtype) {
+        session.dotnetSubtype = dbSess.Subtype;
+      }
+    } catch (_) {}
+  }
 
   // Prefer session content cache for instant opens (avoids hanging on unreachable container HTTP)
   const cached = session?.files?.find((f) => f.path === filePath);

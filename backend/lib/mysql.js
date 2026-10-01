@@ -183,6 +183,7 @@ async function ensureLabSessionsTableAndColumns(connection) {
       \`TaskArn\` VARCHAR(255) NULL,
       \`ContainerId\` VARCHAR(255) NULL,
       \`RuntimeUrl\` VARCHAR(255) NULL,
+      \`Subtype\` VARCHAR(50) NULL,
       \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
       \`UpdatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX \`IDX_LabSess_User_Tenant\` (\`UserId\`, \`TenantId\`),
@@ -207,6 +208,7 @@ async function ensureLabSessionsTableAndColumns(connection) {
   const existingCols = new Set(cols.map((col) => col.COLUMN_NAME.toLowerCase()));
 
   const columnsToAdd = [
+    { name: 'Subtype', ddl: 'ADD COLUMN `Subtype` VARCHAR(50) NULL' },
     { name: 'TokenExpiryAt', ddl: 'ADD COLUMN `TokenExpiryAt` DATETIME NULL' },
     { name: 'LastBilledAt', ddl: 'ADD COLUMN `LastBilledAt` DATETIME NULL' },
     { name: 'UnbilledSeconds', ddl: 'ADD COLUMN `UnbilledSeconds` INT NOT NULL DEFAULT 0' },

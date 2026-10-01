@@ -33,6 +33,7 @@ export interface LabSession {
   allocatedDurationMinutes?: number;
   tenMinuteWarningSent?: boolean;
   durationMinutes?: number;
+  dotnetSubtype?: string;
 }
 
 export interface LabLaunchResponse {

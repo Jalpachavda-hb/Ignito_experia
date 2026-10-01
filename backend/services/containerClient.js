@@ -170,8 +170,9 @@ export const getStarterAssetKey = (session) => {
   }
   if (isDotnet) {
     let isMvc = false;
-    if (session?.dotnetSubtype) {
-      isMvc = session.dotnetSubtype === "mvc";
+    const subtype = String(session?.dotnetSubtype || session?.subtype || session?.Subtype || "").toLowerCase();
+    if (subtype) {
+      isMvc = subtype.includes("mvc");
     } else {
       isMvc = labId.includes("mvc") || labId.includes("mvc-app") || labType.includes("mvc");
     }

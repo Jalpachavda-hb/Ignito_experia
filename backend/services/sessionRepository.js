@@ -92,6 +92,8 @@ export const createSessionRecord = ({
   labType,
   runtimeType,
   durationMinutes,
+  dotnetSubtype = null,
+  starterAssetKey = null,
 }) => {
   const sessionId = createSessionId();
   const sessionToken = createSessionToken();
@@ -102,6 +104,8 @@ export const createSessionRecord = ({
     labId,
     labType,
     runtimeType,
+    dotnetSubtype,
+    starterAssetKey,
     status: "starting",
     sessionToken,
     startTime: new Date().toISOString(),

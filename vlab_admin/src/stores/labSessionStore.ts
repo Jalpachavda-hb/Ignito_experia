@@ -203,7 +203,8 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
         expiresAt: startResponse.expiresAt,
         startedAt: startResponse.startedAt,
         allocatedCredits: startResponse.allocatedCredits,
-        allocatedDurationMinutes: startResponse.allocatedDurationMinutes
+        allocatedDurationMinutes: startResponse.allocatedDurationMinutes,
+        dotnetSubtype: startResponse.dotnetSubtype || dotnetSubtype
       };
 
       set({ activeSession: initialSession, startingLabId: null, warningAcknowledged: false, showWarningModal: false });

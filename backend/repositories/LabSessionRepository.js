@@ -7,7 +7,7 @@ class LabSessionRepository {
     const [rows] = await db.query(
       `SELECT SessionId, TenantId, UserId, LabId, AllocatedCredits, AllocatedDurationMinutes,
               FinalCreditsConsumed, StartedAt, ExpiresAt, EndedAt, Status, TenMinuteWarningSent,
-              TaskArn, ContainerId, RuntimeUrl, CreatedAt, UpdatedAt
+              TaskArn, ContainerId, RuntimeUrl, Subtype, CreatedAt, UpdatedAt
        FROM lab_sessions
        WHERE (UserId = ? OR UserId = (SELECT UserId FROM Users WHERE Email = ? LIMIT 1))
          AND (TenantId = ? OR TenantId IS NULL OR TenantId = 'DEFAULT' OR TenantId = 'DIRECT' OR TenantId = 'PLATFORM')
@@ -23,7 +23,7 @@ class LabSessionRepository {
     const [rows] = await db.query(
       `SELECT SessionId, TenantId, UserId, LabId, AllocatedCredits, AllocatedDurationMinutes,
               FinalCreditsConsumed, StartedAt, ExpiresAt, EndedAt, Status, TenMinuteWarningSent,
-              TaskArn, ContainerId, RuntimeUrl, CreatedAt, UpdatedAt
+              TaskArn, ContainerId, RuntimeUrl, Subtype, CreatedAt, UpdatedAt
        FROM lab_sessions
        WHERE SessionId = ?`,
       [sessionId]
@@ -40,13 +40,14 @@ class LabSessionRepository {
     allocatedDurationMinutes,
     startedAt,
     expiresAt,
+    subtype = null,
     status = 'STARTING'
   }, db = pool) {
     await db.query(
       `INSERT INTO lab_sessions
-       (SessionId, TenantId, UserId, LabId, AllocatedCredits, AllocatedDurationMinutes, StartedAt, ExpiresAt, Status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [sessionId, tenantId, userId, labId, allocatedCredits, allocatedDurationMinutes, startedAt, expiresAt, status]
+       (SessionId, TenantId, UserId, LabId, AllocatedCredits, AllocatedDurationMinutes, StartedAt, ExpiresAt, Subtype, Status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sessionId, tenantId, userId, labId, allocatedCredits, allocatedDurationMinutes, startedAt, expiresAt, subtype, status]
     );
     return await this.getSessionById(sessionId, db);
   }
