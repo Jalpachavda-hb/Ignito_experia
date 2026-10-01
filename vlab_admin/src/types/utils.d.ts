@@ -23,7 +23,7 @@ declare module '*PostApiHandler' {
   export const changePassword: (payload: any) => Promise<any>;
   export const forgotPassword: (payload: any) => Promise<any>;
   export const resetPassword: (payload: any) => Promise<any>;
-  export const startLabSession: (params?: { labId?: string; sessionBlocks?: number; duration?: number; dotnetSubtype?: string; idempotencyKey?: string; userCredits?: number }) => Promise<any>;
+  export const startLabSession: (params?: { labId?: string; sessionBlocks?: number; duration?: number; dotnetSubtype?: string; idempotencyKey?: string; userCredits?: number; practicalCredit?: number; academicCtx?: any }) => Promise<any>;
   export const extendLabSession: (sessionId?: string, params?: { sessionBlocks?: number; idempotencyKey?: string }) => Promise<any>;
   export const stopLabSession: (sessionId?: string) => Promise<any>;
   export const updateLabCredits: (labId?: string, credits?: number) => Promise<any>;
@@ -47,6 +47,7 @@ declare module '*PostApiHandler' {
   export const getStudentProfile: any;
   export const getStudentPurchasedProgrammes: any;
   export const getSemesterCourseListByProgrammeId: any;
+  export const getCoursesBySemesterId: any;
   export const getPracticalAvailablePrograms: any;
 }
 
@@ -55,5 +56,6 @@ declare module '*lmsApi_paths' {
   export const getStudentProfile: any;
   export const getStudentPurchasedProgrammes: any;
   export const getSemesterCourseListByProgrammeId: any;
+  export const getCoursesBySemesterId: any;
   export const getPracticalAvailablePrograms: any;
 }

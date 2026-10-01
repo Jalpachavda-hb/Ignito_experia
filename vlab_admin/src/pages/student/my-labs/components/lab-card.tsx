@@ -52,8 +52,16 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   const accessLabel = lab.accessLabel || (accessType === 'personal' ? 'Personal' : accessType === 'university' ? 'UNI' : null);
 
   const name = lab.title || lab.name || 'Unnamed Lab';
-  const imageUrl = lab.logo || lab.image || lab.icon || null;
+  const rawImage = lab.courseBannerImage || lab.logo || lab.image || lab.icon || null;
+  const imageUrl = rawImage ? (rawImage.startsWith('http') || rawImage.startsWith('data:') ? rawImage : `https://verse.ignitolearn.com${rawImage.startsWith('/') ? '' : '/'}${rawImage}`) : null;
   const theme = getTheme(labId || name);
+
+  const displayTokens = (lab.remainingTokens !== undefined && lab.remainingTokens > 0)
+    ? lab.remainingTokens
+    : ((lab.practicalCredit !== undefined && lab.practicalCredit > 0)
+      ? lab.practicalCredit
+      : (lab.tokens || lab.credits || 0));
+  const hasTokens = displayTokens > 0;
 
   // List View Layout
   if (viewMode === 'list') {
@@ -113,10 +121,10 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
                     {accessLabel}
                   </Badge>
                 )}
-                {(lab.remainingTokens !== undefined && lab.remainingTokens > 0) && (
+                {hasTokens && (
                   <Badge variant="outline" className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
                     <Zap className="w-2.5 h-2.5 mr-1 text-emerald-600 fill-emerald-500" />
-                    {lab.remainingTokens} Tokens • {lab.remainingTokens} Mins Runtime
+                    {displayTokens} Tokens • {displayTokens} Mins Runtime
                   </Badge>
                 )}
               </div>
@@ -234,11 +242,11 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
               {labStatus}
             </div>
           </div>
-        ) : (lab.remainingTokens !== undefined && lab.remainingTokens > 0) ? (
+        ) : hasTokens ? (
           <div className="absolute top-3.5 right-3.5 z-10">
             <div className="bg-emerald-500/15 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-xs border border-emerald-500/30 flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
               <Zap className="w-3 h-3 text-emerald-600 dark:text-emerald-400 fill-emerald-500" />
-              <span>{lab.remainingTokens} Tokens</span>
+              <span>{displayTokens} Tokens</span>
             </div>
           </div>
         ) : null}
@@ -256,14 +264,14 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
           {lab.description || 'Learn and explore various concepts through this interactive lab environment.'}
         </p>
 
-        {!isRunning && (lab.remainingTokens !== undefined && lab.remainingTokens > 0) && (
+        {!isRunning && hasTokens && (
           <div className="mt-auto mb-3 flex items-center justify-between text-xs py-2 px-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60">
             <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-500" />
-              {lab.remainingTokens} Tokens
+              {displayTokens} Tokens
             </span>
             <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-              {lab.remainingTokens} Mins Runtime
+              {displayTokens} Mins Runtime
             </span>
           </div>
         )}

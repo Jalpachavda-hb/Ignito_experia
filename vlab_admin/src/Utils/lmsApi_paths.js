@@ -63,6 +63,15 @@ export const getSemesterCourseListByProgrammeId = async (programmeId, semester) 
   });
 };
 
+export const getCoursesBySemesterId = async (semesterId) => {
+  return executeRequest('/student/courses-by-semester', {
+    method: 'POST',
+    body: { semesterId },
+    auth: true,
+    baseUrl: LMS_BASE_URL,
+  });
+};
+
 export const getStudentAcademicProgress = async (studentId) => {
   return executeRequest('/student/academic-progress', {
     method: 'GET',

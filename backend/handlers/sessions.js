@@ -54,7 +54,45 @@ export const sessionsStartHandler = async ({ body, auth }) => {
 
   try {
     // Check student-scoped active session
-    const activeSession = await labSessionRepository.findActiveSessionForUser(userId, tenantId, connection);
+    let activeSession = await labSessionRepository.findActiveSessionForUser(userId, tenantId, connection);
+    if (activeSession) {
+      // 1. Check if the session has expired
+      const remainingSeconds = calculateRemainingSeconds(activeSession.ExpiresAt);
+      if (remainingSeconds <= 0) {
+        console.log(`[sessionsStartHandler] Session ${activeSession.SessionId} expired. Auto-completing.`);
+        await labSessionRepository.updateSession(activeSession.SessionId, {
+          Status: 'EXPIRED',
+          EndedAt: new Date()
+        }, connection).catch(() => {});
+        await deleteSession(activeSession.SessionId).catch(() => {});
+        activeSession = null;
+      } else if (activeSession.TaskArn && isEcsEnabled()) {
+        // 2. Check if the actual container task is already stopped
+        try {
+          const task = await describeTask(activeSession.TaskArn);
+          if (!task || task.lastStatus === 'STOPPED') {
+            console.log(`[sessionsStartHandler] Detected ECS task ${activeSession.TaskArn} is STOPPED. Auto-completing session ${activeSession.SessionId}.`);
+            await labSessionRepository.updateSession(activeSession.SessionId, {
+              Status: 'STOPPED',
+              EndedAt: new Date()
+            }, connection).catch(() => {});
+            await deleteSession(activeSession.SessionId).catch(() => {});
+            activeSession = null;
+          }
+        } catch (ecsErr) {
+          console.warn(`[sessionsStartHandler] Could not verify ECS task status:`, ecsErr.message);
+        }
+      } else if (activeSession.Status === 'STOPPING') {
+        console.log(`[sessionsStartHandler] Session ${activeSession.SessionId} is in STOPPING. Auto-completing.`);
+        await labSessionRepository.updateSession(activeSession.SessionId, {
+          Status: 'STOPPED',
+          EndedAt: new Date()
+        }, connection).catch(() => {});
+        await deleteSession(activeSession.SessionId).catch(() => {});
+        activeSession = null;
+      }
+    }
+
     if (activeSession) {
       await connection.rollback();
       connection.release();
@@ -66,6 +104,18 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     let remainingTokens = Number(labWallet?.RemainingTokens || 0);
 
     const isAdmin = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';
+    const isLmsStudent = auth?.authType === 'LMS' || auth?.authType === 'LMS_AND_DIRECT' || auth?.isLmsStudent || Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId);
+    const providedPracticalCredit = Number(body?.practicalCredit || body?.practicalCredits || body?.credits || body?.tokens || body?.userCredits || 0);
+
+    // If LMS student has no wallet tokens yet (or practicalCredit is supplied from course),
+    // automatically initialize their lab token wallet using this practicalCredit so the lab starts using it
+    if (remainingTokens <= 0 && (providedPracticalCredit > 0 || isLmsStudent)) {
+      const initialTokens = providedPracticalCredit > 0 ? providedPracticalCredit : 60;
+      console.log(`[sessionsStartHandler] LMS practicalCredit initialization: crediting ${initialTokens} tokens for lab ${labId} to student ${userId}`);
+      await studentLabTokenWalletRepository.creditWalletTokens(tenantId, userId, labId, initialTokens, connection);
+      labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, auth?.email, connection);
+      remainingTokens = Number(labWallet?.RemainingTokens || initialTokens);
+    }
 
     if (!isAdmin && remainingTokens <= 0) {
       await connection.rollback();

@@ -92,9 +92,9 @@ export {
 } from './lmsApi_paths';
 
 /**
- * @param {{ labId: string, sessionBlocks?: number, duration?: number, dotnetSubtype?: string, idempotencyKey?: string, userCredits?: number }} params
+ * @param {{ labId: string, sessionBlocks?: number, duration?: number, dotnetSubtype?: string, idempotencyKey?: string, userCredits?: number, practicalCredit?: number, academicCtx?: any }} params
  */
-export const startLabSession = async ({ labId, sessionBlocks = 1, duration, dotnetSubtype, idempotencyKey, userCredits } = {}) => {
+export const startLabSession = async ({ labId, sessionBlocks = 1, duration, dotnetSubtype, idempotencyKey, userCredits, practicalCredit, academicCtx } = {}) => {
   if (!labId) {
     throw new Error('labId is required to start a lab session');
   }
@@ -106,7 +106,9 @@ export const startLabSession = async ({ labId, sessionBlocks = 1, duration, dotn
       ...(duration ? { duration } : {}),
       ...(dotnetSubtype ? { dotnetSubtype } : {}),
       ...(idempotencyKey ? { idempotencyKey } : {}),
-      ...(typeof userCredits === 'number' ? { userCredits } : {})
+      ...(typeof userCredits === 'number' ? { userCredits } : {}),
+      ...(typeof practicalCredit === 'number' ? { practicalCredit } : {}),
+      ...(academicCtx ? { academicCtx } : {}),
     },
     auth: true,
   });

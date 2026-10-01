@@ -154,15 +154,21 @@ class LmsSemesterService {
       if (!mapped?.labId) continue;
       const record = await labRepository.getById(mapped.labId).catch(() => null);
       const title = labTitle(record, mapped.title);
+      const practicalCredit = Number(course.practicalCredit || mapped.practicalCredit || 60);
       labs.push({
         courseCode: course.courseCode || course.code || course.subjectCode || null,
         courseName: course.courseName || course.name || course.subjectName || null,
         semester: wanted,
         programId: programmeId,
         programName: match.programmeName || match.programName || null,
+        practicalCredit,
+        courseBannerImage: course.courseBannerImage || null,
         mappedLab: {
           ...mapped,
           title,
+          practicalCredit,
+          credits: practicalCredit,
+          tokens: practicalCredit,
         },
         lab: {
           id: record?.LabCode || record?.LabId || mapped.labId,
@@ -170,8 +176,10 @@ class LmsSemesterService {
           title,
           subtitle: record?.Subtitle || record?.subtitle || "",
           category: record?.Category || record?.category || "Course Lab",
-          durationMinutes: record?.DurationMinutes || record?.durationMinutes || null,
-          credits: record?.Credits || record?.credits || null,
+          durationMinutes: record?.DurationMinutes || record?.durationMinutes || practicalCredit,
+          credits: practicalCredit || record?.Credits || record?.credits || 60,
+          tokens: practicalCredit,
+          practicalCredit,
           status: record?.Status || record?.status || "active",
         },
       });

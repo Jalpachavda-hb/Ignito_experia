@@ -33,6 +33,10 @@ export const LMS_PROVIDER_CONFIG = Object.freeze({
     process.env.LMS_SEMESTER_COURSES_ENDPOINT ||
     "/api/ExperiaAPI/GetSemesterCourseListByProgrammeId",
 
+  coursesBySemesterEndpoint:
+    process.env.LMS_COURSES_BY_SEMESTER_ENDPOINT ||
+    "/api/ExperiaAPI/GetCourseBySemesterId",
+
   practicalAvailableProgramsEndpoint:
     process.env.LMS_PRACTICAL_AVAILABLE_PROGRAMS_ENDPOINT ||
     "/api/ExperiaAPI/GetPracticalAvailablePrograms",

@@ -880,6 +880,40 @@ export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
   }
 };
 
+export const studentCoursesBySemesterHandler = async ({ auth, body = {}, queryStringParameters = {} }) => {
+  const ctx = await loadStudentLmsContext(auth);
+  const requestedSemester = body.semesterId ?? body.semester ?? queryStringParameters?.semesterId ?? queryStringParameters?.semester;
+  if (!requestedSemester) throw badRequest("semesterId is required");
+
+  let tenant = ctx.tenant;
+  let provider = ctx.provider;
+  if (!tenant) {
+    const adminCtx = await loadAdminLmsContext(auth);
+    tenant = adminCtx.tenant;
+    provider = adminCtx.provider;
+  }
+  if (!tenant) {
+    return ok({ success: true, courseList: [], lmsStatus: "LMS_TENANT_NOT_FOUND" });
+  }
+
+  try {
+    const result = await lmsCourseService.getBySemesterId({
+      tenantId: tenant.TenantId,
+      provider,
+      semesterId: requestedSemester,
+      externalStudentId: ctx.externalStudentId,
+    });
+    return ok(result);
+  } catch (err) {
+    console.error("[studentCoursesBySemesterHandler] Error:", err.message);
+    return ok({
+      success: true,
+      lmsStatus: "LMS_COURSES_UNAVAILABLE",
+      courseList: [],
+    });
+  }
+};
+
 export const studentSemesterLabsHandler = async ({ auth, queryStringParameters = {} }) => {
   const ctx = await loadStudentLmsContext(auth);
   const programId = queryStringParameters.programId || queryStringParameters.programmeId;

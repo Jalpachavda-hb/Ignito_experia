@@ -130,16 +130,22 @@ class LmsCourseLabService {
         }
       }
 
-      if (!mapped) return { ...course, mappedLab: null };
+      if (!mapped) return { ...course, practicalCredit: Number(course.practicalCredit || 60), mappedLab: null };
+
+      const practicalCredit = Number(course.practicalCredit || 60);
 
       return {
         ...course,
+        practicalCredit,
         mappedLab: {
           labId: mapped.lab_id,
           title: mapped.title || resolveLabTitle(mapped.lab_id),
           courseCode: mapped.course_code || code,
           semesterId: mapped.semester_id,
           programId: mapped.program_id,
+          practicalCredit,
+          credits: practicalCredit,
+          tokens: practicalCredit,
         },
       };
     });

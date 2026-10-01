@@ -139,6 +139,9 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
       const session = response.session || response.activeSession || null;
 
       set({ activeSession: session });
+      if (!session && get().startError?.includes('active lab session')) {
+        set({ startError: null });
+      }
       get().setElapsedTime(null);
 
       if (session && ['running', 'starting', 'expiring_soon', 'RUNNING', 'STARTING', 'EXPIRING_SOON'].includes(session.status)) {
@@ -166,7 +169,16 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
     set({ startingLabId: labId, startError: null });
     try {
       const idempotencyKey = `START-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-      const startResponse = await startLabSession({ labId, sessionBlocks, dotnetSubtype, idempotencyKey, userCredits });
+      const practicalCredit = typeof userCredits === 'number' && userCredits > 0 ? userCredits : (academicCtx?.practicalCredit || 60);
+      const startResponse = await startLabSession({
+        labId,
+        sessionBlocks,
+        dotnetSubtype,
+        idempotencyKey,
+        userCredits,
+        practicalCredit,
+        academicCtx,
+      });
       if (!startResponse.sessionId) throw new Error(startResponse.message || 'No session id returned from server');
 
       const initialSession: LabSession = {
