@@ -191,9 +191,26 @@ export default function MyLabs() {
 
                   const labMatch = labs.find((l) => {
                     const lId = String(l.id || l.labId || l.LabId || '');
-                    return lId === mId || lId.replace('lab-', '') === mId.replace('lab-', '');
-                  const practicalCredit = Number(c.practicalCredit || mappedLabObj.practicalCredit || c.credits || 60);
-                  const bannerImage = c.courseBannerImage ? (c.courseBannerImage.startsWith('http') ? c.courseBannerImage : `https://verse.ignitolearn.com${c.courseBannerImage}`) : undefined;
+                    return (
+                      lId === mId ||
+                      lId.replace('lab-', '') === mId.replace('lab-', '')
+                    );
+                  });
+
+                  const practicalCredit = Number(
+                    c.practicalCredit ||
+                    mappedLabObj.practicalCredit ||
+                    c.credits ||
+                    60
+                  );
+
+                  const bannerImage = c.courseBannerImage
+                    ? (
+                      c.courseBannerImage.startsWith('http')
+                        ? c.courseBannerImage
+                        : `https://verse.ignitolearn.com${c.courseBannerImage}`
+                    )
+                    : undefined;
 
                   if (labMatch) {
                     allMapped.push({
@@ -237,48 +254,48 @@ export default function MyLabs() {
                   }
                 }
               } else {
-                const cNameLower = cName.toLowerCase();
-                const autoMatch = labs.find((l) => {
-                  const lTitle = String(l.title || l.name || '').toLowerCase();
-                  const lId = String(l.id || l.labId || '').toLowerCase();
-                  if (cNameLower.includes('database') || cNameLower.includes('dbms') || cNameLower.includes('sql') || cNameLower.includes('rdbms')) {
-                    return lId.includes('dbms') || lTitle.includes('dbms') || lTitle.includes('sql');
-                  }
-                  if (cNameLower.includes('programming with c') || cNameLower.includes('c programming') || cNameLower.includes('c++')) {
-                    return lId.includes('linux') || lTitle.includes('linux') || lId.includes('c-lab');
-                  }
-                  if (cNameLower.includes('python')) return lId.includes('python') || lTitle.includes('python');
-                  if (cNameLower.includes('java')) return lId.includes('java') || lTitle.includes('java');
-                  if (cNameLower.includes('.net') || cNameLower.includes('dotnet')) return lId.includes('dotnet') || lTitle.includes('.net');
-                  return false;
-                });
-                if (autoMatch) {
-                  const uniqueKey = `${autoMatch.id}-${cCode}`;
-                  if (!seenLabKeys.has(uniqueKey)) {
-                    seenLabKeys.add(uniqueKey);
-                    const practicalCredit = Number(c.practicalCredit || c.credits || 60);
-                    const bannerImage = c.courseBannerImage ? (c.courseBannerImage.startsWith('http') ? c.courseBannerImage : `https://verse.ignitolearn.com${c.courseBannerImage}`) : undefined;
-                    allMapped.push({
-                      ...autoMatch,
-                      title: cName,
-                      mappedLabTitle: autoMatch.title,
-                      courseCode: cCode,
-                      courseName: cName,
-                      practicalCredit,
-                      remainingTokens: practicalCredit,
-                      tokens: practicalCredit,
-                      credits: practicalCredit,
-                      courseBannerImage: c.courseBannerImage,
-                      image: bannerImage || autoMatch.image,
-                      logo: bannerImage || autoMatch.logo,
-                      durationMinutes: practicalCredit,
-                      semesterId: c.semesterId,
-                      courseDetailsId: c.courseDetailsId,
-                    });
+                  const cNameLower = cName.toLowerCase();
+                  const autoMatch = labs.find((l) => {
+                    const lTitle = String(l.title || l.name || '').toLowerCase();
+                    const lId = String(l.id || l.labId || '').toLowerCase();
+                    if (cNameLower.includes('database') || cNameLower.includes('dbms') || cNameLower.includes('sql') || cNameLower.includes('rdbms')) {
+                      return lId.includes('dbms') || lTitle.includes('dbms') || lTitle.includes('sql');
+                    }
+                    if (cNameLower.includes('programming with c') || cNameLower.includes('c programming') || cNameLower.includes('c++')) {
+                      return lId.includes('linux') || lTitle.includes('linux') || lId.includes('c-lab');
+                    }
+                    if (cNameLower.includes('python')) return lId.includes('python') || lTitle.includes('python');
+                    if (cNameLower.includes('java')) return lId.includes('java') || lTitle.includes('java');
+                    if (cNameLower.includes('.net') || cNameLower.includes('dotnet')) return lId.includes('dotnet') || lTitle.includes('.net');
+                    return false;
+                  });
+                  if (autoMatch) {
+                    const uniqueKey = `${autoMatch.id}-${cCode}`;
+                    if (!seenLabKeys.has(uniqueKey)) {
+                      seenLabKeys.add(uniqueKey);
+                      const practicalCredit = Number(c.practicalCredit || c.credits || 60);
+                      const bannerImage = c.courseBannerImage ? (c.courseBannerImage.startsWith('http') ? c.courseBannerImage : `https://verse.ignitolearn.com${c.courseBannerImage}`) : undefined;
+                      allMapped.push({
+                        ...autoMatch,
+                        title: cName,
+                        mappedLabTitle: autoMatch.title,
+                        courseCode: cCode,
+                        courseName: cName,
+                        practicalCredit,
+                        remainingTokens: practicalCredit,
+                        tokens: practicalCredit,
+                        credits: practicalCredit,
+                        courseBannerImage: c.courseBannerImage,
+                        image: bannerImage || autoMatch.image,
+                        logo: bannerImage || autoMatch.logo,
+                        durationMinutes: practicalCredit,
+                        semesterId: c.semesterId,
+                        courseDetailsId: c.courseDetailsId,
+                      });
+                    }
                   }
                 }
-              }
-            });
+              });
           } catch (e) {
             console.warn(`Failed to load courses for program ${pid}:`, e);
           }
@@ -486,15 +503,44 @@ export default function MyLabs() {
       const lTitle = String(labItem.title || labItem.name || '').toLowerCase().trim();
 
       // Find token info in labWallets
-      const walletMatch = (labWallets || []).find((w) => {
-        const wId = String(w.labId || '').toLowerCase().trim();
-        const cleanWId = wId.replace(/^lab-/, '').replace(/-lab$/, '');
-        return wId === lId || cleanWId === cleanLId || (lTitle && (lTitle.includes(cleanWId) || cleanWId.includes(lTitle)));
-      });
-      const coursePracticalTokens = Number(labItem.practicalCredit || labItem.credits || 0);
-      const effectiveRemainingTokens = remainingTokens ?? (coursePracticalTokens > 0 ? coursePracticalTokens : undefined);
+     const walletMatch = (labWallets || []).find((w) => {
+  const wId = String(w.labId || '').toLowerCase().trim();
+  const cleanWId = wId.replace(/^lab-/, '').replace(/-lab$/, '');
 
-      const hasWalletTokens = typeof effectiveRemainingTokens === 'number' && (effectiveRemainingTokens > 0 || (walletMatch?.purchasedTokens || 0) > 0);
+  return (
+    wId === lId ||
+    cleanWId === cleanLId ||
+    (
+      lTitle &&
+      (lTitle.includes(cleanWId) || cleanWId.includes(lTitle))
+    )
+  );
+});
+
+const coursePracticalTokens = Number(
+  labItem.practicalCredit || labItem.credits || 0
+);
+
+const walletRemainingTokens = walletMatch
+  ? Number(
+      walletMatch.remainingTokens ??
+      (
+        Number(walletMatch.purchasedTokens || 0) -
+        Number(walletMatch.usedTokens || 0)
+      )
+    )
+  : undefined;
+
+const effectiveRemainingTokens =
+  walletRemainingTokens ??
+  (coursePracticalTokens > 0 ? coursePracticalTokens : undefined);
+
+const hasWalletTokens =
+  typeof effectiveRemainingTokens === 'number' &&
+  (
+    effectiveRemainingTokens > 0 ||
+    (walletMatch?.purchasedTokens || 0) > 0
+  );
 
       const isPurchased = hasWalletTokens ||
         purchasedLabIds.has(lId) ||
@@ -739,10 +785,10 @@ export default function MyLabs() {
     // Also check if assigned via enrolled LMS curriculum (for university/institution students)
     const isEnrolledInCurriculum = !isDirectUser && (
       allEnrolledMappedLabs.some((l: any) => (l.id || l.labId || l.LabId) === labId || (l.id || l.labId || l.LabId) === getLabId(lab)) ||
-      (semesterCourses && semesterCourses.some((c: any) => 
-        c.labId === labId || 
-        c.labCode === labId || 
-        c.mappedLab?.labId === labId || 
+      (semesterCourses && semesterCourses.some((c: any) =>
+        c.labId === labId ||
+        c.labCode === labId ||
+        c.mappedLab?.labId === labId ||
         c.courseCode === (lab as any)?.courseCode ||
         c.courseName === (lab as any)?.courseName
       )) ||
@@ -783,8 +829,8 @@ export default function MyLabs() {
       return;
     }
 
-    const effectiveTokens = coursePracticalTokens > 0 
-      ? coursePracticalTokens 
+    const effectiveTokens = coursePracticalTokens > 0
+      ? coursePracticalTokens
       : (remainingTokens > 0 ? remainingTokens : (specificLabCredits || (typeof user.credits === 'number' && user.credits > 0 ? user.credits : 60)));
 
     const academicCtx = {
@@ -808,8 +854,8 @@ export default function MyLabs() {
 
     const lab = labs.find(l => getLabId(l) === labId) || displayLabs.find(l => getLabId(l) === labId);
     const coursePracticalTokens = Number((lab as any)?.practicalCredit || (lab as any)?.credits || 0);
-    const effectiveTokens = coursePracticalTokens > 0 
-      ? coursePracticalTokens 
+    const effectiveTokens = coursePracticalTokens > 0
+      ? coursePracticalTokens
       : (typeof user?.credits === 'number' && user.credits > 0 ? user.credits : 60);
 
     const academicCtx = {
@@ -916,13 +962,32 @@ export default function MyLabs() {
                   <AlertDescription>{startError}</AlertDescription>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={clearStartError}
-                className="text-xs font-semibold px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded transition-colors ml-4 shrink-0"
-              >
-                Dismiss
-              </button>
+              <div className="flex items-center gap-2 ml-4 shrink-0">
+                {startError.toLowerCase().includes('active lab session') && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await stopLab(activeSession?.sessionId || 'active', activeSession?.labId || '');
+                        clearStartError();
+                        await loadActiveSession();
+                      } catch (e) {
+                        clearStartError();
+                      }
+                    }}
+                    className="text-xs font-semibold px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded transition-colors shadow-sm"
+                  >
+                    Force Stop & Reset
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={clearStartError}
+                  className="text-xs font-semibold px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded transition-colors shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
             </Alert>
           )}
 

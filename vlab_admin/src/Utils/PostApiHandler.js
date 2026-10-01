@@ -133,9 +133,12 @@ export const extendLabSession = async (sessionId, { sessionBlocks = 1, idempoten
 };
 
 export const stopLabSession = async (sessionId) => {
-  return executeRequest(API_PATHS.LAB_SESSIONS.STOP_SESSION(sessionId), {
+  const path = (!sessionId || sessionId === 'active' || sessionId === 'undefined')
+    ? '/lab-sessions/active/stop'
+    : API_PATHS.LAB_SESSIONS.STOP_SESSION(sessionId);
+  return executeRequest(path, {
     method: 'POST',
-    body: { sessionId },
+    body: { sessionId: sessionId || 'active' },
     auth: true,
   });
 };

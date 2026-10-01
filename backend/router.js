@@ -221,6 +221,18 @@ export const ROUTES = [
     handler: sessionsStopHandler,
     auth: true,
   },
+  {
+    method: "POST",
+    path: "/lab-sessions/stop",
+    handler: sessionsStopHandler,
+    auth: true,
+  },
+  {
+    method: "POST",
+    path: "/lab-sessions/active/stop",
+    handler: sessionsStopHandler,
+    auth: true,
+  },
 
   { method: "POST", path: "/runs", handler: runsCreateHandler, auth: true },
   { method: "GET", path: "/runs/:runId", handler: runsGetHandler, auth: true },

@@ -33,6 +33,32 @@ function calculateRemainingSeconds(expiresAt) {
   return Math.max(0, Math.floor(diffMs / 1000));
 }
 
+export const verifySessionOwnership = async (dbSession, auth) => {
+  if (!dbSession || !auth) return false;
+  if (auth.role === "Super Admin" || auth.role === "Tenant Admin" || auth.authType === "ADMIN") return true;
+  if (String(dbSession.UserId) === String(auth.userId) || String(dbSession.UserId) === String(auth.id)) {
+    return true;
+  }
+  const rawAuthId = String(auth?.userId || auth?.id || "").trim();
+  const isNum = /^\d+$/.test(rawAuthId);
+  const numId = isNum ? parseInt(rawAuthId, 10) : -1;
+  const lookupEmail = String(auth?.email || "").trim().toLowerCase();
+
+  try {
+    const [uRows] = await pool.query(
+      `SELECT UserId FROM Users 
+       WHERE UserId = ? 
+         AND ((UserId = ? AND ? > 0) OR (LOWER(Email) = LOWER(?) AND ? != '') OR (ExternalStudentId = ? AND ? != '')) 
+       LIMIT 1`,
+      [dbSession.UserId, numId, numId, lookupEmail, lookupEmail, rawAuthId, rawAuthId]
+    );
+    return Boolean(uRows && uRows.length > 0);
+  } catch (err) {
+    console.warn("[verifySessionOwnership] Error verifying ownership:", err.message);
+    return false;
+  }
+};
+
 export const sessionsStartHandler = async ({ body, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
   const userId = String(auth.userId);
@@ -56,38 +82,58 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     // Check student-scoped active session
     let activeSession = await labSessionRepository.findActiveSessionForUser(userId, tenantId, connection);
     if (activeSession) {
-      // 1. Check if the session has expired
       const remainingSeconds = calculateRemainingSeconds(activeSession.ExpiresAt);
-      if (remainingSeconds <= 0) {
-        console.log(`[sessionsStartHandler] Session ${activeSession.SessionId} expired. Auto-completing.`);
-        await labSessionRepository.updateSession(activeSession.SessionId, {
-          Status: 'EXPIRED',
-          EndedAt: new Date()
-        }, connection).catch(() => {});
-        await deleteSession(activeSession.SessionId).catch(() => {});
-        activeSession = null;
-      } else if (activeSession.TaskArn && isEcsEnabled()) {
-        // 2. Check if the actual container task is already stopped
-        try {
-          const task = await describeTask(activeSession.TaskArn);
-          if (!task || task.lastStatus === 'STOPPED') {
-            console.log(`[sessionsStartHandler] Detected ECS task ${activeSession.TaskArn} is STOPPED. Auto-completing session ${activeSession.SessionId}.`);
-            await labSessionRepository.updateSession(activeSession.SessionId, {
-              Status: 'STOPPED',
-              EndedAt: new Date()
-            }, connection).catch(() => {});
-            await deleteSession(activeSession.SessionId).catch(() => {});
-            activeSession = null;
-          }
-        } catch (ecsErr) {
-          console.warn(`[sessionsStartHandler] Could not verify ECS task status:`, ecsErr.message);
-        }
+      const isExpired = remainingSeconds <= 0;
+      let shouldAutoComplete = false;
+      let autoCompletedReason = "";
+
+      if (isExpired) {
+        shouldAutoComplete = true;
+        autoCompletedReason = "Session expired";
       } else if (activeSession.Status === 'STOPPING') {
-        console.log(`[sessionsStartHandler] Session ${activeSession.SessionId} is in STOPPING. Auto-completing.`);
+        shouldAutoComplete = true;
+        autoCompletedReason = "Session was in STOPPING status";
+      } else if (isEcsEnabled()) {
+        if (!activeSession.TaskArn) {
+          const startedMs = activeSession.StartedAt ? new Date(activeSession.StartedAt).getTime() : 0;
+          const createdMs = activeSession.CreatedAt ? new Date(activeSession.CreatedAt).getTime() : 0;
+          const ageMs = Date.now() - Math.max(startedMs, createdMs);
+          if (ageMs > 45000 || activeSession.Status !== 'STARTING') {
+            shouldAutoComplete = true;
+            autoCompletedReason = "No ECS TaskArn assigned to session";
+          }
+        } else {
+          try {
+            const task = await describeTask(activeSession.TaskArn);
+            if (!task || task.lastStatus === 'STOPPED') {
+              shouldAutoComplete = true;
+              autoCompletedReason = `ECS task ${activeSession.TaskArn} is STOPPED or not found`;
+            }
+          } catch (ecsErr) {
+            console.warn(`[sessionsStartHandler] Could not verify ECS task status:`, ecsErr.message);
+            const msg = (ecsErr.message || "").toLowerCase();
+            if (msg.includes("not found") || msg.includes("missing") || msg.includes("invalidparameter") || msg.includes("does not exist")) {
+              shouldAutoComplete = true;
+              autoCompletedReason = `ECS task missing from cluster: ${ecsErr.message}`;
+            }
+          }
+        }
+      }
+
+      if (body?.force || body?.resetPrevious) {
+        shouldAutoComplete = true;
+        autoCompletedReason = "User requested force start / reset previous session";
+      }
+
+      if (shouldAutoComplete) {
+        console.log(`[sessionsStartHandler] Auto-completing stale session ${activeSession.SessionId}: ${autoCompletedReason}`);
         await labSessionRepository.updateSession(activeSession.SessionId, {
           Status: 'STOPPED',
           EndedAt: new Date()
         }, connection).catch(() => {});
+        try {
+          await usageBillingService.finalizeSessionBilling(activeSession.SessionId);
+        } catch (e) {}
         await deleteSession(activeSession.SessionId).catch(() => {});
         activeSession = null;
       }
@@ -290,27 +336,9 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     return ok(memorySess);
   }
 
-  if (
-    String(dbSession.UserId) !== String(auth.userId) &&
-    String(dbSession.UserId) !== String(auth.id) &&
-    auth.role !== "Super Admin"
-  ) {
-    const rawAuthId = String(auth?.userId || auth?.id || "").trim();
-    const isNum = /^\d+$/.test(rawAuthId);
-    const numId = isNum ? parseInt(rawAuthId, 10) : -1;
-    const lookupEmail = String(auth?.email || "").trim().toLowerCase();
-
-    const [uRows] = await pool.query(
-      `SELECT UserId FROM Users 
-       WHERE UserId = ? 
-         AND ((UserId = ? AND ? > 0) OR (LOWER(Email) = LOWER(?) AND ? != '') OR (ExternalStudentId = ? AND ? != '')) 
-       LIMIT 1`,
-      [dbSession.UserId, numId, numId, lookupEmail, lookupEmail, rawAuthId, rawAuthId]
-    ).catch(() => [[]]);
-
-    if (!uRows || uRows.length === 0) {
-      throw forbidden("You do not own this session");
-    }
+  const isOwner = await verifySessionOwnership(dbSession, auth);
+  if (!isOwner) {
+    throw forbidden("You do not own this session");
   }
 
   const remainingSeconds = calculateRemainingSeconds(dbSession.ExpiresAt);
@@ -378,7 +406,8 @@ export const sessionsExtendHandler = async ({ pathParameters, body, auth }) => {
   const dbSession = await labSessionRepository.getSessionById(sessionId);
   if (!dbSession) throw notFound("Session not found");
 
-  if (String(dbSession.UserId) !== String(auth.userId) && auth.role !== "Super Admin") {
+  const isOwner = await verifySessionOwnership(dbSession, auth);
+  if (!isOwner) {
     throw forbidden("You do not own this session");
   }
 
@@ -482,14 +511,41 @@ export const sessionsExtendHandler = async ({ pathParameters, body, auth }) => {
   }
 };
 
-export const sessionsStopHandler = async ({ pathParameters, auth }) => {
+export const sessionsStopHandler = async ({ pathParameters, body, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const sessionId = pathParameters?.sessionId;
+  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
+  let sessionId = pathParameters?.sessionId || body?.sessionId;
 
-  const dbSession = await labSessionRepository.getSessionById(sessionId);
-  if (!dbSession) throw notFound("Session not found");
+  let dbSession = null;
+  if (!sessionId || sessionId === "active" || sessionId === "current") {
+    dbSession = await labSessionRepository.findActiveSessionForUser(auth.userId, tenantId);
+    if (!dbSession) {
+      return ok({
+        sessionId: null,
+        status: 'STOPPED',
+        message: 'No active lab session to stop.'
+      });
+    }
+    sessionId = dbSession.SessionId;
+  } else {
+    dbSession = await labSessionRepository.getSessionById(sessionId);
+    if (!dbSession) {
+      const activeFallback = await labSessionRepository.findActiveSessionForUser(auth.userId, tenantId);
+      if (activeFallback) {
+        dbSession = activeFallback;
+        sessionId = dbSession.SessionId;
+      } else {
+        return ok({
+          sessionId,
+          status: 'STOPPED',
+          message: 'Session already completed or not found.'
+        });
+      }
+    }
+  }
 
-  if (String(dbSession.UserId) !== String(auth.userId) && auth.role !== "Super Admin") {
+  const isOwner = await verifySessionOwnership(dbSession, auth);
+  if (!isOwner) {
     throw forbidden("You do not own this session");
   }
 
@@ -559,21 +615,39 @@ export const sessionsListByUserHandler = async ({
       return ok({ success: false, message: "No active session found" });
     }
 
-    // 2. Check actual ECS container status if TaskArn is present
-    if (activeSession.TaskArn && isEcsEnabled()) {
-      try {
-        const task = await describeTask(activeSession.TaskArn);
-        if (!task || task.lastStatus === 'STOPPED') {
-          console.log(`[sessionsListByUserHandler] Detected ECS task ${activeSession.TaskArn} is STOPPED. Syncing session ${activeSession.SessionId} to STOPPED.`);
-          await labSessionRepository.updateSession(activeSession.SessionId, {
-            Status: 'STOPPED',
-            EndedAt: new Date()
-          }).catch(() => {});
-          await deleteSession(activeSession.SessionId).catch(() => {});
-          return ok({ success: false, message: "No active session found" });
+    // 2. Check actual ECS container status
+    if (isEcsEnabled()) {
+      let isTaskDead = false;
+      if (!activeSession.TaskArn) {
+        const startedMs = activeSession.StartedAt ? new Date(activeSession.StartedAt).getTime() : 0;
+        const createdMs = activeSession.CreatedAt ? new Date(activeSession.CreatedAt).getTime() : 0;
+        const ageMs = Date.now() - Math.max(startedMs, createdMs);
+        if (ageMs > 45000 || activeSession.Status !== 'STARTING') {
+          isTaskDead = true;
         }
-      } catch (ecsErr) {
-        console.warn(`[sessionsListByUserHandler] Could not describe ECS task ${activeSession.TaskArn}:`, ecsErr.message);
+      } else {
+        try {
+          const task = await describeTask(activeSession.TaskArn);
+          if (!task || task.lastStatus === 'STOPPED') {
+            isTaskDead = true;
+          }
+        } catch (ecsErr) {
+          console.warn(`[sessionsListByUserHandler] Could not describe ECS task ${activeSession.TaskArn}:`, ecsErr.message);
+          const msg = (ecsErr.message || "").toLowerCase();
+          if (msg.includes("not found") || msg.includes("missing") || msg.includes("invalidparameter") || msg.includes("does not exist")) {
+            isTaskDead = true;
+          }
+        }
+      }
+
+      if (isTaskDead) {
+        console.log(`[sessionsListByUserHandler] Detected ECS task for session ${activeSession.SessionId} is dead/STOPPED. Syncing to STOPPED.`);
+        await labSessionRepository.updateSession(activeSession.SessionId, {
+          Status: 'STOPPED',
+          EndedAt: new Date()
+        }).catch(() => {});
+        await deleteSession(activeSession.SessionId).catch(() => {});
+        return ok({ success: false, message: "No active session found" });
       }
     }
 

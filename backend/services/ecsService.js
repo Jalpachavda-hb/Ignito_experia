@@ -51,10 +51,19 @@ export const getTaskPublicIp = async (taskArn) => {
 };
 
 export const describeTask = async (taskArn) => {
-  const res = await ecsClient.send(
-    new DescribeTasksCommand({ cluster: ENV.ecsCluster, tasks: [taskArn] }),
-  );
-  return res.tasks?.[0] || null;
+  if (!taskArn) return null;
+  try {
+    const res = await ecsClient.send(
+      new DescribeTasksCommand({ cluster: ENV.ecsCluster, tasks: [taskArn] }),
+    );
+    return res.tasks?.[0] || null;
+  } catch (err) {
+    const msg = (err.message || "").toLowerCase();
+    if (msg.includes("not found") || msg.includes("missing") || msg.includes("invalidparameter") || msg.includes("does not exist")) {
+      return null;
+    }
+    throw err;
+  }
 };
 
 export const logFargateTaskMetadata = (task) => {
@@ -222,7 +231,10 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
 
   const task = response.tasks?.[0];
   const taskArn = task?.taskArn;
-  if (!taskArn) throw new Error("ECS failed to start task");
+  if (!taskArn) {
+    const failureMsg = response.failures?.map(f => `${f.arn || ''}: ${f.reason} (${f.detail || ''})`).join(", ") || "No task ARN returned from ECS";
+    throw new Error(`ECS failed to start task: ${failureMsg}`);
+  }
 
   // Log Fargate task details right upon launch
   logFargateTaskMetadata(task);
@@ -231,11 +243,21 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
 };
 
 export const stopEcsTask = async (taskArn) => {
-  await ecsClient.send(
-    new StopTaskCommand({
-      cluster: ENV.ecsCluster,
-      task: taskArn,
-      reason: "User requested stop",
-    }),
-  );
+  if (!taskArn) return;
+  try {
+    await ecsClient.send(
+      new StopTaskCommand({
+        cluster: ENV.ecsCluster,
+        task: taskArn,
+        reason: "User requested stop",
+      }),
+    );
+  } catch (err) {
+    const msg = (err.message || "").toLowerCase();
+    if (msg.includes("not found") || msg.includes("missing") || msg.includes("invalidparameter") || msg.includes("does not exist")) {
+      console.log(`[stopEcsTask] Task ${taskArn} already stopped or not found in cluster.`);
+      return;
+    }
+    throw err;
+  }
 };

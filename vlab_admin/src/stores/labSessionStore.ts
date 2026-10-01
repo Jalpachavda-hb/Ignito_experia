@@ -26,7 +26,8 @@ interface LabSessionStore {
   loadActiveSession: (userId?: string) => Promise<void>;
   startLab: (labId: string, sessionBlocks?: number, dotnetSubtype?: string, academicCtx?: any, userCredits?: number) => Promise<LabSession | null>;
   extendLab: (sessionBlocks?: number) => Promise<boolean>;
-  stopLab: (sessionId: string, labId: string) => Promise<void>;
+  stopLab: (sessionId?: string, labId?: string) => Promise<void>;
+  stopActiveSession: () => Promise<void>;
   setElapsedTime: (time: string | null) => void;
   setShowWarningModal: (show: boolean) => void;
   setWarningAcknowledged: (ack: boolean) => void;
@@ -259,17 +260,19 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
     }
   },
 
-  stopLab: async (sessionId: string, labId: string) => {
-    set({ stoppingLabId: labId, stopError: null });
+  stopLab: async (sessionId?: string, labId?: string) => {
+    const session = useLabSessionStore.getState().activeSession;
+    const targetSessionId = sessionId || session?.sessionId || 'active';
+    const targetLabId = labId || session?.labId || '';
+    set({ stoppingLabId: targetLabId, stopError: null });
     try {
-      const session = useLabSessionStore.getState().activeSession;
       let calculatedMinutes = 1;
       if (session?.startedAt) {
         const startMs = new Date(session.startedAt).getTime();
         calculatedMinutes = Math.max(1, Math.ceil((Date.now() - startMs) / 60000));
       }
 
-      const stopRes = await stopLabSession(sessionId);
+      const stopRes = await stopLabSession(targetSessionId);
       const authUser = useAuthStore.getState()?.auth?.user;
       const uId = (authUser?.email || authUser?.userId || '').toString().trim().toLowerCase();
 
@@ -278,10 +281,10 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
       const creditsConsumed = Number(stopRes?.finalCreditsConsumed ?? stopRes?.creditsConsumed ?? actualMinutes);
 
       const labs = useLabStore.getState()?.labs || [];
-      const matchedLab = labs.find((l: any) => (l.id || l.labId || l.LabId || l.labCode || l._id) === labId);
+      const matchedLab = labs.find((l: any) => (l.id || l.labId || l.LabId || l.labCode || l._id) === targetLabId);
       let labName = matchedLab?.title || matchedLab?.name;
       if (!labName) {
-        const lowerId = String(labId).toLowerCase();
+        const lowerId = String(targetLabId).toLowerCase();
         if (lowerId.includes('linux')) labName = 'Linux Administration Lab';
         else if (lowerId.includes('python')) labName = 'Python Programming Lab';
         else if (lowerId.includes('java')) labName = 'Java Development Lab';
@@ -290,21 +293,23 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
         else labName = 'Virtual Lab';
       }
 
-      markLabCompleted(uId, labId);
-      saveLabActivity(uId, {
-        id: labId,
-        labName,
-        status: 'Completed',
-        creditsUsed: creditsConsumed,
-        completionPercentage: 100,
-        lastAccessed: new Date().toISOString()
-      });
+      if (targetLabId) {
+        markLabCompleted(uId, targetLabId);
+        saveLabActivity(uId, {
+          id: targetLabId,
+          labName,
+          status: 'Completed',
+          creditsUsed: creditsConsumed,
+          completionPercentage: 100,
+          lastAccessed: new Date().toISOString()
+        });
+      }
 
       // Record consumed practice credits into dedicated labCreditUsageStore
       if (creditsConsumed > 0) {
         useLabCreditUsageStore.getState().addUsageRecord({
-          sessionId,
-          labId,
+          sessionId: targetSessionId,
+          labId: targetLabId,
           labName,
           creditsConsumed,
           minutesUsed: actualMinutes,
@@ -332,15 +337,36 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
         showWarningModal: false,
         showExtensionModal: false,
         showExpiredModal: false,
-        warningAcknowledged: false
+        warningAcknowledged: false,
+        startError: null,
+        stopError: null
       });
 
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
     } catch (err: any) {
+      const errMsg = (err?.message || '').toLowerCase();
+      if (errMsg.includes('not found') || errMsg.includes('already') || errMsg.includes('no active') || errMsg.includes('not own')) {
+        set({
+          activeSession: null,
+          elapsedTime: null,
+          remainingSeconds: null,
+          stoppingLabId: null,
+          startError: null,
+          stopError: null
+        });
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+        return;
+      }
       set({ stoppingLabId: null, stopError: err?.message || 'Failed to stop lab' });
       throw err;
     }
+  },
+
+  stopActiveSession: async () => {
+    const session = get().activeSession;
+    return get().stopLab(session?.sessionId || 'active', session?.labId || '');
   },
 
   setElapsedTime: (time: string | null) => set({ elapsedTime: time }),
