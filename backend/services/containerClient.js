@@ -156,6 +156,33 @@ const buildHeaders = (session) => {
 
 /* --- SSM FALLBACK HELPERS --- */
 
+export const getStarterAssetKey = (session) => {
+  if (session?.starterAssetKey) return session.starterAssetKey;
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+
+  const isAndroid = labId === "mobile-app-lab" || labId === "android" || labType === "android";
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+  const isDataScience = labType === "datascience" || labId === "data-science-lab" || labId.includes("datascience") || labId.includes("jupyter") || labId.includes("notebook");
+
+  if (isAndroid) {
+    return "lab-assets/android/starter/latest.tar.gz";
+  }
+  if (isDotnet) {
+    let isMvc = false;
+    if (session?.dotnetSubtype) {
+      isMvc = session.dotnetSubtype === "mvc";
+    } else {
+      isMvc = labId.includes("mvc") || labId.includes("mvc-app") || labType.includes("mvc");
+    }
+    return isMvc ? "lab-assets/dotnet/mvc/latest.tar.gz" : "lab-assets/dotnet/console-snippet/latest.tar.gz";
+  }
+  if (isDataScience) {
+    return "lab-assets/datascience/notebook/latest.tar.gz";
+  }
+  return null;
+};
+
 const getFilesSsmFallback = async (session) => {
   console.log(`[containerClient] Running SSM-based files listing fallback for session: ${session.sessionId}`);
   const pythonScript = `import os
@@ -201,7 +228,23 @@ python3 /tmp/list_files.py
     const endIdx = output.indexOf("---FILES_END---");
     if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
       const jsonStr = output.substring(startIdx + 17, endIdx).trim();
-      return JSON.parse(jsonStr);
+      const filesList = JSON.parse(jsonStr);
+      if ((!filesList || filesList.length === 0) && getStarterAssetKey(session)) {
+        if (!activeS3Bootstraps.has(session.sessionId)) {
+          activeS3Bootstraps.add(session.sessionId);
+          console.log(`[getFilesSsmFallback] Workspace empty. Triggering S3 bootstrap for session ${session.sessionId}...`);
+          try {
+            await bootstrapWorkspaceFromS3(session);
+            // Re-list once after bootstrapping
+            return await getFilesSsmFallback(session);
+          } catch (err) {
+            console.error("[getFilesSsmFallback] S3 bootstrap failed:", err.message);
+          } finally {
+            activeS3Bootstraps.delete(session.sessionId);
+          }
+        }
+      }
+      return filesList;
     }
   }
   return [];
@@ -549,9 +592,7 @@ export const readBinaryFromContainer = async (session, filePath) => {
  */
 export const getFilesFromContainer = async (session) => {
   const baseUrl = await getPrivateBaseUrl(session);
-  const isAndroid = session?.labType === 'android' || session?.labId === 'android' || session?.labId === 'mobile-app-lab';
-  const isDotnet = (session?.labId || "").toLowerCase().includes("dotnet") || (session?.labType || "").toLowerCase() === "dotnet";
-  const isDataScience = (session?.labType || "").toLowerCase() === 'datascience' || (session?.labId || "").toLowerCase().includes('datascience') || (session?.labId || "").toLowerCase().includes('jupyter');
+  const starterKey = getStarterAssetKey(session);
 
   if (baseUrl && shouldAttemptHttp()) {
     try {
@@ -567,7 +608,7 @@ export const getFilesFromContainer = async (session) => {
       } else if (response.ok) {
         recordHttpSuccess();
         const filesList = await response.json();
-        if ((isAndroid || isDotnet) && (!filesList || filesList.length === 0)) {
+        if (starterKey && (!filesList || filesList.length === 0)) {
           if (!activeS3Bootstraps.has(session.sessionId)) {
             activeS3Bootstraps.add(session.sessionId);
             console.log(`[getFilesFromContainer] Workspace empty. Triggering S3 bootstrap for session ${session.sessionId}...`);
@@ -608,27 +649,10 @@ export const getContainerFiles = getFilesFromContainer;
 export const bootstrapWorkspaceFromS3 = async (session) => {
   const bucket = ENV.testCasesBucket || 'vlab-dev-lab-files-0kdrg0q8';
   const ttl = ENV.labBootstrapPresignTtlSeconds || 3600;
+  const key = getStarterAssetKey(session);
 
-  const labId = (session?.labId || "").toLowerCase();
-  const labType = (session?.labType || "").toLowerCase();
-
-  const isAndroid = labId === 'mobile-app-lab' || labId === 'android' || labType === 'android';
-  const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
-  const isDataScience = labType === 'datascience' || labId === 'data-science-lab' || labId.includes('datascience') || labId.includes('jupyter') || labId.includes('notebook');
-
-  let key = "";
-  if (isAndroid) {
-    key = "lab-assets/android/starter/latest.tar.gz";
-  } else if (isDotnet) {
-    let isMvc = false;
-    if (session?.dotnetSubtype) {
-      isMvc = session.dotnetSubtype === "mvc";
-    } else {
-      isMvc = labId.includes("mvc") || labId.includes("mvc-app") || labType.includes("mvc");
-    }
-    key = isMvc ? "lab-assets/dotnet/mvc/latest.tar.gz" : "lab-assets/dotnet/console-snippet/latest.tar.gz";
-  } else {
-    console.log(`[bootstrapWorkspaceFromS3] Lab ${labId} does not require S3 bootstrapping.`);
+  if (!key) {
+    console.log(`[bootstrapWorkspaceFromS3] Session ${session?.sessionId} does not require S3 bootstrapping.`);
     return null;
   }
 
@@ -636,7 +660,55 @@ export const bootstrapWorkspaceFromS3 = async (session) => {
   try {
     const presignedUrl = await getPresignedUrl(bucket, key, ttl);
 
-    // Download and extract inside container via a python process executed inside the container
+    // Prefer SSM if direct HTTP is unavailable or in SSM fallback mode
+    if (canUseSsmFallback()) {
+      const shellScript = `#!/bin/sh
+PRESIGNED_URL="${presignedUrl}"
+DEST_DIR="/tmp/workspace/workspace"
+TMP_TAR="/tmp/bootstrap.tar.gz"
+
+mkdir -p "$DEST_DIR"
+if command -v curl >/dev/null 2>&1; then
+    curl -sSL -o "$TMP_TAR" "$PRESIGNED_URL"
+elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$TMP_TAR" "$PRESIGNED_URL"
+elif command -v python3 >/dev/null 2>&1; then
+    python3 -c "import urllib.request; urllib.request.urlretrieve('$PRESIGNED_URL', '$TMP_TAR')"
+fi
+
+if [ -f "$TMP_TAR" ]; then
+    tar -xzf "$TMP_TAR" -C "$DEST_DIR"
+    rm -f "$TMP_TAR"
+    for filename in gradlew build.sh; do
+        filepath="$DEST_DIR/$filename"
+        if [ -f "$filepath" ]; then
+            sed -i 's/\\r$//' "$filepath"
+            chmod +x "$filepath"
+        fi
+    done
+    if [ -f "/app/lab_server.py" ]; then
+        chown -R $(stat -c '%U:%G' /app/lab_server.py) /tmp/workspace 2>/dev/null || true
+    else
+        chown -R labuser:labuser /tmp/workspace 2>/dev/null || true
+    fi
+    echo "SUCCESS"
+else
+    echo "ERROR: Failed to download archive"
+    exit 1
+fi
+`;
+      const execRes = await executeViaSsm(session, {
+        action: "run",
+        path: "/tmp/bootstrap.sh",
+        language: "shell",
+        labType: "linux",
+        content: shellScript,
+      });
+      console.log(`[bootstrapWorkspaceFromS3] Container SSM bootstrap outcome:`, execRes?.output || 'No output');
+      return { success: execRes?.success && execRes.output?.includes("SUCCESS") };
+    }
+
+    // Direct HTTP execution inside container
     const pythonScript = `import urllib.request
 import tarfile
 import os

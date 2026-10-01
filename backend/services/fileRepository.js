@@ -1,11 +1,14 @@
 import fs from "fs";
 import path from "path";
+import zlib from "zlib";
 import { getSession, updateSession } from "./sessionRepository.js";
 import {
   getFilesFromContainer,
   getFileContentFromContainer,
   saveToContainer,
   deleteFromContainer,
+  getPresignedUrl,
+  getStarterAssetKey,
 } from "./containerClient.js";
 import { ENV } from "../config/env.js";
 
@@ -182,6 +185,96 @@ const filterDotnetFiles = (files, session) => {
   });
 };
 
+const detectLanguageFromPath = (filePath) => {
+  const ext = (filePath.split("/").pop() || "").split(".").pop() || "";
+  if (["js", "jsx"].includes(ext)) return "javascript";
+  if (ext === "java") return "java";
+  if (ext === "cs") return "csharp";
+  if (ext === "cshtml") return "razor";
+  if (ext === "sh") return "shell";
+  if (ext === "gradle") return "groovy";
+  if (ext === "properties") return "properties";
+  if (ext === "xml") return "xml";
+  if (ext === "json") return "json";
+  if (ext === "html") return "html";
+  if (ext === "css") return "css";
+  if (ext === "md") return "markdown";
+  if (["txt", "csv", "log"].includes(ext)) return "text";
+  if (ext === "py") return "python";
+  if (ext === "ipynb") return "json";
+  return "plaintext";
+};
+
+const isBinaryExt = (name) => {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  return ["png", "jpg", "jpeg", "gif", "ico", "pdf", "jar", "zip", "tar", "gz", "exe", "dll"].includes(ext);
+};
+
+// In-memory S3 starter files cache: key -> Array of { name, path, type, language, content, size }
+const s3StarterCache = new Map();
+
+export const fetchStarterFilesFromS3 = async (session) => {
+  const key = getStarterAssetKey(session);
+  if (!key) return [];
+
+  if (s3StarterCache.has(key)) {
+    return s3StarterCache.get(key);
+  }
+
+  const bucket = ENV.testCasesBucket || "vlab-dev-lab-files-0kdrg0q8";
+  console.log(`[fileRepository] Fetching starter files directly from S3: s3://${bucket}/${key}`);
+  try {
+    const presignedUrl = await getPresignedUrl(bucket, key, 3600);
+    const res = await fetch(presignedUrl);
+    if (!res.ok) {
+      console.warn(`[fileRepository] Failed to download starter tarball from S3: HTTP ${res.status}`);
+      return [];
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    const tar = zlib.gunzipSync(buf);
+
+    let offset = 0;
+    const files = [];
+    while (offset + 512 <= tar.length) {
+      const header = tar.subarray(offset, offset + 512);
+      if (header.every((b) => b === 0)) break;
+      let name = header.subarray(0, 100).toString("utf8").replace(/\0.*$/, "").trim();
+      const prefix = header.subarray(345, 500).toString("utf8").replace(/\0.*$/, "").trim();
+      if (prefix) name = prefix + "/" + name;
+      const sizeStr = header.subarray(124, 136).toString("utf8").replace(/\0.*$/, "").trim();
+      const size = parseInt(sizeStr, 8) || 0;
+      const typeflag = String.fromCharCode(header[156]);
+      offset += 512;
+      if (typeflag === "0" || typeflag === "\0") {
+        const rawName = name.replace(/^\.\//, "");
+        const fileName = rawName.split("/").pop();
+        const filePath = "/workspace/" + rawName;
+        let content = "";
+        if (!isBinaryExt(fileName) && size < 500 * 1024) {
+          content = tar.subarray(offset, offset + size).toString("utf8");
+        }
+        files.push({
+          name: fileName,
+          path: filePath,
+          type: "file",
+          language: detectLanguageFromPath(filePath),
+          content,
+          size,
+        });
+      }
+      offset += Math.ceil(size / 512) * 512;
+    }
+
+    if (files.length > 0) {
+      s3StarterCache.set(key, files);
+    }
+    return files;
+  } catch (err) {
+    console.error(`[fileRepository] Failed to read starter files from S3:`, err.message);
+    return [];
+  }
+};
+
 // In-memory Workspace Index and File Content Cache (LRU)
 const workspaceIndexCache = new Map();
 const fileContentCache = new Map();
@@ -272,10 +365,36 @@ export const listFiles = async (sessionId) => {
     !file.path.includes('/generated/')
   );
   
-  const finalTree = filterDotnetFiles(result, session);
-  const isReady = session?.bootstrapState === "READY" || session?.isBootstrapped === true;
-  if (finalTree.length > 0 && isReady) {
-    console.log(`[listFiles] Caching complete workspace tree (${finalTree.length} files) for ready session: ${sessionId}`);
+  let finalTree = filterDotnetFiles(result, session);
+
+  // If workspace is empty or container not ready yet, load starter files directly from S3!
+  if (finalTree.length === 0) {
+    const s3StarterFiles = await fetchStarterFilesFromS3(session);
+    if (s3StarterFiles && s3StarterFiles.length > 0) {
+      console.log(`[listFiles] Populating workspace from S3 starter template (${s3StarterFiles.length} files) for session ${sessionId}`);
+      const filteredS3 = filterDotnetFiles(
+        s3StarterFiles.filter(file =>
+          file.name !== 'run_android_build.sh' &&
+          !file.path.includes('.vlab_tmp') &&
+          !file.path.includes('.tmp') &&
+          !file.path.includes('/build/') &&
+          !file.path.includes('/.gradle/') &&
+          !file.path.includes('/intermediates/') &&
+          !file.path.includes('/generated/')
+        ),
+        session
+      );
+      if (filteredS3.length > 0) {
+        finalTree = filteredS3;
+        await updateSession(sessionId, { files: filteredS3 }).catch(e => {
+          console.warn(`[listFiles] Failed to cache S3 starter files in DB: ${e.message}`);
+        });
+      }
+    }
+  }
+
+  if (finalTree.length > 0) {
+    console.log(`[listFiles] Caching complete workspace tree (${finalTree.length} files) for session: ${sessionId}`);
     workspaceIndexCache.set(sessionId, finalTree);
     finalTree.forEach(file => {
       if (file.path && file.content !== undefined) {
@@ -285,25 +404,6 @@ export const listFiles = async (sessionId) => {
     });
   }
   return finalTree;
-};
-
-const detectLanguageFromPath = (filePath) => {
-  const ext = (filePath.split("/").pop() || "").split(".").pop() || "";
-  if (["js", "jsx"].includes(ext)) return "javascript";
-  if (ext === "java") return "java";
-  if (ext === "cs") return "csharp";
-  if (ext === "cshtml") return "razor";
-  if (ext === "sh") return "shell";
-  if (ext === "gradle") return "groovy";
-  if (ext === "properties") return "properties";
-  if (ext === "xml") return "xml";
-  if (ext === "json") return "json";
-  if (ext === "html") return "html";
-  if (ext === "css") return "css";
-  if (ext === "md") return "markdown";
-  if (["txt", "csv", "log"].includes(ext)) return "text";
-  if (ext === "py") return "python";
-  return "plaintext";
 };
 
 export const getFile = async (sessionId, filePath) => {
@@ -334,22 +434,34 @@ export const getFile = async (sessionId, filePath) => {
   if (session?.status === "running") {
     try {
       const content = await getFileContentFromContainer(session, filePath);
-      const name = filePath.split("/").pop();
-      const language = detectLanguageFromPath(filePath);
-      const record = {
-        name,
-        path: filePath,
-        type: "file",
-        content,
-        language,
-      };
-      fileContentCache.set(cacheKey, record);
-      await cacheFileContent(sessionId, record).catch(() => {});
-      return record;
+      if (content !== null) {
+        const name = filePath.split("/").pop();
+        const language = detectLanguageFromPath(filePath);
+        const record = {
+          name,
+          path: filePath,
+          type: "file",
+          content,
+          language,
+        };
+        fileContentCache.set(cacheKey, record);
+        await cacheFileContent(sessionId, record).catch(() => {});
+        return record;
+      }
     } catch (err) {
       console.warn("[getFile] Failed to read container file content:", err.message);
     }
   }
+
+  // Direct S3 starter file content fallback
+  const s3Files = await fetchStarterFilesFromS3(session);
+  const foundInS3 = s3Files.find((f) => f.path === filePath);
+  if (foundInS3) {
+    fileContentCache.set(cacheKey, foundInS3);
+    await cacheFileContent(sessionId, foundInS3).catch(() => {});
+    return foundInS3;
+  }
+
   const files = await listFiles(sessionId);
   return files.find((f) => f.path === filePath) || null;
 };

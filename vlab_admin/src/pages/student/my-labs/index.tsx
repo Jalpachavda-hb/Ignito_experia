@@ -202,16 +202,6 @@ export default function MyLabs() {
                     mappedLabObj.practicalCredit ||
                     c.credits ||
                     60
-                  );
-
-                  const bannerImage = c.courseBannerImage
-                    ? (
-                      c.courseBannerImage.startsWith('http')
-                        ? c.courseBannerImage
-                        : `https://verse.ignitolearn.com${c.courseBannerImage}`
-                    )
-                    : undefined;
-
                   if (labMatch) {
                     allMapped.push({
                       ...labMatch,
@@ -223,9 +213,8 @@ export default function MyLabs() {
                       remainingTokens: practicalCredit,
                       tokens: practicalCredit,
                       credits: practicalCredit,
-                      courseBannerImage: c.courseBannerImage,
-                      image: bannerImage || labMatch.image,
-                      logo: bannerImage || labMatch.logo,
+                      image: labMatch.image || labMatch.logo || null,
+                      logo: labMatch.logo || labMatch.image || null,
                       durationMinutes: practicalCredit,
                       semesterId: c.semesterId,
                       courseDetailsId: c.courseDetailsId,
@@ -245,9 +234,8 @@ export default function MyLabs() {
                       courseCode: cCode,
                       courseName: cName,
                       mappedLabTitle: mappedLabObj.title,
-                      courseBannerImage: c.courseBannerImage,
-                      image: bannerImage,
-                      logo: bannerImage,
+                      image: mappedLabObj?.image || mappedLabObj?.logo || null,
+                      logo: mappedLabObj?.logo || mappedLabObj?.image || null,
                       semesterId: c.semesterId,
                       courseDetailsId: c.courseDetailsId,
                     });
@@ -274,7 +262,6 @@ export default function MyLabs() {
                     if (!seenLabKeys.has(uniqueKey)) {
                       seenLabKeys.add(uniqueKey);
                       const practicalCredit = Number(c.practicalCredit || c.credits || 60);
-                      const bannerImage = c.courseBannerImage ? (c.courseBannerImage.startsWith('http') ? c.courseBannerImage : `https://verse.ignitolearn.com${c.courseBannerImage}`) : undefined;
                       allMapped.push({
                         ...autoMatch,
                         title: cName,
@@ -285,9 +272,8 @@ export default function MyLabs() {
                         remainingTokens: practicalCredit,
                         tokens: practicalCredit,
                         credits: practicalCredit,
-                        courseBannerImage: c.courseBannerImage,
-                        image: bannerImage || autoMatch.image,
-                        logo: bannerImage || autoMatch.logo,
+                        image: autoMatch.image || autoMatch.logo || null,
+                        logo: autoMatch.logo || autoMatch.image || null,
                         durationMinutes: practicalCredit,
                         semesterId: c.semesterId,
                         courseDetailsId: c.courseDetailsId,
@@ -592,7 +578,6 @@ const hasWalletTokens =
         const cCode = String(c.courseCode || c.code || c.subjectCode || `CRS-${idx + 1}`);
         const cName = c.courseName || c.name || c.subjectName || `Course ${cCode}`;
         const practicalCredit = Number(c.practicalCredit || c.credits || 60);
-        const bannerImage = c.courseBannerImage ? (c.courseBannerImage.startsWith('http') ? c.courseBannerImage : `https://verse.ignitolearn.com${c.courseBannerImage}`) : undefined;
         const mappedLabObj = c.mappedLab || (c.labId ? { labId: c.labId, title: c.labTitle } : null);
 
         if (mappedLabObj && (mappedLabObj.labId || mappedLabObj.LabId)) {
@@ -616,9 +601,8 @@ const hasWalletTokens =
               tokens: practicalCredit,
               credits: practicalCredit,
               durationMinutes: practicalCredit,
-              courseBannerImage: c.courseBannerImage,
-              image: bannerImage || labMatch.image,
-              logo: bannerImage || labMatch.logo,
+              image: labMatch.image || labMatch.logo || null,
+              logo: labMatch.logo || labMatch.image || null,
             });
           } else {
             mappedResults.push({
@@ -635,9 +619,8 @@ const hasWalletTokens =
               courseCode: cCode,
               courseName: cName,
               mappedLabTitle: labTitle,
-              courseBannerImage: c.courseBannerImage,
-              image: bannerImage,
-              logo: bannerImage,
+              image: mappedLabObj?.image || mappedLabObj?.logo || null,
+              logo: mappedLabObj?.logo || mappedLabObj?.image || null,
             });
           }
         } else {
@@ -675,9 +658,8 @@ const hasWalletTokens =
               tokens: practicalCredit,
               credits: practicalCredit,
               durationMinutes: practicalCredit,
-              courseBannerImage: c.courseBannerImage,
-              image: bannerImage || autoMatch.image,
-              logo: bannerImage || autoMatch.logo,
+              image: autoMatch.image || autoMatch.logo || null,
+              logo: autoMatch.logo || autoMatch.image || null,
             });
           } else {
             mappedResults.push({
@@ -694,9 +676,8 @@ const hasWalletTokens =
               courseCode: cCode,
               courseName: cName,
               mappedLabTitle: cName,
-              courseBannerImage: c.courseBannerImage,
-              image: bannerImage,
-              logo: bannerImage,
+              image: null,
+              logo: null,
             });
           }
         }

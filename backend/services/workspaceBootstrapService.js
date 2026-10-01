@@ -120,7 +120,8 @@ const getTemplateConfig = (session, lab) => {
 
   if (isDataScience) {
     return {
-      skipBootstrap: true,
+      assetKey: "lab-assets/datascience/notebook/latest.tar.gz",
+      requiredFiles: ["lab.ipynb"],
     };
   }
 

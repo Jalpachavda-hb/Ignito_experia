@@ -52,8 +52,8 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   const accessLabel = lab.accessLabel || (accessType === 'personal' ? 'Personal' : accessType === 'university' ? 'UNI' : null);
 
   const name = lab.title || lab.name || 'Unnamed Lab';
-  const rawImage = lab.courseBannerImage || lab.logo || lab.image || lab.icon || null;
-  const imageUrl = rawImage ? (rawImage.startsWith('http') || rawImage.startsWith('data:') ? rawImage : `https://verse.ignitolearn.com${rawImage.startsWith('/') ? '' : '/'}${rawImage}`) : null;
+  const rawImage = lab.logo || lab.image || lab.icon || null;
+  const imageUrl = rawImage ? (rawImage.startsWith('http') || rawImage.startsWith('data:') || rawImage.startsWith('/') ? rawImage : `/${rawImage}`) : null;
   const theme = getTheme(labId || name);
 
   const displayTokens = (lab.remainingTokens !== undefined && lab.remainingTokens > 0)
