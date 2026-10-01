@@ -10,7 +10,7 @@ import { ThemeSwitch } from '@/components/theme-switch'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Button } from '@/components/ui/button'
 import { apiRequest, api, OWNER_API_BASE } from '@/services/api'
-import { formatCurrency } from '@/lib/utils'
+import { cn, formatCurrency } from '@/lib/utils'
 
 export const Route = createFileRoute('/_authenticated/reports')({
   component: ReportsPage,
