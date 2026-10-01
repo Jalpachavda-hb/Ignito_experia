@@ -82,7 +82,9 @@ export const setupTerminal = (io) => {
 
         console.log(`Connecting terminal socket ${socket.id} to ECS container...`);
 
-        const { getSsmEnv, resolveAwsCliPath } = await import('./services/awsExecuteCommand.js');
+        const { getSsmEnv, resolveSessionManagerPluginPath, resolveAwsCliPath, ensureSessionManagerPluginInstalled } = await import('./services/awsExecuteCommand.js');
+        await ensureSessionManagerPluginInstalled();
+        let pluginPath = resolveSessionManagerPluginPath();
         let awsExePath = resolveAwsCliPath();
 
         let actualContainerName = containerName;
@@ -196,24 +198,66 @@ export const setupTerminal = (io) => {
           ptyEnv[pathKey] = `${pathString}${pathDelimiter}${ptyEnv[pathKey] || ''}`;
         }
 
-        console.log("========== AWS EXECUTE COMMAND ==========");
-        console.log("AWS CLI :", awsExePath);
-        console.log("Cluster :", cluster);
-        console.log("Command :", ptyArgs.join(" "));
-        console.log("=========================================");
+        // Direct session-manager-plugin PTY connection via pure AWS SDK ExecuteCommand
+        if (pluginPath && (fs.existsSync(pluginPath) || os.platform() !== "win32")) {
+          try {
+            const { ECSClient, ExecuteCommandCommand } = await import('@aws-sdk/client-ecs');
+            const ecsClient = new ECSClient({ region });
+            console.log(`[ECS TERMINAL] Initiating ExecuteCommand via AWS SDK for task: ${taskId}...`);
+            const ecsRes = await ecsClient.send(new ExecuteCommandCommand({
+              cluster,
+              task: taskId,
+              container: actualContainerName,
+              interactive: true,
+              command: interactiveShell,
+            }));
 
-        ptyProcess = pty.spawn(awsExePath, ptyArgs, {
-          name: "xterm-color",
-          cols: 120,
-          rows: 30,
-          cwd: process.cwd(),
-          useConpty: process.env.USE_CONPTY !== 'false',
-          env: ptyEnv,
-        });
+            if (ecsRes?.session) {
+              const pluginArgs = [JSON.stringify(ecsRes.session), region, "StartSession", ""];
+              console.log("========== SESSION MANAGER PLUGIN TERMINAL ==========");
+              console.log("Plugin   :", pluginPath);
+              console.log("Session  :", ecsRes.session.sessionId);
+              console.log("====================================================");
 
-        activePtys.set(socket.id, ptyProcess);
-        isContainer = true;
-        console.log(`[SUCCESS] ECS terminal connected for socket ${socket.id}`);
+              ptyProcess = pty.spawn(pluginPath, pluginArgs, {
+                name: "xterm-color",
+                cols: 120,
+                rows: 30,
+                cwd: process.cwd(),
+                useConpty: process.env.USE_CONPTY !== 'false',
+                env: ptyEnv,
+              });
+
+              activePtys.set(socket.id, ptyProcess);
+              isContainer = true;
+              console.log(`[SUCCESS] ECS terminal connected via session-manager-plugin for socket ${socket.id}`);
+            }
+          } catch (sdkTermErr) {
+            console.warn(`[ECS TERMINAL SDK WARNING] ${sdkTermErr.message}. Trying AWS CLI fallback...`);
+          }
+        }
+
+        // AWS CLI fallback only IF aws executable actually exists on disk
+        if (!ptyProcess && awsExePath && (fs.existsSync(awsExePath) || (os.platform() !== 'win32' && awsExePath !== 'aws'))) {
+          console.log("========== AWS EXECUTE COMMAND CLI FALLBACK ==========");
+          console.log("AWS CLI :", awsExePath);
+          console.log("Cluster :", cluster);
+          console.log("Command :", ptyArgs.join(" "));
+          console.log("=====================================================");
+
+          ptyProcess = pty.spawn(awsExePath, ptyArgs, {
+            name: "xterm-color",
+            cols: 120,
+            rows: 30,
+            cwd: process.cwd(),
+            useConpty: process.env.USE_CONPTY !== 'false',
+            env: ptyEnv,
+          });
+
+          activePtys.set(socket.id, ptyProcess);
+          isContainer = true;
+          console.log(`[SUCCESS] ECS terminal connected via AWS CLI for socket ${socket.id}`);
+        }
 
       } catch (err) {
         console.error('[ECS TERMINAL FAILED]', err.message);

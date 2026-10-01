@@ -1,6 +1,8 @@
 import { spawn, execSync } from "child_process";
 import os from "os";
 import { ENV } from "../config/env.js";
+import { isDirectContainerMode } from "../lib/ipManager.js";
+import { ECSClient, ExecuteCommandCommand } from "@aws-sdk/client-ecs";
 import path from "path";
 import fs from "fs";
 import https from "https";
@@ -11,6 +13,11 @@ const localBinPath = os.platform() === "win32"
   : path.join(localSsmDir, "bin", "session-manager-plugin");
 
 export const ensureSessionManagerPluginInstalled = async () => {
+  // Direct container communication on AWS EC2 does not require session-manager-plugin
+  if (isDirectContainerMode() && os.platform() !== "win32") {
+    return;
+  }
+
   // 1. Check if globally installed in PATH
   try {
     const cmd = os.platform() === "win32" ? "where session-manager-plugin" : "which session-manager-plugin";
@@ -24,6 +31,7 @@ export const ensureSessionManagerPluginInstalled = async () => {
   if (fs.existsSync(localBinPath)) {
     return;
   }
+
 
   // 3. Auto-download for Windows if missing
   if (os.platform() === "win32") {
@@ -68,7 +76,44 @@ export const ensureSessionManagerPluginInstalled = async () => {
       console.error("[awsExecuteCommand] Failed to auto-install session-manager-plugin:", err.message);
     }
   } else {
-    console.warn("[awsExecuteCommand] session-manager-plugin is missing. Please install it globally on this platform (Linux/macOS).");
+    // 4. Auto-download for Linux if missing
+    try {
+      console.log("[awsExecuteCommand] session-manager-plugin is missing on Linux. Auto-downloading portable package...");
+      const debUrl = "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb";
+      const debPath = path.join(os.tmpdir(), "session-manager-plugin.deb");
+
+      await new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(debPath);
+        https.get(debUrl, (response) => {
+          if (response.statusCode !== 200) {
+            reject(new Error(`Failed to download plugin: HTTP ${response.statusCode}`));
+            return;
+          }
+          response.pipe(file);
+          file.on("finish", () => {
+            file.close();
+            resolve();
+          });
+        }).on("error", (err) => {
+          fs.unlink(debPath, () => {});
+          reject(err);
+        });
+      });
+
+      fs.mkdirSync(localSsmDir, { recursive: true });
+      execSync(`dpkg-deb -x "${debPath}" "${localSsmDir}" 2>/dev/null || (cd "${localSsmDir}" && ar x "${debPath}" && tar -xf data.tar.*)`, { stdio: "ignore" });
+      const extractedBin = path.join(localSsmDir, "usr", "local", "sessionmanagerplugin", "bin", "session-manager-plugin");
+      const targetBin = path.join(localSsmDir, "bin", "session-manager-plugin");
+      fs.mkdirSync(path.dirname(targetBin), { recursive: true });
+      if (fs.existsSync(extractedBin)) {
+        fs.copyFileSync(extractedBin, targetBin);
+        fs.chmodSync(targetBin, 0o755);
+      }
+      try { fs.unlinkSync(debPath); } catch (_) {}
+      console.log(`[awsExecuteCommand] session-manager-plugin successfully auto-installed at: ${targetBin}`);
+    } catch (err) {
+      console.warn("[awsExecuteCommand] session-manager-plugin is missing. Please install it globally on this platform (Linux/macOS). Error:", err.message);
+    }
   }
 };
 
@@ -116,6 +161,33 @@ export const getSsmEnv = () => {
   return env;
 };
 
+export const resolveSessionManagerPluginPath = () => {
+  if (process.env.SESSION_MANAGER_PLUGIN_PATH && fs.existsSync(process.env.SESSION_MANAGER_PLUGIN_PATH)) {
+    return process.env.SESSION_MANAGER_PLUGIN_PATH;
+  }
+
+  if (os.platform() === "win32") {
+    if (fs.existsSync(localBinPath)) return localBinPath;
+    const defaultWin = "C:\\Program Files\\Amazon\\SessionManagerPlugin\\bin\\session-manager-plugin.exe";
+    if (fs.existsSync(defaultWin)) return defaultWin;
+  } else {
+    if (fs.existsSync(localBinPath)) return localBinPath;
+    const linuxCandidates = [
+      path.join(localSsmDir, "bin", "session-manager-plugin"),
+      "/usr/local/sessionmanagerplugin/bin/session-manager-plugin",
+      "/usr/local/bin/session-manager-plugin",
+      "/usr/bin/session-manager-plugin",
+      "/bin/session-manager-plugin",
+      path.join(os.homedir(), ".local/bin/session-manager-plugin"),
+    ];
+    for (const cand of linuxCandidates) {
+      if (fs.existsSync(cand)) return cand;
+    }
+  }
+
+  return "session-manager-plugin";
+};
+
 export const resolveAwsCliPath = () => {
   if (ENV.awsCliPath && ENV.awsCliPath !== "aws" && fs.existsSync(ENV.awsCliPath)) {
     return ENV.awsCliPath;
@@ -156,7 +228,8 @@ export const stripSsmNoise = (stdout) => {
 };
 
 /**
- * Executes a single AWS ECS execute-command CLI command using child_process.spawn (bypassing cmd.exe shell parsing).
+ * Executes a single AWS ECS execute-command using pure AWS SDK (@aws-sdk/client-ecs)
+ * and connects session streams via session-manager-plugin (without shelling out to 'aws' CLI).
  */
 export const executeAwsCommand = async (session, commandValue, timeoutMs = 120000) => {
   await ensureSessionManagerPluginInstalled();
@@ -170,90 +243,80 @@ export const executeAwsCommand = async (session, commandValue, timeoutMs = 12000
     throw new Error("Missing ECS task ARN for ExecuteCommand");
   }
 
-  const args = [
-    "ecs",
-    "execute-command",
-    "--cluster",
-    cluster,
-    "--task",
-    taskId,
-    "--container",
-    container,
-    "--interactive",
-    "--command",
-    commandValue,
-    "--region",
-    region,
-  ];
+  // 1. Direct AWS SDK ExecuteCommand (Pure API - No AWS CLI executable required)
+  let sdkSession = null;
+  try {
+    const ecsClient = new ECSClient({ region });
+    const response = await ecsClient.send(
+      new ExecuteCommandCommand({
+        cluster,
+        task: taskId,
+        container,
+        interactive: true,
+        command: commandValue,
+      })
+    );
+    sdkSession = response?.session;
+  } catch (sdkErr) {
+    console.warn(`[awsExecuteCommand] ECS ExecuteCommand SDK API call failed: ${sdkErr.message}`);
+    if (sdkErr.name === "TargetNotConnectedException" || sdkErr.message?.includes("is not connected")) {
+      const connErr = new Error("ExecuteCommandAgent is still initializing. Retrying...");
+      connErr.code = "TargetNotConnectedException";
+      throw connErr;
+    }
+    if (sdkErr.name === "InvalidParameterException" && (sdkErr.message?.includes("stopped") || sdkErr.message?.includes("not running") || sdkErr.message?.includes("isn't running"))) {
+      const stoppedErr = new Error("Lab container stopped unexpectedly.");
+      stoppedErr.code = "TaskStopped";
+      throw stoppedErr;
+    }
+    throw sdkErr;
+  }
 
-  const awsBin = resolveAwsCliPath();
-  console.log(`[awsExecuteCommand] Spawning ${awsBin} ecs execute-command with args:`, args);
+  if (sdkSession) {
+    const pluginBin = resolveSessionManagerPluginPath();
+    console.log(`[awsExecuteCommand] Launching session-manager-plugin via ${pluginBin} for taskId: ${taskId}`);
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(awsBin, args, {
-      env: getSsmEnv(),
-      shell: false,
-    });
+    return new Promise((resolve, reject) => {
+      const args = [JSON.stringify(sdkSession), region, "StartSession", ""];
+      const child = spawn(pluginBin, args, {
+        env: getSsmEnv(),
+        shell: false,
+      });
 
-    let stdout = "";
-    let stderr = "";
+      let stdout = "";
+      let stderr = "";
 
-    child.stdout.on("data", (data) => {
-      stdout += data.toString();
-    });
+      child.stdout.on("data", (data) => {
+        stdout += data.toString();
+      });
 
-    child.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
+      child.stderr.on("data", (data) => {
+        stderr += data.toString();
+      });
 
-    const timeout = setTimeout(() => {
-      child.kill();
-      reject(new Error(`SSM command timed out after ${Math.round(timeoutMs / 1000)}s`));
-    }, timeoutMs);
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new Error(`SSM command timed out after ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs);
 
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      if (err.code === "ENOENT") {
-        return reject(
-          new Error(
-            `AWS CLI executable '${awsBin}' not found on server. Please run: 'sudo apt update && sudo apt install -y awscli' or install AWS CLI v2.`
-          )
-        );
-      }
-      return reject(err);
-    });
+      child.on("error", (err) => {
+        clearTimeout(timeout);
+        return reject(err);
+      });
 
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) {
-        const errMessage = stderr || stdout || `Process exited with code ${code}`;
-        console.error(`[awsExecuteCommand] AWS CLI error:`, errMessage);
-
-        if (errMessage.includes("TargetNotConnectedException") || errMessage.includes("is not connected")) {
-          const connErr = new Error("ExecuteCommandAgent is still initializing. Retrying...");
-          connErr.code = "TargetNotConnectedException";
-          return reject(connErr);
-        }
-        if (errMessage.includes("SessionManagerPlugin") || errMessage.includes("SessionManagerPluginMissing")) {
-          const pluginErr = new Error("AWS Session Manager Plugin is not installed on the host.");
-          pluginErr.code = "SessionManagerPluginMissing";
-          return reject(pluginErr);
-        }
-        if (errMessage.includes("TaskStopped") || errMessage.includes("is stopped")) {
-          const stoppedErr = new Error("Lab container stopped unexpectedly.");
-          stoppedErr.code = "TaskStopped";
-          return reject(stoppedErr);
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        if (code !== 0) {
+          const errMessage = stderr || stdout || `Process exited with code ${code}`;
+          console.error(`[awsExecuteCommand] session-manager-plugin error:`, errMessage);
+          return reject(new Error(errMessage));
         }
 
-        return reject(new Error(errMessage));
-      }
-
-      resolve(stripSsmNoise(stdout));
+        resolve(stripSsmNoise(stdout));
+      });
     });
+  }
 
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
+  throw new Error("Failed to initialize ECS ExecuteCommand session.");
 };
+

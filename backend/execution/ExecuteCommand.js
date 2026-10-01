@@ -1,7 +1,7 @@
 import { executeCode } from "../services/ExecutionService.js";
 import { executeViaSsm } from "../services/executeCommandService.js";
 import { LogStreamer } from "./LogStreamer.js";
-import { getContainerHost } from "../lib/labTools.js";
+import { getContainerHost, isDirectContainerMode } from "../lib/labTools.js";
 import { BrowserManager } from "./BrowserManager.js";
 import net from "net";
 
@@ -163,21 +163,39 @@ export class ExecuteCommand {
 
       let result;
       const port = session.containerPort || 8080;
-      const isReachable = await checkPort(host, port, 1500);
 
-      if (isReachable) {
+      if (isDirectContainerMode()) {
+        // AWS Instance Mode: Backend connects directly to container via private IP
+        console.log(`[ExecuteCommand] Direct Container Mode: connecting to http://${host}:${port}`);
         try {
           result = await executeCode(session, finalPayload, { runId });
-          if (!result.success && result.error === "Container unreachable") {
-            throw new Error("Container unreachable");
+          if (!result.success && (result.error === "Container unreachable" || result.error === "Runtime initialization failed")) {
+            throw new Error(result.error);
           }
-        } catch (err) {
+        } catch (directErr) {
+          console.warn(`[ExecuteCommand] Direct container HTTP execution failed (${directErr.message}). Falling back to SSM execution...`);
           LogStreamer.sendRunLog(runId, `⚠️ Private HTTP agent port unreachable. Executing script via AWS SSM fallback...`, "stdout");
           result = await executeViaSsm(session, finalPayload);
         }
       } else {
-        LogStreamer.sendRunLog(runId, `⚠️ Private HTTP agent port unreachable. Executing script via AWS SSM fallback...`, "stdout");
-        result = await executeViaSsm(session, finalPayload);
+        // Local Mode: Direct network route to container private IP is typically blocked,
+        // so check port and fall back to AWS SSM / AWS CLI command execution
+        const isReachable = await checkPort(host, port, 1500);
+
+        if (isReachable) {
+          try {
+            result = await executeCode(session, finalPayload, { runId });
+            if (!result.success && result.error === "Container unreachable") {
+              throw new Error("Container unreachable");
+            }
+          } catch (err) {
+            LogStreamer.sendRunLog(runId, `⚠️ Private HTTP agent port unreachable. Executing script via AWS SSM fallback...`, "stdout");
+            result = await executeViaSsm(session, finalPayload);
+          }
+        } else {
+          LogStreamer.sendRunLog(runId, `⚠️ Direct HTTP unreachable (local mode). Executing script via AWS SSM...`, "stdout");
+          result = await executeViaSsm(session, finalPayload);
+        }
       }
 
       if (result.output) {

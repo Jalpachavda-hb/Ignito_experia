@@ -6,7 +6,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { getSession, updateSession } from "./sessionRepository.js";
 import { getPresignedUrl } from "./containerClient.js";
-import { getContainerPort, getContainerHost } from "../lib/labTools.js";
+import { getContainerPort, getContainerHost, isDirectContainerMode } from "../lib/labTools.js";
 import { getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { executeCode } from "./ExecutionService.js";
@@ -334,11 +334,12 @@ export const bootstrap = async (session, netInfo = null) => {
       
       let ssmFallbackNeeded = false;
       let baseUrl = "";
+      const readyTimeout = isDirectContainerMode() ? 30000 : 6000;
       try {
-        const ready = await waitForContainerReady(freshSession, 6000); // 6s timeout for readiness check
+        const ready = await waitForContainerReady(freshSession, readyTimeout);
         baseUrl = `http://${ready.host}:${ready.port}`;
       } catch (err) {
-        console.warn(`[WorkspaceBootstrap] Container TCP probe failed: ${err.message}. Direct HTTP REST is unreachable. Falling back to SSM...`);
+        console.warn(`[WorkspaceBootstrap] Container TCP probe failed: ${err.message}. Direct HTTP REST is unreachable.`);
         ssmFallbackNeeded = true;
       }
 
@@ -385,7 +386,7 @@ export const bootstrap = async (session, netInfo = null) => {
         }
       }
 
-      if (ssmFallbackNeeded) {
+      if (ssmFallbackNeeded && process.env.DISABLE_SSM !== "true") {
         console.log(`[WorkspaceBootstrap] Running SSM-based S3 bootstrap fallback...`);
         await runContainerSsmBootstrap(freshSession, presignedUrl);
         await verifyContainerWorkspace(freshSession, requiredFiles);

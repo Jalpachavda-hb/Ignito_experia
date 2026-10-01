@@ -1,9 +1,10 @@
-  import { LAB_PORTS, getLabById } from "../config/labs.js";
+import { LAB_PORTS, getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { signJupyterEmbedToken } from "./jwt.js";
-import { getContainerHost } from "./ipManager.js";
+import { getContainerHost, isDirectContainerMode, isLocalMode, isAwsInstance } from "./ipManager.js";
 
-export { getContainerHost };
+export { getContainerHost, isDirectContainerMode, isLocalMode, isAwsInstance };
+
 
 const joinUrl = (base, path = "/") => {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;

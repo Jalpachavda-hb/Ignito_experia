@@ -1,4 +1,4 @@
-import { getContainerPort, getContainerHost } from "../lib/labTools.js";
+import { getContainerPort, getContainerHost, isDirectContainerMode } from "../lib/labTools.js";
 import { ENV } from "../config/env.js";
 import { updateSession } from "./sessionRepository.js";
 import { executeCode } from "./ExecutionService.js";
@@ -89,15 +89,25 @@ const getPrivateBaseUrl = async (session) => {
   return `http://${host}:${port}`;
 };
 
-/** Fail fast when the container HTTP endpoint is unreachable (common in local/dev). */
-const CONTAINER_HTTP_TIMEOUT_MS = Number(process.env.CONTAINER_HTTP_TIMEOUT_MS || 2000);
-const HTTP_FAIL_THRESHOLD = 2;
+/** Dynamic timeout: In direct mode on AWS instance, allow generous timeout (15s); in local dev mode, fail fast (2s) to fall back to SSM. */
+const getContainerHttpTimeoutMs = () => {
+  if (process.env.CONTAINER_HTTP_TIMEOUT_MS) return Number(process.env.CONTAINER_HTTP_TIMEOUT_MS);
+  return isDirectContainerMode() ? 15000 : 2000;
+};
+
+const HTTP_FAIL_THRESHOLD = isDirectContainerMode() ? 6 : 2;
 const HTTP_CIRCUIT_COOLDOWN_MS = Number(process.env.CONTAINER_HTTP_CIRCUIT_MS || 5 * 60 * 1000);
 let httpFailCount = 0;
 let httpCircuitOpenUntil = 0;
 
+export const canUseSsmFallback = () => {
+  return process.env.DISABLE_SSM !== "true";
+};
+
 const shouldAttemptHttp = () => {
   if (process.env.CONTAINER_HTTP_ENABLED === "false") return false;
+  // On AWS instance, direct HTTP communication is always the primary route
+  if (isDirectContainerMode()) return true;
   return Date.now() >= httpCircuitOpenUntil;
 };
 
@@ -108,7 +118,8 @@ const recordHttpSuccess = () => {
 
 const recordHttpFailure = () => {
   httpFailCount += 1;
-  if (httpFailCount >= HTTP_FAIL_THRESHOLD && Date.now() >= httpCircuitOpenUntil) {
+  // Do not disable direct HTTP on AWS instances
+  if (!isDirectContainerMode() && httpFailCount >= HTTP_FAIL_THRESHOLD && Date.now() >= httpCircuitOpenUntil) {
     httpCircuitOpenUntil = Date.now() + HTTP_CIRCUIT_COOLDOWN_MS;
     console.warn(
       `[containerClient] Container HTTP unreachable — skipping HTTP for ${Math.round(HTTP_CIRCUIT_COOLDOWN_MS / 1000)}s (using SSM).`,
@@ -117,13 +128,14 @@ const recordHttpFailure = () => {
 };
 
 const fetchWithTimeout = async (url, options = {}) => {
+  const timeoutMs = getContainerHttpTimeoutMs();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CONTAINER_HTTP_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
     if (err?.name === "AbortError") {
-      throw new Error(`Container HTTP timed out after ${CONTAINER_HTTP_TIMEOUT_MS}ms`);
+      throw new Error(`Container HTTP timed out after ${timeoutMs}ms`);
     }
     throw err;
   } finally {
@@ -315,9 +327,16 @@ export const saveToContainer = async (session, { path: filePath, content }) => {
     } catch (err) {
       recordHttpFailure();
       console.warn(`[containerClient] HTTP save failed: ${err.message}. Checking SSM fallback...`);
+      if (!canUseSsmFallback()) {
+        throw err;
+      }
     }
   }
-  return await saveSsmFallback(session, filePath, content);
+
+  if (canUseSsmFallback()) {
+    return await saveSsmFallback(session, filePath, content);
+  }
+  throw new Error("Failed to save file: direct container HTTP endpoint unreachable");
 };
 
 /**
@@ -346,9 +365,17 @@ export const deleteFromContainer = async (session, filePath) => {
     } catch (err) {
       recordHttpFailure();
       console.warn(`[containerClient] HTTP delete failed: ${err.message}. Checking SSM fallback...`);
+      if (!canUseSsmFallback()) {
+        throw err;
+      }
     }
   }
-  await deleteSsmFallback(session, filePath);
+
+  if (canUseSsmFallback()) {
+    await deleteSsmFallback(session, filePath);
+    return;
+  }
+  throw new Error("Failed to delete file: direct container HTTP endpoint unreachable");
 };
 
 /**
@@ -413,9 +440,14 @@ echo "SUCCESS"
       recordHttpFailure();
     } catch (err) {
       if (!/Source path not found|already exists/i.test(err.message)) recordHttpFailure();
-      console.warn(`[containerClient] HTTP rename failed: ${err.message}. Falling back to SSM...`);
+      console.warn(`[containerClient] HTTP rename failed: ${err.message}. Checking SSM fallback...`);
       if (/Source path not found|already exists/i.test(err.message)) throw err;
+      if (!canUseSsmFallback()) throw err;
     }
+  }
+
+  if (!canUseSsmFallback()) {
+    throw new Error("Failed to rename: direct container HTTP endpoint unreachable");
   }
 
   const execRes = await executeViaSsm(session, {
@@ -458,10 +490,17 @@ export const readFromContainer = async (session, filePath) => {
     } catch (err) {
       recordHttpFailure();
       console.warn(`[containerClient] HTTP read failed: ${err.message}. Checking SSM fallback...`);
+      if (!canUseSsmFallback()) {
+        return null;
+      }
     }
   }
-  const buffer = await readSsmFallback(session, filePath);
-  return buffer ? buffer.toString("utf-8") : null;
+
+  if (canUseSsmFallback()) {
+    const buffer = await readSsmFallback(session, filePath);
+    return buffer ? buffer.toString("utf-8") : null;
+  }
+  return null;
 };
 
 export const getFileContentFromContainer = readFromContainer;
@@ -493,9 +532,16 @@ export const readBinaryFromContainer = async (session, filePath) => {
     } catch (err) {
       recordHttpFailure();
       console.warn(`[containerClient] HTTP download failed: ${err.message}. Checking SSM fallback...`);
+      if (!canUseSsmFallback()) {
+        return null;
+      }
     }
   }
-  return await readSsmFallback(session, filePath);
+
+  if (canUseSsmFallback()) {
+    return await readSsmFallback(session, filePath);
+  }
+  return null;
 };
 
 /**
@@ -542,9 +588,16 @@ export const getFilesFromContainer = async (session) => {
     } catch (err) {
       recordHttpFailure();
       console.warn(`[containerClient] HTTP files request failed: ${err.message}. Checking SSM fallback...`);
+      if (!canUseSsmFallback()) {
+        return [];
+      }
     }
   }
-  return await getFilesSsmFallback(session);
+
+  if (canUseSsmFallback()) {
+    return await getFilesSsmFallback(session);
+  }
+  return [];
 };
 
 export const getContainerFiles = getFilesFromContainer;
