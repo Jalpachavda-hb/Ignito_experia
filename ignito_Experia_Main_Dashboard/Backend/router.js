@@ -26,6 +26,9 @@ import {
 } from "./handlers/internal.js";
 
 import { usersListHandler } from "./handlers/users.js";
+import { dashboardStatsHandler } from "./handlers/dashboard.js";
+import { revenueStatsHandler } from "./handlers/revenue.js";
+import { reportsListHandler, exportReportHandler } from "./handlers/reports.js";
 
 export function setupRoutes(app, apiPrefix) {
   const router = express.Router();
@@ -47,6 +50,16 @@ export function setupRoutes(app, apiPrefix) {
   router.get("/auth/me", authMiddleware, meHandler);
   router.get("/admin/profile", authMiddleware, getProfileHandler);
   router.put("/admin/profile", authMiddleware, updateProfileHandler);
+
+  // ── Executive Dashboard Real Stats (Direct Students & Lab Purchases) ──
+  router.get("/admin/dashboard/stats", authMiddleware, dashboardStatsHandler);
+
+  // ── Revenue & Monetization Analytics ─────────────────────────
+  router.get("/admin/revenue/stats", authMiddleware, revenueStatsHandler);
+
+  // ── Reports & Diagnostic Exports ─────────────────────────────
+  router.get("/admin/reports", authMiddleware, reportsListHandler);
+  router.get("/admin/reports/:reportType/export", authMiddleware, exportReportHandler);
 
   // ── Users / Students Management (Owner Cross-Tenant) ──────────
   router.get("/admin/users", authMiddleware, usersListHandler);
