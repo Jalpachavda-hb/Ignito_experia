@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles, Zap } from 'lucide-react';
+import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles, Zap, BookOpen } from 'lucide-react';
 import { Lab } from '../types';
 
 interface LabCardProps {
@@ -48,8 +48,8 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   const isStatusVisible = Boolean(labStatus && !['available', 'not started', 'active'].includes(labStatus.toLowerCase()));
   const progress = labStatus === 'Completed' ? 100 : (isRunning || isSessionStarting || labStatus === 'In Progress') ? 35 : 0;
 
-  const accessType = lab.accessType || (lab.isPurchased ? 'personal' : lab.isUniversity ? 'university' : null);
-  const accessLabel = lab.accessLabel || (accessType === 'personal' ? 'Personal' : accessType === 'university' ? 'UNI' : null);
+  const accessType = lab.accessType || (lab.isUniversity ? 'university' : lab.isPurchased ? 'personal' : null);
+  const accessLabel = lab.accessLabel || (accessType === 'university' ? 'University' : accessType === 'personal' ? 'Personal' : null);
 
   const name = lab.title || lab.name || 'Unnamed Lab';
   const rawImage = lab.logo || lab.image || lab.icon || null;
@@ -71,18 +71,18 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.02)_100%)] dark:bg-[radial-gradient(circle_at_center,transparent_0%,rgba(255,255,255,0.02)_100%)]" />
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:20px_20px] opacity-40" />
 
-          {/* Access Type Badge (UNI / Personal) */}
+          {/* Access Type Badge (University / Personal) */}
           {accessLabel && (
             <div className="absolute top-3 left-3 z-10">
               <div className={`px-2.5 py-1 rounded-full shadow-xs border flex items-center gap-1.5 text-[10px] font-extrabold tracking-wider ${
-                accessType === 'personal' 
-                  ? 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800' 
-                  : 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+                accessType === 'university' 
+                  ? 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+                  : 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800'
               }`}>
-                {accessType === 'personal' ? (
-                  <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                ) : (
+                {accessType === 'university' ? (
                   <GraduationCap className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                ) : (
+                  <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                 )}
                 <span>{accessLabel}</span>
               </div>
@@ -113,11 +113,11 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
                 <p className={`text-xs font-bold uppercase tracking-wider ${theme.text}`}>{lab.category || 'General Lab'}</p>
                 {accessLabel && (
                   <Badge variant="outline" className={`hidden sm:inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                    accessType === 'personal' 
-                      ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300' 
-                      : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300'
+                    accessType === 'university' 
+                      ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300' 
+                      : 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300'
                   }`}>
-                    {accessType === 'personal' ? <Sparkles className="w-2.5 h-2.5 mr-1" /> : <GraduationCap className="w-2.5 h-2.5 mr-1" />}
+                    {accessType === 'university' ? <GraduationCap className="w-2.5 h-2.5 mr-1" /> : <Sparkles className="w-2.5 h-2.5 mr-1" />}
                     {accessLabel}
                   </Badge>
                 )}
@@ -128,6 +128,19 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
                   </Badge>
                 )}
               </div>
+              {(lab.courseName || lab.courseCode) && (
+                <div className="mb-2.5 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-900/80 px-2.5 py-1 rounded-md border border-slate-200/60 dark:border-slate-800/60 w-fit max-w-full">
+                  <BookOpen className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                  <span className="truncate font-semibold text-slate-700 dark:text-slate-200 text-[11px]" title={lab.courseName || ''}>
+                    {lab.courseName || 'Course'}
+                  </span>
+                  {lab.courseCode && (
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono shrink-0">
+                      • {lab.courseCode}
+                    </span>
+                  )}
+                </div>
+              )}
               <h3 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white leading-tight">{name}</h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 line-clamp-2">
                 {lab.description || 'Learn and explore various concepts through this interactive lab environment.'}
@@ -207,18 +220,18 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         <div className="absolute -top-12 -left-12 w-32 h-32 bg-red-100/40 dark:bg-red-900/20 rounded-full blur-3xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
         <div className="absolute top-10 -right-10 w-24 h-24 bg-blue-100/40 dark:bg-blue-900/20 rounded-full blur-2xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
 
-        {/* Access Type Badge (UNI / Personal) in Top Left */}
+        {/* Access Type Badge (University / Personal) in Top Left */}
         {accessLabel && (
           <div className="absolute top-3.5 left-3.5 z-10">
             <div className={`px-2.5 py-1 rounded-full shadow-xs border flex items-center gap-1.5 text-[10px] font-extrabold tracking-wider ${
-              accessType === 'personal' 
-                ? 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800' 
-                : 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+              accessType === 'university' 
+                ? 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800' 
+                : 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800'
             }`}>
-              {accessType === 'personal' ? (
-                <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-              ) : (
+              {accessType === 'university' ? (
                 <GraduationCap className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
               )}
               <span>{accessLabel}</span>
             </div>
@@ -253,7 +266,21 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
       </CardHeader>
 
       <CardContent className="px-5 pt-5 pb-0 flex-1 flex flex-col relative z-20 bg-white dark:bg-slate-950">
-        <p className={`text-[10px] font-bold uppercase tracking-[0.15em] mb-2 ${theme.text}`}>
+        {(lab.courseName || lab.courseCode) && (
+          <div className="mb-2.5 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-900/80 px-2.5 py-1 rounded-md border border-slate-200/60 dark:border-slate-800/60 w-fit max-w-full">
+            <BookOpen className="w-3.5 h-3.5 text-red-500 shrink-0" />
+            <span className="truncate font-semibold text-slate-700 dark:text-slate-200 text-[11px]" title={lab.courseName || ''}>
+              {lab.courseName || 'Course'}
+            </span>
+            {lab.courseCode && (
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono shrink-0">
+                • {lab.courseCode}
+              </span>
+            )}
+          </div>
+        )}
+
+        <p className={`text-[10px] font-bold uppercase tracking-[0.15em] mb-1.5 ${theme.text}`}>
           {lab.category || 'General Lab'}
         </p>
         <h3 className="text-[17px] font-bold text-slate-900 dark:text-white leading-snug mb-2 line-clamp-2" title={name}>

@@ -44,6 +44,7 @@ export interface RazorpayPaymentOptions {
   userEmail?: string;
   userPhone?: string;
   userName?: string;
+  preferredMethod?: 'upi_qr' | 'upi' | 'paytm' | 'card' | 'netbanking' | 'wallet' | 'paylater';
   onSuccess: (paymentId: string, details: any) => void;
   onFailure?: (errorDetails: any) => void;
   onDismiss?: () => void;
@@ -79,18 +80,34 @@ export const detectPaymentMethod = (response: any): string => {
     return bankName ? `Netbanking (${bankName})` : 'Netbanking';
   }
   if (method === 'card' || rawObj.card_id || rawObj.card) {
-    const cardNetwork = rawObj.card?.network || rawObj.card?.type || '';
+    const cardNetwork = (rawObj.card?.network || rawObj.card?.type || '').toUpperCase();
     return cardNetwork ? `Card (${cardNetwork})` : 'Credit/Debit Card';
   }
   if (method === 'upi' || rawObj.vpa) {
+    const vpa = String(rawObj.vpa || '').toLowerCase();
+    const flow = String(rawObj.flow || '').toLowerCase();
+    if (vpa.includes('paytm')) return 'Paytm UPI';
+    if (vpa.includes('okhdfcbank') || vpa.includes('okaxis') || vpa.includes('okicici') || vpa.includes('oksbi')) return 'Google Pay (UPI)';
+    if (vpa.includes('ybl') || vpa.includes('ibl') || vpa.includes('axl')) return 'PhonePe (UPI)';
+    if (flow === 'qr' || rawObj.qr) return 'UPI (QR Code)';
     return 'UPI Payment';
   }
   if (method === 'wallet' || rawObj.wallet) {
-    const walletName = rawObj.wallet ? `Wallet (${rawObj.wallet})` : 'Wallet';
-    return walletName;
+    const w = String(rawObj.wallet || '').toLowerCase();
+    if (w === 'paytm') return 'Paytm Wallet';
+    if (w === 'phonepe') return 'PhonePe Wallet';
+    if (w === 'mobikwik') return 'MobiKwik';
+    if (w === 'freecharge') return 'Freecharge';
+    if (w === 'airtelmoney') return 'Airtel Money';
+    if (w === 'olamoney') return 'Ola Money';
+    if (w === 'jiomoney') return 'JioMoney';
+    return rawObj.wallet ? `Wallet (${rawObj.wallet})` : 'Wallet';
   }
   if (method === 'paylater' || rawObj.paylater) {
     return 'PayLater';
+  }
+  if (method === 'emi' || rawObj.emi) {
+    return 'EMI Payment';
   }
   return 'Razorpay';
 };
@@ -115,6 +132,7 @@ export const initiateRazorpayPayment = async ({
   userEmail = '',
   userPhone = '',
   userName = '',
+  preferredMethod,
   onSuccess,
   onFailure,
   onDismiss,
@@ -152,6 +170,99 @@ export const initiateRazorpayPayment = async ({
     console.warn('Backend order endpoint not reachable, running client mode:', err);
   }
 
+  // Dynamic payment blocks explicitly enabling and ordering QR Code, UPI, Paytm, Cards, Netbanking, Wallets
+  const displayBlocks: Record<string, any> = {
+    upi_qr: {
+      name: 'UPI & Instant Dynamic QR Code',
+      instruments: [
+        {
+          method: 'upi',
+          flows: ['qr', 'intent'],
+          apps: ['google_pay', 'phonepe', 'paytm', 'bhim', 'cred'],
+        },
+      ],
+    },
+    paytm_wallets: {
+      name: 'Paytm & Popular Wallets',
+      instruments: [
+        {
+          method: 'wallet',
+          wallets: ['paytm', 'phonepe', 'mobikwik', 'freecharge', 'airtelmoney', 'olamoney', 'jiomoney'],
+        },
+      ],
+    },
+    cards: {
+      name: 'Credit & Debit Cards (Visa, MasterCard, RuPay, Maestro)',
+      instruments: [
+        {
+          method: 'card',
+        },
+      ],
+    },
+    netbanking: {
+      name: 'Net Banking (All Indian Banks - SBI, HDFC, ICICI, etc.)',
+      instruments: [
+        {
+          method: 'netbanking',
+        },
+      ],
+    },
+    paylater: {
+      name: 'Pay Later & Cardless EMI',
+      instruments: [
+        {
+          method: 'paylater',
+        },
+        {
+          method: 'emi',
+        },
+      ],
+    },
+  };
+
+  // Determine sequence based on preferredMethod
+  let sequence = [
+    'block.upi_qr',
+    'block.paytm_wallets',
+    'block.cards',
+    'block.netbanking',
+    'block.paylater',
+  ];
+
+  if (preferredMethod === 'paytm' || preferredMethod === 'wallet') {
+    sequence = [
+      'block.paytm_wallets',
+      'block.upi_qr',
+      'block.cards',
+      'block.netbanking',
+      'block.paylater',
+    ];
+  } else if (preferredMethod === 'card') {
+    sequence = [
+      'block.cards',
+      'block.upi_qr',
+      'block.paytm_wallets',
+      'block.netbanking',
+      'block.paylater',
+    ];
+  } else if (preferredMethod === 'netbanking') {
+    sequence = [
+      'block.netbanking',
+      'block.upi_qr',
+      'block.paytm_wallets',
+      'block.cards',
+      'block.paylater',
+    ];
+  } else if (preferredMethod === 'paylater') {
+    sequence = [
+      'block.paylater',
+      'block.upi_qr',
+      'block.paytm_wallets',
+      'block.cards',
+      'block.netbanking',
+    ];
+  }
+
   const options: any = {
     key: razorpayKey,
     amount: Math.round(amountInRupees * 100), // Amount in paise (1 INR = 100 Paise)
@@ -164,10 +275,27 @@ export const initiateRazorpayPayment = async ({
       email: userEmail,
       contact: userPhone,
     },
+    config: {
+      display: {
+        language: 'en',
+        blocks: displayBlocks,
+        sequence: sequence,
+        preferences: {
+          show_default_blocks: true,
+        },
+      },
+    },
+    send_sms_hash: true,
+    remember_customer: true,
+    retry: {
+      enabled: true,
+      max_count: 4,
+    },
     notes: {
       lab_id: labId,
       credits_added: amountInRupees,
       purpose: 'Lab Token Allocation',
+      payment_options: 'QR_UPI_PAYTM_CARDS_NETBANKING',
     },
     theme: {
       color: '#4f46e5',

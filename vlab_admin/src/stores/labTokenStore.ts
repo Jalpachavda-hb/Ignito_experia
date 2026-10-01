@@ -47,9 +47,19 @@ export interface TokenOrder {
   }>;
 }
 
+export interface CourseAllocation {
+  courseCode: string;
+  courseName: string;
+  programmeName?: string;
+  labId: string;
+  labTitle: string;
+  allocatedTokens: number;
+}
+
 interface LabTokenState {
   summary: {
     totalPurchased: number;
+    totalAllocated?: number;
     totalUsed: number;
     totalRemaining: number;
   };
@@ -58,6 +68,9 @@ interface LabTokenState {
   packagesByLab: Record<string, LabTokenPackage[]>;
   cart: CartItem[];
   orders: TokenOrder[];
+  isUniversityStudent?: boolean;
+  universityName?: string;
+  courseAllocations?: CourseAllocation[];
   loading: boolean;
   error: string | null;
 
@@ -74,6 +87,7 @@ interface LabTokenState {
 export const useLabTokenStore = create<LabTokenState>((set, get) => ({
   summary: {
     totalPurchased: 0,
+    totalAllocated: 0,
     totalUsed: 0,
     totalRemaining: 0,
   },
@@ -82,6 +96,9 @@ export const useLabTokenStore = create<LabTokenState>((set, get) => ({
   packagesByLab: {},
   cart: [],
   orders: [],
+  isUniversityStudent: false,
+  universityName: undefined,
+  courseAllocations: [],
   loading: false,
   error: null,
 
@@ -93,6 +110,9 @@ export const useLabTokenStore = create<LabTokenState>((set, get) => ({
         set({
           summary: res.summary,
           labWallets: res.labs || [],
+          isUniversityStudent: Boolean(res.isUniversityStudent),
+          universityName: res.universityName || undefined,
+          courseAllocations: res.courseAllocations || [],
           loading: false,
         });
       } else {

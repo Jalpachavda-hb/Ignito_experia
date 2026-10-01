@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
-import { Search, Loader2, Beaker, LayoutGrid, List, Zap, CreditCard, X, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Search, Loader2, Beaker, LayoutGrid, List, Zap, CreditCard, X, CheckCircle2, ShieldCheck, GraduationCap } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useLabStore } from '@/stores/labStore';
@@ -10,6 +10,10 @@ import { useTransactionStore } from '@/stores/transactionStore';
 import { useLabTokenStore } from '@/stores/labTokenStore';
 import { initiateRazorpayPayment, detectPaymentMethod } from '@/Utils/razorpayHandler';
 import { LabCreditCard, LabTokenInfo } from './components/lab-credit-card';
+import { RazorpayCheckoutModal } from './components/razorpay-checkout-modal';
+import { isUniversityStudent } from '@/lib/student-kind';
+import { Link } from '@tanstack/react-router';
+import { QrCode, Smartphone } from 'lucide-react';
 
 export interface CartItem {
   lab: any;
@@ -22,6 +26,7 @@ export default function CreditWallet() {
   const { labs, isLoading, loadLabs } = useLabStore();
   const { auth } = useAuthStore();
   const { user } = auth;
+  const isUniversity = isUniversityStudent(user);
   const { addTransaction, fetchTransactions } = useTransactionStore();
   const { labWallets, fetchStudentLabTokens } = useLabTokenStore();
 
@@ -31,6 +36,7 @@ export default function CreditWallet() {
   // Multi-Lab Combined Bill Cart State
   const [cartItems, setCartItems] = useState<Record<string, CartItem>>({});
   const [isCheckoutProcessing, setIsCheckoutProcessing] = useState(false);
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState('');
 
   useEffect(() => {
@@ -116,7 +122,12 @@ export default function CreditWallet() {
   const totalCombinedTokens = useMemo(() => selectedItemsList.reduce((sum, item) => sum + item.tokens, 0), [selectedItemsList]);
   const totalCombinedPaymentRupees = useMemo(() => selectedItemsList.reduce((sum, item) => sum + item.amountRupees, 0), [selectedItemsList]);
 
-  const handlePayCombinedBill = async () => {
+  const handleOpenCheckoutModal = () => {
+    if (totalCombinedPaymentRupees <= 0 || selectedItemsList.length === 0) return;
+    setIsCheckoutModalOpen(true);
+  };
+
+  const handleExecutePayment = async (preferredMethod?: 'upi_qr' | 'upi' | 'paytm' | 'card' | 'netbanking' | 'wallet' | 'paylater') => {
     if (totalCombinedPaymentRupees <= 0 || selectedItemsList.length === 0) return;
 
     setIsCheckoutProcessing(true);
@@ -136,8 +147,10 @@ export default function CreditWallet() {
       userEmail: user?.email || '',
       userName: user?.fullName || user?.name || 'Student User',
       userPhone: user?.phoneNumber || user?.mobile || '',
+      preferredMethod,
       onSuccess: async (paymentId, details) => {
         setIsCheckoutProcessing(false);
+        setIsCheckoutModalOpen(false);
 
         await fetchStudentLabTokens();
 
@@ -162,10 +175,10 @@ export default function CreditWallet() {
         await fetchTransactions();
 
         setCartItems({});
-        setPaymentSuccessMessage(`Payment of ₹${totalCombinedPaymentRupees} paid successfully. Tokens were added to each lab.`);
-        setTimeout(() => setPaymentSuccessMessage(''), 5000);
+        setPaymentSuccessMessage(`Payment of ₹${totalCombinedPaymentRupees} via ${method} completed successfully. Tokens were added to each lab.`);
+        setTimeout(() => setPaymentSuccessMessage(''), 6000);
       },
-      onFailure: (err) => {
+      onFailure: (_err) => {
         setIsCheckoutProcessing(false);
       },
       onDismiss: () => {
@@ -218,6 +231,33 @@ export default function CreditWallet() {
               </div>
             </div>
           </div>
+
+          {isUniversity && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 text-indigo-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0 text-indigo-700">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-bold text-indigo-950">University Sponsored Account</p>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-200/60 text-indigo-800">
+                      Curriculum Quota
+                    </span>
+                  </div>
+                  <p className="text-xs text-indigo-700 mt-0.5">
+                    Your lab runtime tokens are assigned directly by {user?.collegeName || user?.tenantName || 'your university'} based on your enrolled academic courses. No individual purchases required.
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shrink-0" asChild>
+                <Link to="/student/my-labs">
+                  <Beaker className="w-3.5 h-3.5 mr-1" />
+                  View Enrolled Labs
+                </Link>
+              </Button>
+            </div>
+          )}
 
           {paymentSuccessMessage && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-800 flex items-center gap-3 animate-in fade-in">
@@ -319,6 +359,25 @@ export default function CreditWallet() {
                     </span>
                   ))}
                 </div>
+                {/* Supported payment badges in dock */}
+                <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-slate-400 font-semibold mt-1">
+                  <span>Accepted via Razorpay:</span>
+                  <span className="bg-emerald-950/70 text-emerald-400 border border-emerald-800/60 px-1.5 py-0.2 rounded flex items-center gap-1">
+                    <QrCode className="w-2.5 h-2.5" /> Dynamic QR
+                  </span>
+                  <span className="bg-sky-950/70 text-sky-400 border border-sky-800/60 px-1.5 py-0.2 rounded flex items-center gap-1">
+                    <Smartphone className="w-2.5 h-2.5" /> UPI Apps
+                  </span>
+                  <span className="bg-cyan-950/70 text-cyan-400 border border-cyan-800/60 px-1.5 py-0.2 rounded font-bold">
+                    Paytm
+                  </span>
+                  <span className="bg-slate-800 text-slate-300 border border-slate-700 px-1.5 py-0.2 rounded">
+                    Cards
+                  </span>
+                  <span className="bg-slate-800 text-slate-300 border border-slate-700 px-1.5 py-0.2 rounded">
+                    NetBanking
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -330,9 +389,9 @@ export default function CreditWallet() {
 
               <Button
                 size="lg"
-                onClick={handlePayCombinedBill}
+                onClick={handleOpenCheckoutModal}
                 disabled={isCheckoutProcessing}
-                className="bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white font-extrabold text-sm h-11 px-6 rounded-xl shadow-lg shadow-red-500/25 flex items-center gap-2 active:scale-95 transition-all shrink-0 border-none"
+                className="bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white font-extrabold text-sm h-11 px-6 rounded-xl shadow-lg shadow-red-500/25 flex items-center gap-2 active:scale-95 transition-all shrink-0 border-none cursor-pointer"
               >
                 {isCheckoutProcessing ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -355,6 +414,22 @@ export default function CreditWallet() {
           </div>
         </div>
       )}
+
+      {/* Razorpay Comprehensive Payment Checkout Modal */}
+      <RazorpayCheckoutModal
+        isOpen={isCheckoutModalOpen}
+        onClose={() => setIsCheckoutModalOpen(false)}
+        items={selectedItemsList.map((item) => ({
+          labId: String(item.lab.id || item.lab.labId),
+          labName: item.lab.title || item.lab.name || 'Virtual Lab',
+          tokens: item.tokens,
+          amountRupees: item.amountRupees,
+        }))}
+        totalTokens={totalCombinedTokens}
+        totalAmountRupees={totalCombinedPaymentRupees}
+        isProcessing={isCheckoutProcessing}
+        onProceedToPay={handleExecutePayment}
+      />
     </>
   );
 }

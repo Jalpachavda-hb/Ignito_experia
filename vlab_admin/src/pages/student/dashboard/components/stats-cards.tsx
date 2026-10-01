@@ -97,7 +97,7 @@ export function StatsCards() {
             {availableCredits}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Active wallet balance
+            {isDirect ? 'Active wallet balance' : 'University allocated balance'}
           </p>
         </CardContent>
       </Card>
@@ -114,7 +114,7 @@ export function StatsCards() {
             {creditsSpent}
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Tokens consumed
+            {isDirect ? 'Tokens consumed' : 'University lab runtime used'}
           </p>
         </CardContent>
       </Card>

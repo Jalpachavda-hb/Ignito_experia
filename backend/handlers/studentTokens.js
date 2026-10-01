@@ -3,6 +3,8 @@ import { unauthorized, notFound } from "../lib/errors.js";
 import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWalletRepository.js";
 import labTokenPackageRepository from "../repositories/LabTokenPackageRepository.js";
 import labTokenUsageRepository from "../repositories/LabTokenUsageRepository.js";
+import { loadStudentLmsContext, loadOwnedProgrammes } from "../services/lms/studentLmsContext.js";
+import { lmsCourseService } from "../services/lms/LmsCourseService.js";
 
 export const studentLabTokensSummaryHandler = async ({ auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
@@ -25,6 +27,7 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
         id: w.Id,
         labId: cleanId,
         purchasedTokens: purchased,
+        allocatedTokens: purchased,
         usedTokens: used,
         remainingTokens: Math.max(0, purchased - used),
         runtimeRemainingMinutes: Math.max(0, purchased - used),
@@ -33,11 +36,94 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
     } else {
       const existing = groupedWallets.get(cleanId);
       existing.purchasedTokens += purchased;
+      existing.allocatedTokens = (existing.allocatedTokens || 0) + purchased;
       existing.usedTokens += used;
       existing.remainingTokens = Math.max(0, existing.purchasedTokens - existing.usedTokens);
       existing.runtimeRemainingMinutes = existing.remainingTokens;
     }
   });
+
+  // Check if student is an LMS / University student and enrich with their assigned course practical tokens
+  let isUniversityStudent = false;
+  let universityName = null;
+  const courseAllocations = [];
+
+  try {
+    const isLmsCandidate = auth?.authType === 'LMS' ||
+      auth?.authType === 'LMS_AND_DIRECT' ||
+      auth?.isLmsStudent ||
+      Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId) ||
+      (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT');
+
+    if (isLmsCandidate) {
+      const ctx = await loadStudentLmsContext(auth).catch(() => null);
+      if (ctx?.universityStudent && ctx?.tenant) {
+        isUniversityStudent = true;
+        universityName = ctx.tenant.Name || ctx.tenant.TenantName || "University";
+        const owned = await loadOwnedProgrammes(ctx).catch(() => ({ programmes: [] }));
+        const programmes = owned?.programmes || [];
+
+        for (const prog of programmes) {
+          const pId = prog.programmeId || prog.programId;
+          if (!pId) continue;
+          const courseRes = await lmsCourseService.getByProgramme({
+            tenantId: ctx.tenant.TenantId,
+            provider: ctx.provider,
+            programmeId: pId,
+            semester: prog.currentSemester || null,
+            externalStudentId: ctx.externalStudentId
+          }).catch(() => null);
+
+          const courses = courseRes?.courseList || [];
+          for (const course of courses) {
+            const practicalCredit = Number(course.practicalCredit || course.credits || 60);
+            const mappedLabObj = course.mappedLab || (course.labId ? { labId: course.labId, title: course.labTitle } : null);
+            const rawLabId = String(mappedLabObj?.labId || mappedLabObj?.LabId || course.labId || '').toLowerCase().trim();
+            const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+
+            if (cleanLabId) {
+              const labTitle = mappedLabObj?.title || course.mappedLab?.title || `${cleanLabId.toUpperCase()} Lab`;
+              courseAllocations.push({
+                courseCode: course.courseCode || course.code,
+                courseName: course.courseName || course.name,
+                programmeName: prog.programmeName || prog.programName,
+                labId: cleanLabId,
+                labTitle,
+                allocatedTokens: practicalCredit
+              });
+
+              if (!groupedWallets.has(cleanLabId)) {
+                groupedWallets.set(cleanLabId, {
+                  id: 0,
+                  labId: cleanLabId,
+                  labTitle,
+                  purchasedTokens: practicalCredit,
+                  allocatedTokens: practicalCredit,
+                  usedTokens: 0,
+                  remainingTokens: practicalCredit,
+                  runtimeRemainingMinutes: practicalCredit,
+                  updatedAt: new Date().toISOString()
+                });
+              } else {
+                const existing = groupedWallets.get(cleanLabId);
+                if (existing.purchasedTokens < practicalCredit) {
+                  existing.purchasedTokens = practicalCredit;
+                  existing.remainingTokens = Math.max(0, existing.purchasedTokens - existing.usedTokens);
+                  existing.runtimeRemainingMinutes = existing.remainingTokens;
+                }
+                existing.allocatedTokens = existing.purchasedTokens;
+                if (!existing.labTitle || existing.labTitle === `${cleanLabId.toUpperCase()} Lab`) {
+                  existing.labTitle = labTitle;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[studentLabTokensSummaryHandler] LMS enrichment skipped:", err.message);
+  }
 
   const labWallets = Array.from(groupedWallets.values());
   let totalPurchased = 0;
@@ -51,12 +137,16 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
   });
 
   return ok({
+    isUniversityStudent,
+    universityName,
     summary: {
       totalPurchased,
+      totalAllocated: totalPurchased,
       totalUsed,
       totalRemaining
     },
-    labs: labWallets
+    labs: labWallets,
+    courseAllocations
   });
 };
 

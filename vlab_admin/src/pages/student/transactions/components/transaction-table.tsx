@@ -82,7 +82,13 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
     let Icon = CreditCard;
     let colorClass = 'text-indigo-600 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900';
 
-    if (m.includes('upi')) {
+    if (m.includes('qr')) {
+      Icon = QrCode;
+      colorClass = 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900';
+    } else if (m.includes('paytm')) {
+      Icon = Wallet;
+      colorClass = 'text-cyan-700 bg-cyan-50 border-cyan-200 dark:bg-cyan-950/40 dark:text-cyan-400 dark:border-cyan-900';
+    } else if (m.includes('upi')) {
       Icon = QrCode;
       colorClass = 'text-sky-600 bg-sky-50 border-sky-200 dark:bg-sky-950/40 dark:text-sky-400 dark:border-sky-900';
     } else if (m.includes('netbanking') || m.includes('bank')) {
@@ -91,7 +97,7 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
     } else if (m.includes('wallet')) {
       Icon = Wallet;
       colorClass = 'text-purple-600 bg-purple-50 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400 dark:border-purple-900';
-    } else if (m.includes('paylater')) {
+    } else if (m.includes('paylater') || m.includes('emi')) {
       Icon = Clock;
       colorClass = 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900';
     }

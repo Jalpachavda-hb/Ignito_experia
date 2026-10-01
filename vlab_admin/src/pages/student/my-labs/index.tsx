@@ -527,50 +527,52 @@ const effectiveRemainingTokens =
   walletRemainingTokens ??
   (coursePracticalTokens > 0 ? coursePracticalTokens : undefined);
 
-const hasWalletTokens =
-  typeof effectiveRemainingTokens === 'number' &&
-  (
-    effectiveRemainingTokens > 0 ||
-    (walletMatch?.purchasedTokens || 0) > 0
-  );
+// Only count as purchased if the student actually bought personal tokens
+const hasPurchasedTokens = Boolean(
+  walletMatch && (
+    Number(walletMatch.purchasedTokens || 0) > 0 ||
+    (walletRemainingTokens !== undefined && walletRemainingTokens > 0)
+  )
+);
 
-      const isPurchased = hasWalletTokens ||
-        purchasedLabIds.has(lId) ||
-        purchasedLabIds.has(cleanLId) ||
-        Array.from(purchasedLabNames).some(name => (lTitle && name && (lTitle.includes(name) || name.includes(lTitle))));
+const isPurchased = hasPurchasedTokens ||
+  purchasedLabIds.has(lId) ||
+  purchasedLabIds.has(cleanLId) ||
+  Array.from(purchasedLabNames).some(name => (lTitle && name && (lTitle.includes(name) || name.includes(lTitle))));
 
-      const isUniversity = !isDirectUser && (
-        enrolledUniversityLabIds.has(lId) ||
-        enrolledUniversityLabIds.has(cleanLId) ||
-        enrolledUniversityLabIds.has(lTitle) ||
-        hasCourseFilter ||
-        Boolean(labItem.courseCode) ||
-        coursePracticalTokens > 0
-      );
+const isUniversity = !isDirectUser && (
+  hasCourseFilter ||
+  Boolean(labItem.courseCode) ||
+  Boolean(labItem.courseName) ||
+  enrolledUniversityLabIds.has(lId) ||
+  enrolledUniversityLabIds.has(cleanLId) ||
+  enrolledUniversityLabIds.has(lTitle) ||
+  coursePracticalTokens > 0
+);
 
-      let accessType: 'personal' | 'university' | 'catalogue' = 'catalogue';
-      let accessLabel = '';
+let accessType: 'personal' | 'university' | 'catalogue' = 'catalogue';
+let accessLabel = '';
 
-      if (isPurchased) {
-        accessType = 'personal';
-        accessLabel = 'Personal';
-      } else if (isUniversity) {
-        accessType = 'university';
-        accessLabel = 'UNI';
-      }
+if (isUniversity) {
+  accessType = 'university';
+  accessLabel = 'University';
+} else if (isPurchased) {
+  accessType = 'personal';
+  accessLabel = 'Personal';
+}
 
-      return {
-        ...labItem,
-        accessType,
-        accessLabel,
-        isPurchased,
-        isUniversity,
-        practicalCredit: coursePracticalTokens || labItem.practicalCredit,
-        remainingTokens: effectiveRemainingTokens ?? labItem.remainingTokens,
-        availableTokens: effectiveRemainingTokens ?? labItem.availableTokens,
-        tokens: effectiveRemainingTokens ?? labItem.tokens,
-      };
-    };
+return {
+  ...labItem,
+  accessType,
+  accessLabel,
+  isPurchased: !isUniversity && isPurchased,
+  isUniversity,
+  practicalCredit: coursePracticalTokens || labItem.practicalCredit,
+  remainingTokens: effectiveRemainingTokens ?? labItem.remainingTokens,
+  availableTokens: effectiveRemainingTokens ?? labItem.availableTokens,
+  tokens: effectiveRemainingTokens ?? labItem.tokens,
+};
+};
 
     if (hasCourseFilter) {
       const mappedResults: any[] = [];
@@ -1090,52 +1092,14 @@ const hasWalletTokens =
                       <BookOpen className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
                       <h3 className="text-lg font-bold text-foreground">No Course Labs Found</h3>
                       <p className="text-muted-foreground text-sm mt-1 text-center max-w-md">
-                        {semesterNotice || `No practical courses were found for Semester ${semesterFilterQuery}.`}
+                        {semesterNotice || (semesterFilterQuery ? `No practical courses were found for Semester ${semesterFilterQuery}.` : 'No assigned virtual labs found for your courses.')}
                       </p>
                     </div>
-                  ) : hasCourseFilter ? (
-                    <div className="space-y-8">
-                      {Array.from(displayLabs.reduce((groups: Map<string, any[]>, lab: any) => {
-                        const key = `${lab.courseCode || ''}|${lab.courseName || lab.subtitle || 'Course'}`;
-                        const list = groups.get(key) || [];
-                        list.push(lab);
-                        groups.set(key, list);
-                        return groups;
-                      }, new Map<string, any[]>()).entries()).map(([key, labsInCourse]) => (
-                        <div key={key} className="space-y-3">
-                          <div>
-                            <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                              {labsInCourse[0]?.courseName || labsInCourse[0]?.subtitle || 'Course'}
-                            </h2>
-                            {labsInCourse[0]?.courseCode ? (
-                              <p className="text-xs text-slate-500 mt-0.5">{labsInCourse[0].courseCode}</p>
-                            ) : null}
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
-                            {labsInCourse.map((lab: any) => (
-                              <LabCard
-                                key={`${lab.courseCode || 'course'}-${lab.id}`}
-                                lab={lab}
-                                onStart={handleStartLab}
-                                onResume={handleResumeLab}
-                                onStop={handleStopLabClick}
-                                onDetails={handleViewDetails}
-                                activeSession={isLabActive(lab) ? activeSession : undefined}
-                                elapsedTime={isLabActive(lab) ? elapsedTime || undefined : undefined}
-                                isStarting={startingLabId === lab.id}
-                                isStopping={stoppingLabId === lab.id}
-                                userCredits={user?.credits}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
-                      {displayLabs.map((lab: any) => (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-4 lg:gap-6">
+                      {displayLabs.map((lab: any, idx: number) => (
                         <LabCard
-                          key={lab.id}
+                          key={`${lab.courseCode || 'course'}-${lab.id || idx}`}
                           lab={lab}
                           onStart={handleStartLab}
                           onResume={handleResumeLab}
