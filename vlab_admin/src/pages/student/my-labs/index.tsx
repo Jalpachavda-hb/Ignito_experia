@@ -202,6 +202,7 @@ export default function MyLabs() {
                     mappedLabObj.practicalCredit ||
                     c.credits ||
                     60
+                  );
                   if (labMatch) {
                     allMapped.push({
                       ...labMatch,
