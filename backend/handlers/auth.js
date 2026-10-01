@@ -835,12 +835,19 @@ export const studentPurchasedProgrammesHandler = async ({ auth, body = {} }) => 
   });
 };
 
-export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
+export const studentProgrammeSemestersHandler = async ({ auth, body = {}, queryStringParameters = {} }) => {
   const ctx = await loadStudentLmsContext(auth);
   const requestedId = body.programmeId || body.programId || body.programme_id || body.program_id;
   if (!requestedId) throw badRequest("programmeId is required");
 
   const requestedSemester = body.semester ?? body.semesterNumber ?? body.semesterId ?? body.semester_id ?? null;
+  const forceRefresh = Boolean(
+    body.forceRefresh ||
+    body.refresh ||
+    body.refreshCache ||
+    queryStringParameters?.forceRefresh ||
+    queryStringParameters?.refresh
+  );
 
   let tenant = ctx.tenant;
   let provider = ctx.provider;
@@ -867,6 +874,7 @@ export const studentProgrammeSemestersHandler = async ({ auth, body = {} }) => {
       programmeId: targetProgrammeId,
       externalStudentId: ctx.externalStudentId,
       semester: requestedSemester,
+      forceRefresh,
     });
     return ok(result);
   } catch (err) {
@@ -885,6 +893,14 @@ export const studentCoursesBySemesterHandler = async ({ auth, body = {}, querySt
   const requestedSemester = body.semesterId ?? body.semester ?? queryStringParameters?.semesterId ?? queryStringParameters?.semester;
   if (!requestedSemester) throw badRequest("semesterId is required");
 
+  const forceRefresh = Boolean(
+    body.forceRefresh ||
+    body.refresh ||
+    body.refreshCache ||
+    queryStringParameters?.forceRefresh ||
+    queryStringParameters?.refresh
+  );
+
   let tenant = ctx.tenant;
   let provider = ctx.provider;
   if (!tenant) {
@@ -902,6 +918,7 @@ export const studentCoursesBySemesterHandler = async ({ auth, body = {}, querySt
       provider,
       semesterId: requestedSemester,
       externalStudentId: ctx.externalStudentId,
+      forceRefresh,
     });
     return ok(result);
   } catch (err) {

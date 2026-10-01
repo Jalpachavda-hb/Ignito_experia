@@ -30,6 +30,7 @@ class LmsCourseService {
     try {
       const result = await lmsResponseCache.getOrFetch(key, {
         forceRefresh,
+        ttlSeconds: 60,
         fetcher: () => lmsApiClient.post({
           tenantId,
           url,
@@ -37,7 +38,12 @@ class LmsCourseService {
         }),
       });
 
-      const rawCourses = result.data?.courseList || result.data?.courselist || (Array.isArray(result.data) ? result.data : []);
+      const rawCourses =
+        result.data?.courseList ||
+        result.data?.courselist ||
+        result.data?.courses ||
+        result.data?.data ||
+        (Array.isArray(result.data) ? result.data : []);
       const courseList = await lmsCourseLabService.attach({
         tenantId,
         semester: sId,
@@ -70,6 +76,7 @@ class LmsCourseService {
     try {
       const result = await lmsResponseCache.getOrFetch(key, {
         forceRefresh,
+        ttlSeconds: 60,
         fetcher: () => lmsApiClient.post({
           tenantId,
           url,
@@ -78,23 +85,63 @@ class LmsCourseService {
       });
       const filtered = filterSemesterPayload(result.data || {}, semester);
 
-      // If a specific semester is requested, also attempt to enrich from GetCourseBySemesterId
-      let coursesToUse = filtered.courseList;
-      if (semester != null && semester !== "") {
-        try {
-          const semCoursesRes = await this.getBySemesterId({
-            tenantId,
-            provider,
-            semesterId: semester,
-            externalStudentId,
-            forceRefresh,
-          });
-          if (semCoursesRes.courseList && semCoursesRes.courseList.length > 0) {
-            coursesToUse = semCoursesRes.courseList;
+      // Determine which semesters to enrich from GetCourseBySemesterId
+      const semesterIdsToFetch = semester != null && semester !== ""
+        ? [numericLmsId(semester) || semester]
+        : [...new Set([
+            ...filtered.courseList.map((c) => numericLmsId(c.semesterId ?? c.semesterNumber)).filter(Boolean),
+            ...filtered.semesterList.map((s) => numericLmsId(s.semesterId ?? s.semesterNumber)).filter(Boolean),
+          ])];
+
+      const enrichedByCode = new Map();
+      const enrichedById = new Map();
+
+      if (semesterIdsToFetch.length > 0) {
+        const semResults = await Promise.allSettled(
+          semesterIdsToFetch.map((sId) =>
+            this.getBySemesterId({
+              tenantId,
+              provider,
+              semesterId: sId,
+              externalStudentId,
+              forceRefresh,
+            })
+          )
+        );
+
+        for (const res of semResults) {
+          if (res.status === "fulfilled" && Array.isArray(res.value?.courseList)) {
+            for (const semCourse of res.value.courseList) {
+              const code = String(semCourse.courseCode || semCourse.code || semCourse.subjectCode || "").trim().toUpperCase();
+              const cId = semCourse.courseDetailsId != null ? String(semCourse.courseDetailsId).trim() : null;
+              if (code) enrichedByCode.set(code, semCourse);
+              if (cId) enrichedById.set(cId, semCourse);
+            }
           }
-        } catch (semErr) {
-          console.warn("[LmsCourseService] Semester courses fallback error:", semErr.message);
         }
+      }
+
+      let coursesToUse = filtered.courseList;
+      if (coursesToUse.length > 0) {
+        coursesToUse = coursesToUse.map((course) => {
+          const code = String(course.courseCode || course.code || course.subjectCode || "").trim().toUpperCase();
+          const cId = course.courseDetailsId != null ? String(course.courseDetailsId).trim() : null;
+          const enriched = (code && enrichedByCode.get(code)) || (cId && enrichedById.get(cId));
+
+          if (!enriched) return course;
+
+          return {
+            ...course,
+            practicalCredit: enriched.practicalCredit != null && !isNaN(Number(enriched.practicalCredit))
+              ? Number(enriched.practicalCredit)
+              : course.practicalCredit,
+            courseBannerImage: enriched.courseBannerImage || course.courseBannerImage,
+            courseDescrpition: enriched.courseDescrpition || enriched.courseDescription || course.courseDescrpition,
+            ...(enriched.mappedLab ? { mappedLab: enriched.mappedLab } : {}),
+          };
+        });
+      } else if (enrichedByCode.size > 0) {
+        coursesToUse = Array.from(enrichedByCode.values());
       }
 
       const courseList = await lmsCourseLabService.attach({
@@ -104,13 +151,34 @@ class LmsCourseService {
         courses: coursesToUse,
       });
 
+      let rawData = semester == null || semester === "" ? result.data : undefined;
+      if (rawData && Array.isArray(rawData.courseList)) {
+        rawData = {
+          ...rawData,
+          courseList: rawData.courseList.map((course) => {
+            const code = String(course.courseCode || course.code || course.subjectCode || "").trim().toUpperCase();
+            const cId = course.courseDetailsId != null ? String(course.courseDetailsId).trim() : null;
+            const enriched = (code && enrichedByCode.get(code)) || (cId && enrichedById.get(cId));
+            if (!enriched) return course;
+            return {
+              ...course,
+              practicalCredit: enriched.practicalCredit != null && !isNaN(Number(enriched.practicalCredit))
+                ? Number(enriched.practicalCredit)
+                : course.practicalCredit,
+              courseBannerImage: enriched.courseBannerImage || course.courseBannerImage,
+              courseDescrpition: enriched.courseDescrpition || enriched.courseDescription || course.courseDescrpition,
+            };
+          }),
+        };
+      }
+
       return {
         success: true,
         lmsStatus: "LIVE",
         isSuccess: result.data?.isSuccess !== false,
         semesterList: filtered.semesterList,
         courseList,
-        rawData: semester == null || semester === "" ? result.data : undefined,
+        rawData,
       };
     } catch (err) {
       const lmsStatus = err instanceof LmsApiError ? err.code : "LMS_PROFILE_UNAVAILABLE";

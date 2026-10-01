@@ -130,9 +130,11 @@ class LmsCourseLabService {
         }
       }
 
-      if (!mapped) return { ...course, practicalCredit: Number(course.practicalCredit || 60), mappedLab: null };
+      const practicalCredit = course?.practicalCredit != null && !isNaN(Number(course.practicalCredit))
+        ? Number(course.practicalCredit)
+        : 60;
 
-      const practicalCredit = Number(course.practicalCredit || 60);
+      if (!mapped) return { ...course, practicalCredit, mappedLab: null };
 
       return {
         ...course,

@@ -178,15 +178,15 @@ async function ensureLabSessionsTableAndColumns(connection) {
       \`StartedAt\` DATETIME NOT NULL,
       \`ExpiresAt\` DATETIME NOT NULL,
       \`EndedAt\` DATETIME NULL,
-      `Status` ENUM('PENDING', 'STARTING', 'RUNNING', 'EXPIRING_SOON', 'STOPPING', 'COMPLETED', 'EXPIRED', 'FAILED', 'STOPPED') NOT NULL DEFAULT 'STARTING',
-      `TenMinuteWarningSent` TINYINT(1) NOT NULL DEFAULT 0,
-      `TaskArn` VARCHAR(255) NULL,
-      `ContainerId` VARCHAR(255) NULL,
-      `RuntimeUrl` VARCHAR(255) NULL,
-      `CreatedAt` DATETIME DEFAULT CURRENT_TIMESTAMP,
-      `UpdatedAt` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      INDEX `IDX_LabSess_User_Tenant` (`UserId`, `TenantId`),
-      INDEX `IDX_LabSess_Status_Expires` (`Status`, `ExpiresAt`)
+      \`Status\` ENUM('PENDING', 'STARTING', 'RUNNING', 'EXPIRING_SOON', 'STOPPING', 'COMPLETED', 'EXPIRED', 'FAILED', 'STOPPED') NOT NULL DEFAULT 'STARTING',
+      \`TenMinuteWarningSent\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`TaskArn\` VARCHAR(255) NULL,
+      \`ContainerId\` VARCHAR(255) NULL,
+      \`RuntimeUrl\` VARCHAR(255) NULL,
+      \`CreatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+      \`UpdatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX \`IDX_LabSess_User_Tenant\` (\`UserId\`, \`TenantId\`),
+      INDEX \`IDX_LabSess_Status_Expires\` (\`Status\`, \`ExpiresAt\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
