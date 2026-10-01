@@ -171,7 +171,7 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
 };
 
 
-export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
+export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubtype }) => {
   const lab = await getLabById(labId);
   const labType = canonicalLabType(labId);
   const taskDefinition = lab?.taskDefinition?.trim();
@@ -193,6 +193,10 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken }) => {
     { name: "EXECUTION_TIMEOUT_MS", value: "360000" },
     { name: "TIMEOUT", value: "360" },
   ];
+
+  if (dotnetSubtype) {
+    environment.push({ name: "DOTNET_SUBTYPE", value: String(dotnetSubtype) });
+  }
 
   const rt = (lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide").toLowerCase();
   if (rt === "jupyter" || rt === "datascience") {

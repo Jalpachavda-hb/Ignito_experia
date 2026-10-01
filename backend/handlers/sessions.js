@@ -77,6 +77,8 @@ export const sessionsStartHandler = async ({ body, auth }) => {
   let dbSession = null;
   const startedAtDate = new Date();
   const maxInfrastructureExpiresAtDate = new Date(startedAtDate.getTime() + 12 * 60 * 60 * 1000);
+  const rawSubtype = String(body?.dotnetSubtype || body?.subtype || body?.subType || "").toLowerCase().trim();
+  const dotnetSubtype = rawSubtype.includes("mvc") ? "mvc" : (rawSubtype.includes("console") ? "console" : (rawSubtype || null));
 
   try {
     // Check student-scoped active session
@@ -218,9 +220,6 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       effectiveUserId = numericId > 0 ? numericId : 1;
     }
 
-    const rawSubtype = String(body?.dotnetSubtype || body?.subtype || body?.subType || "").toLowerCase().trim();
-    const dotnetSubtype = rawSubtype.includes("mvc") ? "mvc" : (rawSubtype.includes("console") ? "console" : (rawSubtype || null));
-
     let starterAssetKey = null;
     if (dotnetSubtype === "mvc") {
       starterAssetKey = "lab-assets/dotnet/mvc/latest.tar.gz";
@@ -302,6 +301,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       remainingSeconds: calculateRemainingSeconds(dbSession.ExpiresAt),
       allocatedCredits: dbSession.AllocatedCredits,
       allocatedDurationMinutes: dbSession.AllocatedDurationMinutes,
+      dotnetSubtype: dotnetSubtype || dbSession.Subtype || null,
       message: 'Lab environment is running.'
     });
   }
@@ -312,6 +312,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       labId,
       sessionId: dbSession.SessionId,
       sessionToken: memorySess?.sessionToken || 'token',
+      dotnetSubtype,
     });
 
     await labSessionRepository.updateSession(dbSession.SessionId, { TaskArn: taskArn });
