@@ -34,11 +34,11 @@ export function SecurityInfoCard({ student }: SecurityInfoCardProps) {
               <div className="flex items-center gap-3">
                 <Lock className="h-5 w-5 text-slate-500 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white">Experia Direct Login Password</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">University Portal Login Password</p>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {hasPassword 
-                      ? 'Direct login password is set. You can sign in via both LMS SSO and direct password.' 
-                      : 'Set a password to enable direct portal login in addition to LMS SSO.'}
+                      ? 'Direct password is set for your university portal. You can sign in using both LMS SSO and this password on your university URL.' 
+                      : 'Set a password to log in directly on your university portal URL in addition to LMS SSO.'}
                   </p>
                 </div>
               </div>

@@ -18,6 +18,7 @@ import {
   isUniversityIdentity,
   loadTenantById,
   loadTenantBySlug,
+  resolvePortalTenant,
 } from "../lib/studentAccess.js";
 
 const createVLabSession = async ({ userPayload, sessionMeta }) => {
@@ -158,6 +159,9 @@ class AuthService {
  
     const existingUser = await userRepository.findByEmail(email);
     if (existingUser) {
+      if (isUniversityIdentity(existingUser)) {
+        throw badRequest("This email is registered under a University LMS portal. To access Experia Direct, please register with a different email address or log in through your university portal.");
+      }
       throw badRequest("Email is already registered");
     }
 
@@ -210,8 +214,11 @@ class AuthService {
     const sessionMeta = { ipAddress, browser, os, device };
 
     // 1. Extract Slug from input or host header
-    let slug = String(inputSlug || "").trim().toLowerCase();
-    if (!slug && host) {
+    const cleanHost = String(host || "").split(":")[0].trim().toLowerCase();
+    const isDirectMainHost = cleanHost === "experia.ignitolearn.com" || cleanHost === "www.experia.ignitolearn.com";
+
+    let slug = isDirectMainHost ? "" : String(inputSlug || "").trim().toLowerCase();
+    if (!slug && host && !isDirectMainHost) {
       slug = slugFromHost(host);
     }
 
@@ -349,7 +356,7 @@ class AuthService {
         }
       }
 
-      let tenant = await loadTenantById(memberTenantId);
+      let tenant = (memberTenantId ? await loadTenantById(memberTenantId) : null) || (memberTenantId ? await resolvePortalTenant({ tenantId: memberTenantId }) : null);
       if (!tenant && memberTenantId && resolvedTenantId === memberTenantId && slug) {
         tenant = {
           TenantId: resolvedTenantId,
@@ -371,6 +378,15 @@ class AuthService {
         if (tenant?.TenantId) {
           memberTenantId = tenant.TenantId;
           await pool.query("UPDATE users SET TenantId = ? WHERE UserId = ?", [tenant.TenantId, user.UserId]);
+        }
+      }
+      if (!tenant && isUniversityIdentity(user)) {
+        const [extRows] = await pool.query(
+          "SELECT TenantId FROM external_identities WHERE UserId = ? LIMIT 1",
+          [user.UserId]
+        ).catch(() => [[]]);
+        if (extRows?.[0]?.TenantId) {
+          tenant = (await loadTenantById(extRows[0].TenantId)) || (await resolvePortalTenant({ tenantId: extRows[0].TenantId }));
         }
       }
 

@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { io } from 'socket.io-client';
 import { getApiOrigin } from '@/config/env';
 import '@xterm/xterm/css/xterm.css';
-import { Terminal as TerminalIcon, X, Plus, Power, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Terminal as TerminalIcon, X, Plus, Power, ArrowLeft, RefreshCw, Clock } from 'lucide-react';
 
 const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isLabBusy }: { session: any, isActive: boolean, onTerminalCommand?: () => void, isLabBusy?: boolean }, ref) => {
   const [terminalState, setTerminalState] = useState('initializing');
@@ -292,8 +292,12 @@ const Terminal = forwardRef(({ session, hideHeader, onStopLab, onBack, onClose, 
           <div className="flex-1" />
 
           {remainingTime && (
-            <div className="text-red-500 font-mono text-[10px] font-black bg-red-950/40 border border-red-500/20 px-2 py-1 rounded animate-pulse shrink-0 mr-3">
-              Time Remaining: {remainingTime}
+            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-500/20 border border-red-500/60 text-white font-mono text-xs font-bold shrink-0 mr-3 shadow-sm">
+              <Clock size={14} className="text-white shrink-0" />
+              <span className="text-white font-bold tracking-wider text-[11px]">TIME REMAINING:</span>
+              <span className="text-white font-extrabold tracking-wider bg-red-600 px-2 py-0.5 rounded border border-red-400/50 text-xs">
+                {remainingTime}
+              </span>
             </div>
           )}
 

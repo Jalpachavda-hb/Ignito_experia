@@ -35,6 +35,13 @@ export function getTenantSlug() {
     return fromQuery
   }
 
+  const hostname = window.location.hostname.toLowerCase()
+  // If explicitly on the direct Experia apex domain without ?slug, this is direct Experia
+  if (hostname === 'experia.ignitolearn.com' || hostname === 'www.experia.ignitolearn.com') {
+    sessionStorage.removeItem(STORAGE_KEY)
+    return ''
+  }
+
   const fromHost = slugFromHost(window.location.hostname)
   if (fromHost) {
     sessionStorage.setItem(STORAGE_KEY, fromHost)

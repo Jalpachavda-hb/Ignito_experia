@@ -9,7 +9,7 @@ CREATE PROCEDURE `sp_Lab_Update` (
     IN p_Title VARCHAR(200),
     IN p_Subtitle VARCHAR(300),
     IN p_Semester VARCHAR(100),
-    IN p_Logo VARCHAR(255),
+    IN p_Logo TEXT,
     IN p_DurationMinutes INT,
     IN p_Credits INT,
     IN p_Complexity VARCHAR(50),

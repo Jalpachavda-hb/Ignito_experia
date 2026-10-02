@@ -73,7 +73,7 @@ export function ChangePasswordModal({ isOpen, onClose }: ChangePasswordModalProp
             Change Account Password
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Update your Experia direct login password.
+            Update your university portal login password.
           </DialogDescription>
         </DialogHeader>
 

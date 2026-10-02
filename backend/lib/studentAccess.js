@@ -45,7 +45,21 @@ export async function loadTenantById(tenantId) {
     `SELECT ${TENANT_COLUMNS} FROM tenants WHERE TenantId = ? LIMIT 1`,
     [tenantId]
   ).catch(() => [[]]);
-  return rows[0] || null;
+  if (rows?.[0]) return rows[0];
+
+  try {
+    const [ownerRows] = await pool.query(
+      `SELECT TenantId, Name, Slug, OfficialDomain, LogoUrl, Status, SettingsJson, IntegrationMode
+       FROM ignito_experia_owner.tenants
+       WHERE TenantId = ? LIMIT 1`,
+      [tenantId]
+    ).catch(() => [[]]);
+    if (ownerRows?.[0]) {
+      return mirrorOwnerTenant(ownerRows[0]);
+    }
+  } catch {}
+
+  return null;
 }
 
 export async function loadTenantBySlug(slug) {
@@ -243,16 +257,26 @@ export function assertStudentPortal({ user, tenant, slug, host }) {
   const requestSlug = String(slug || "").trim().toLowerCase();
   if (isUniversityIdentity(user)) {
     if (!tenant) {
-      throw unauthorized("University portal could not be identified from database for this account.");
+      throw unauthorized("This account is registered under a university portal. LMS students can only sign in through their university URL. If you want to use Experia Direct, please register a direct account.");
     }
     const expected = String(tenant?.Slug || "").trim().toLowerCase();
     const portal = expected ? portalHostForSlug(expected, host) : "";
     if ((tenant.Status || "ACTIVE").toUpperCase() !== "ACTIVE") {
       throw unauthorized(`${tenant.Name || "University portal"} is currently unavailable. Contact the platform administrator.`);
     }
-    if (requestSlug && expected && requestSlug !== expected) {
+
+    const portalUrl = portal
+      ? `https://${portal}/login`
+      : (expected ? `https://${expected}.experia.ignitolearn.com/login` : "your university portal");
+
+    if (!requestSlug) {
       throw unauthorized(
-        `Sign in at ${portal}. University students use their university portal, not the main Experia site.`
+        `This account is registered under ${tenant.Name || "a University portal"}. LMS students can only log in through their university portal (${portalUrl}). To access Experia Direct, please register a direct account.`
+      );
+    }
+    if (expected && requestSlug !== expected) {
+      throw unauthorized(
+        `Please sign in at ${portalUrl}. University students must use their assigned university portal.`
       );
     }
     return { kind: "university", tenant };

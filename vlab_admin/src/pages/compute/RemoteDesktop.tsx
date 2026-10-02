@@ -15,7 +15,7 @@ import { resolveApiRelativeUrl } from '@/config/env';
 import CloudEditor from './Editor';
 import Terminal from './Terminal';
 import { SessionTimeoutModal } from '../student/my-labs/components/session-timeout-modal';
-import { ArrowLeft, Power } from 'lucide-react';
+import { ArrowLeft, Power, Clock } from 'lucide-react';
 import AndroidEmulator from './AndroidEmulator';
 
 const resolveToolUrl = (url: string | null | undefined) => resolveApiRelativeUrl(url);
@@ -107,9 +107,13 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: Embe
         <div className="flex items-center gap-4">
           <span className="text-white text-sm font-black uppercase tracking-wide">Data Science Lab</span>
           {remainingTime && (
-            <span className="text-red-500 font-mono text-xs font-black bg-red-950/40 border border-red-500/20 px-2 py-0.5 rounded animate-pulse">
-              Time Remaining: {remainingTime}
-            </span>
+            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-500/20 border border-red-500/60 text-white font-mono text-xs font-bold shrink-0 shadow-sm">
+              <Clock size={14} className="text-white shrink-0" />
+              <span className="text-white font-bold tracking-wider text-[11px]">TIME REMAINING:</span>
+              <span className="text-white font-extrabold tracking-wider bg-red-600 px-2 py-0.5 rounded border border-red-400/50 text-xs">
+                {remainingTime}
+              </span>
+            </div>
           )}
         </div>
         <div className="flex items-center gap-3">

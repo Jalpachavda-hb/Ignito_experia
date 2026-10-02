@@ -732,7 +732,7 @@ export const authSetPasswordHandler = async ({ auth, body = {} }) => {
   return ok({
     success: true,
     hasPassword: true,
-    message: "Password set successfully. You can now log in directly or via LMS SSO."
+    message: "Password set successfully. You can now log in directly on your university portal or via LMS SSO."
   });
 };
 

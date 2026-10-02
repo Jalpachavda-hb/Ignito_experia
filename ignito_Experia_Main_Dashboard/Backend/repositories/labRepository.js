@@ -21,10 +21,13 @@ class LabRepository {
   }
 
   async getById(labId) {
-    const [rows] = await pool.query(
-      "SELECT * FROM labs WHERE (LabCode = ? OR LabId = ?) AND COALESCE(IsDeleted, 0) = 0",
-      [labId, labId]
-    );
+    const isNum = !isNaN(Number(labId)) && Number.isInteger(Number(labId));
+    const sql = isNum
+      ? "SELECT * FROM labs WHERE (LabCode = ? OR LabId = ?) AND COALESCE(IsDeleted, 0) = 0"
+      : "SELECT * FROM labs WHERE LabCode = ? AND COALESCE(IsDeleted, 0) = 0";
+    const params = isNum ? [String(labId), Number(labId)] : [String(labId)];
+
+    const [rows] = await pool.query(sql, params);
     return rows[0] || null;
   }
 
@@ -65,40 +68,50 @@ class LabRepository {
       DisplayOrder, UpdatedBy,
     } = labData;
 
+    const isNum = !isNaN(Number(labId)) && Number.isInteger(Number(labId));
+    const whereClause = isNum
+      ? "WHERE (LabCode = ? OR LabId = ?)"
+      : "WHERE LabCode = ?";
+    const whereParams = isNum ? [String(labId), Number(labId)] : [String(labId)];
+
     await pool.query(
       `UPDATE labs SET 
         LabCode = ?, Title = ?, Subtitle = ?, Logo = ?,
         DurationMinutes = ?, Credits = ?, Complexity = ?, Category = ?,
         Description = ?, TaskDefinition = ?, RuntimeType = ?,
         RuntimePort = ?, RuntimePath = ?, ContainerApiEnabled = ?,
-        ContainerApiPort = ?, DisplayOrder = ?, UpdatedDate = NOW()
-       WHERE LabCode = ? OR LabId = ?`,
+        ContainerApiPort = ?, DisplayOrder = ?, UpdatedBy = ?, UpdatedDate = NOW()
+       ${whereClause}`,
       [
         LabCode, Title, Subtitle || null, Logo || null,
         DurationMinutes || 0, Credits || 0, Complexity || null,
         Category || null, Description || null, TaskDefinition || null,
         RuntimeType || "ide", RuntimePort || null, RuntimePath || null,
         ContainerApiEnabled ? 1 : 0, ContainerApiPort || null,
-        DisplayOrder || 0,
-        labId, labId
+        DisplayOrder || 0, UpdatedBy || null,
+        ...whereParams
       ]
     );
     return { success: true, labId };
   }
 
   async softDelete(labId, updatedBy) {
-    await pool.query(
-      `DELETE FROM labs WHERE LabCode = ? OR LabId = ?`,
-      [labId, labId]
-    );
+    const isNum = !isNaN(Number(labId)) && Number.isInteger(Number(labId));
+    const sql = isNum
+      ? `DELETE FROM labs WHERE LabCode = ? OR LabId = ?`
+      : `DELETE FROM labs WHERE LabCode = ?`;
+    const params = isNum ? [String(labId), Number(labId)] : [String(labId)];
+    await pool.query(sql, params);
     return { success: true, labId };
   }
 
   async updateStatus(labId, status, updatedBy) {
-    await pool.query(
-      `UPDATE labs SET Status = ?, UpdatedDate = NOW() WHERE LabCode = ? OR LabId = ?`,
-      [status, labId, labId]
-    );
+    const isNum = !isNaN(Number(labId)) && Number.isInteger(Number(labId));
+    const sql = isNum
+      ? `UPDATE labs SET Status = ?, UpdatedBy = ?, UpdatedDate = NOW() WHERE LabCode = ? OR LabId = ?`
+      : `UPDATE labs SET Status = ?, UpdatedBy = ?, UpdatedDate = NOW() WHERE LabCode = ?`;
+    const params = isNum ? [status, updatedBy || null, String(labId), Number(labId)] : [status, updatedBy || null, String(labId)];
+    await pool.query(sql, params);
     return { success: true, labId, status };
   }
 }

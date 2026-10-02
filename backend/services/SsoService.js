@@ -157,7 +157,7 @@ class SsoService {
     assertStudentPortal({
       user: { CreatedFrom: "LMS", AuthType: "LMS" },
       tenant,
-      slug: requestSlug,
+      slug: requestSlug || tenant.Slug,
       host: host || ""
     });
     const provider = await loadLmsProvider(null, tenant, decodedToken.provider || null);

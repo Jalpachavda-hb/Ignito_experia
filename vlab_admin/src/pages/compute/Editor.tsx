@@ -6,7 +6,7 @@ import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath
 import {
   File, Code2, Plus, Upload, Play, Save,
   Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RotateCw, Globe, Pencil, Copy, Check, Coins
+  Folder, FolderOpen, RotateCw, Globe, Pencil, Copy, Check, Coins, Clock, Sparkles, ExternalLink
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
@@ -401,7 +401,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       seleniumRunState.status === 'DISCONNECTED'
     ) {
       timeoutId = setTimeout(() => {
-        handleCloseFile({ stopPropagation: () => {} } as any, 'chrome-preview');
+        handleCloseFile({ stopPropagation: () => { } } as any, 'chrome-preview');
         setSeleniumRunState({
           status: 'IDLE',
           browserUrl: null,
@@ -729,49 +729,86 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   sidebarWidthRef.current = sidebarWidth;
   rightPanelWidthRef.current = rightPanelWidth;
 
+  const [isResizing, setIsResizing] = useState<'sidebar' | 'right' | null>(null);
+
   const startPanelResize = (
-    event: React.MouseEvent<HTMLDivElement>,
+    e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>,
     panel: 'sidebar' | 'right'
   ) => {
-    event.preventDefault();
-    event.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
 
-    // Size from container edges so left/right panels never invert drag direction
-    const panelEl = event.currentTarget.parentElement;
-    const rowEl = panelEl?.parentElement;
-    const rowRect = () => rowEl?.getBoundingClientRect() ?? {
-      left: 0,
-      right: window.innerWidth,
-    };
+    const startX = e.clientX;
+    const startSidebarW = sidebarWidthRef.current;
+    const startRightW = rightPanelWidthRef.current;
+    const totalW = window.innerWidth;
 
-    const onMove = (ev: MouseEvent) => {
-      const { left, right } = rowRect();
+    setIsResizing(panel);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    // Capture pointer on handle element if supported
+    const handleEl = e.currentTarget;
+    const pointerId = 'pointerId' in e ? (e as React.PointerEvent).pointerId : null;
+    if (pointerId !== null && typeof handleEl.setPointerCapture === 'function') {
+      try {
+        handleEl.setPointerCapture(pointerId);
+      } catch (_) {}
+    }
+
+    const onMove = (ev: MouseEvent | PointerEvent) => {
+      ev.preventDefault();
+      const deltaX = ev.clientX - startX;
+
       if (panel === 'sidebar') {
-        // Left explorer: width = distance from row left → mouse
-        const next = Math.min(560, Math.max(200, Math.round(ev.clientX - left)));
-        sidebarWidthRef.current = next;
-        setSidebarWidth(next);
+        const minW = 120;
+        const maxW = Math.min(650, totalW - 280);
+        const rawW = Math.round(startSidebarW + deltaX);
+
+        if (rawW < 75) {
+          // Dragged far to the left: auto-collapse sidebar
+          setIsSidebarOpen(false);
+        } else {
+          setIsSidebarOpen(true);
+          const clamped = Math.min(maxW, Math.max(minW, rawW));
+          sidebarWidthRef.current = clamped;
+          setSidebarWidth(clamped);
+        }
       } else {
-        // Right build/preview: width = distance from mouse → row right
-        // Drag handle left → wider; drag right → narrower
-        const next = Math.min(900, Math.max(280, Math.round(right - ev.clientX)));
-        rightPanelWidthRef.current = next;
-        setRightPanelWidth(next);
+        // Dragging left (negative deltaX) increases right panel width
+        const currentSidebarW = isSidebarOpen ? sidebarWidthRef.current : 0;
+        const maxW = Math.max(280, totalW - currentSidebarW - 220);
+        const minW = 160;
+        const rawW = Math.round(startRightW - deltaX);
+        const clamped = Math.min(maxW, Math.max(minW, rawW));
+        rightPanelWidthRef.current = clamped;
+        setRightPanelWidth(clamped);
       }
     };
 
     const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      setIsResizing(null);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+
+      if (pointerId !== null && typeof handleEl.releasePointerCapture === 'function') {
+        try {
+          handleEl.releasePointerCapture(pointerId);
+        } catch (_) {}
+      }
+
+      window.removeEventListener('pointermove', onMove as any);
+      window.removeEventListener('pointerup', onUp as any);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+
       localStorage.setItem('vlab.ide.sidebarWidth', String(sidebarWidthRef.current));
       localStorage.setItem('vlab.ide.rightPanelWidth', String(rightPanelWidthRef.current));
     };
 
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', onMove);
+    window.addEventListener('pointermove', onMove as any, { passive: false });
+    window.addEventListener('pointerup', onUp as any);
+    window.addEventListener('mousemove', onMove, { passive: false });
     window.addEventListener('mouseup', onUp);
   };
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
@@ -837,6 +874,17 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         if (activePath) {
           const newIdx = response.files.findIndex((f: any) => f.path === activePath);
           if (newIdx >= 0) setActiveFileIndex(newIdx);
+        } else if (response.files.length > 0 && activeFileIndexRef.current < 0) {
+          // Auto-select starter file or first file so the editor and run button are immediately ready
+          const preferredFileIdx = response.files.findIndex((f: any) =>
+            /main\.(py|java|cs|js)|program\.cs|index\.html|app\.(py|js)|script\.(py|sh)/i.test(f.name)
+          );
+          const targetIdx = preferredFileIdx >= 0 ? preferredFileIdx : 0;
+          const targetFile = response.files[targetIdx];
+          if (targetFile) {
+            setOpenFilePaths([targetFile.path]);
+            selectFile(targetIdx, response.files);
+          }
         }
         return response.files;
       }
@@ -1322,7 +1370,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           labType: 'testing',
           executionMode: mode
         };
-        
+
         const response = await runFile(runPayload, sessionId);
         if (response && response.success) {
           if (response.browser?.title) {
@@ -1451,17 +1499,29 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     }
   };
 
-  const handleRun = () => {
+  const handleRun = async () => {
+    let currentActive = activeFile;
+    if (!currentActive) {
+      if (files.length > 0) {
+        await selectFile(0);
+        currentActive = files[0];
+      } else {
+        toast.info('No files in workspace. Creating a new file...');
+        await handleAddFile();
+        return;
+      }
+    }
+
     if (isSelenium) {
       let initialUrl = 'http://localhost:5173/login';
-      if (activeFile && activeFile.content) {
+      if (currentActive && currentActive.content) {
         // Try direct get/navigate matches first
-        const directMatch = activeFile.content.match(/driver\.(?:get|navigate\(\)\.to)\s*\(\s*['"](https?:\/\/[^'"]+)['"]\s*\)/i);
+        const directMatch = currentActive.content.match(/driver\.(?:get|navigate\(\)\.to)\s*\(\s*['"](https?:\/\/[^'"]+)['"]\s*\)/i);
         if (directMatch) {
           initialUrl = directMatch[1];
         } else {
           // Fallback: extract the first URL literal starting with http anywhere in the code
-          const fallbackMatch = activeFile.content.match(/https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9._]*\.[a-zA-Z]{2,}(?:\/[^'"\s]*)?/);
+          const fallbackMatch = currentActive.content.match(/https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9._]*\.[a-zA-Z]{2,}(?:\/[^'"\s]*)?/);
           if (fallbackMatch) {
             initialUrl = fallbackMatch[0];
           }
@@ -1475,6 +1535,16 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   };
   const handleBuild = () => executeCode('build');
   const handleDotnetRun = () => executeCode('run');
+
+  const handleOpenPreviewNewTab = () => {
+    if (!webPreviewCode) {
+      toast.info('No output available yet. Click RUN first.');
+      return;
+    }
+    const blob = new Blob([webPreviewCode], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  };
 
   const handleAndroidBuild = async () => {
     if (!sessionId) return;
@@ -1825,7 +1895,11 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   }
 
   return (
-    <div className="h-full w-full flex bg-[#1e1e1e] overflow-hidden select-none font-sans">
+    <div className="h-full w-full flex bg-[#1e1e1e] overflow-hidden select-none font-sans relative">
+      {/* Resizing overlay to prevent iframe or editor pointer interception */}
+      {isResizing && (
+        <div className="fixed inset-0 z-50 cursor-col-resize select-none bg-transparent" />
+      )}
 
       {/* Sidebar Explorer */}
       {isSidebarOpen && (
@@ -1834,15 +1908,15 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           style={{ width: sidebarWidth }}
         >
           <div className="h-12 px-4 flex items-center justify-between border-b border-[#1f1f1f]">
-            <span className="text-[10px] text-white/60 uppercase font-bold tracking-widest">Explorer</span>
+            <span className="text-[11px] text-white uppercase font-bold tracking-widest">Explorer</span>
             <div className="flex items-center gap-2">
-              <button onClick={handleSync} className="text-white/70 hover:text-white transition-colors mr-1" title="Sync Workspace">
-                <RotateCw size={14} className={isLoading ? 'animate-spin text-red-500' : ''} />
+              <button onClick={handleSync} className="text-white hover:text-white/80 transition-colors mr-1" title="Sync Workspace">
+                <RotateCw size={14} className={isLoading ? 'animate-spin text-red-500' : 'text-white'} />
               </button>
-              <button onClick={() => handleAddFile()} className="text-white/70 hover:text-white transition-colors" title="Add File">
+              <button onClick={() => handleAddFile()} className="text-white hover:text-white/80 transition-colors" title="Add File">
                 <Plus size={16} />
               </button>
-              <button onClick={() => fileInputRef.current?.click()} className="text-white/70 hover:text-white transition-colors" title="Upload File">
+              <button onClick={() => fileInputRef.current?.click()} className="text-white hover:text-white/80 transition-colors" title="Upload File">
                 <Upload size={14} />
               </button>
               <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
@@ -1850,7 +1924,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           </div>
 
           <div className="px-4 py-3 border-b border-[#1f1f1f]">
-            <span className="text-[10px] text-white/40 uppercase font-bold tracking-widest">Workspace</span>
+            <span className="text-[11px] text-white uppercase font-bold tracking-widest">Workspace</span>
           </div>
 
           <div className="flex-1 overflow-y-auto overflow-x-auto py-2">
@@ -1902,10 +1976,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           </div>
 
           <div
+            onPointerDown={(e) => startPanelResize(e, 'sidebar')}
             onMouseDown={(e) => startPanelResize(e, 'sidebar')}
-            className="absolute top-0 right-0 h-full w-2 cursor-col-resize z-20 hover:bg-white/10 active:bg-amber-500/50"
+            className="absolute top-0 -right-2 h-full w-4 cursor-col-resize z-30 group flex items-center justify-center hover:bg-red-500/20 active:bg-red-500/40 transition-colors"
             title="Drag to resize explorer"
-          />
+          >
+            <div className="w-[3px] h-full bg-white/10 group-hover:bg-red-500 group-active:bg-red-600 transition-colors" />
+          </div>
         </div>
       )}
 
@@ -1915,8 +1992,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         {/* Top Header Bar */}
         <div className="h-12 bg-[#252526] border-b border-[#1f1f1f] flex items-center justify-between pl-2 pr-4 shrink-0 gap-4">
           <div className="flex-1 flex items-center min-w-0 h-full">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-white/60 hover:text-white rounded transition-colors shrink-0">
-              <Menu size={18} />
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-white hover:text-white/80 rounded transition-colors shrink-0">
+              <Menu size={18} className="text-white" />
             </button>
 
             {/* File Tabs with Horizontal Scroll */}
@@ -1974,29 +2051,32 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           <div className="flex items-center gap-3 shrink-0">
             <button
               onClick={handleDownload}
-              className="text-[#3b82f6] hover:text-blue-400 transition-colors p-1"
-              title="Download File"
+              className="flex items-center justify-center p-2 rounded-lg bg-[#2a2d2e] hover:bg-[#383a3d] border border-white/10 hover:border-white/20 text-[#38bdf8] hover:text-white transition-all shadow-sm active:scale-95"
+              title="Download Current File"
             >
-              <Download size={18} />
+              <Download size={15} />
             </button>
             {isAndroid ? (
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleAndroidBuild}
                   disabled={isAndroidBuilding}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isAndroidBuilding ? 'bg-amber-900/50 text-white/50 cursor-not-allowed' : 'bg-[#f59e0b] hover:bg-amber-600 shadow-lg shadow-amber-600/20'
-                    }`}
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
+                    isAndroidBuilding
+                      ? 'bg-amber-800 text-white/80 cursor-wait'
+                      : 'bg-amber-500 hover:bg-amber-400 border border-amber-400 shadow-amber-500/30'
+                  }`}
                 >
-                  <Play size={12} className="fill-current" />
-                  {isAndroidBuilding ? 'BUILDING...' : 'BUILD'}
+                  {isAndroidBuilding ? <RotateCw size={13} className="animate-spin text-white" /> : <Play size={13} className="fill-white text-white" />}
+                  <span className="text-white font-extrabold">{isAndroidBuilding ? 'BUILDING...' : 'BUILD'}</span>
                 </button>
                 {androidApkUrl && (
                   <button
                     onClick={handleDownloadApk}
-                    className="flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20 animate-pulse"
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-colors bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20 animate-pulse"
                   >
-                    <Download size={12} />
-                    DOWNLOAD APK
+                    <Download size={13} />
+                    <span>DOWNLOAD APK</span>
                   </button>
                 )}
               </div>
@@ -2004,38 +2084,56 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               <>
                 <button
                   onClick={handleBuild}
-                  disabled={isRunning || !activeFile}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isRunning || !activeFile ? 'bg-red-900/50 text-white/50 cursor-not-allowed' : 'bg-[#dc2626] hover:bg-red-600 shadow-lg shadow-red-600/20'
-                    }`}
+                  disabled={isRunning}
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
+                    runningAction === 'build'
+                      ? 'bg-red-800 text-white/80 cursor-wait'
+                      : 'bg-red-600 hover:bg-red-500 border border-red-500 shadow-red-600/30'
+                  }`}
                 >
-                  <Play size={12} className="fill-current" />
-                  {runningAction === 'build' ? 'BUILDING...' : 'BUILD'}
+                  {runningAction === 'build' ? <RotateCw size={13} className="animate-spin text-white" /> : <Play size={13} className="fill-white text-white" />}
+                  <span className="text-white font-extrabold">{runningAction === 'build' ? 'BUILDING...' : 'BUILD'}</span>
                 </button>
                 <button
                   onClick={handleDotnetRun}
-                  disabled={isRunning || !activeFile || !dotnetBuildReady}
+                  disabled={isRunning}
                   title={dotnetBuildReady ? 'Run the web app and show preview' : 'Build the project first'}
-                  className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors border border-white/10 ${isRunning || !activeFile || !dotnetBuildReady ? 'bg-[#2d2d2d] text-white/40 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20'
-                    }`}
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
+                    runningAction === 'run'
+                      ? 'bg-emerald-800 text-white/80 cursor-wait'
+                      : 'bg-emerald-600 hover:bg-emerald-500 border border-emerald-400 shadow-emerald-600/30'
+                  }`}
                 >
-                  <Play size={12} className="fill-current" />
-                  {runningAction === 'run' ? 'RUNNING...' : 'RUN'}
+                  {runningAction === 'run' ? <RotateCw size={13} className="animate-spin text-white" /> : <Play size={13} className="fill-white text-white" />}
+                  <span className="text-white font-extrabold">{runningAction === 'run' ? 'RUNNING...' : 'RUN'}</span>
                 </button>
               </>
             ) : (
               <button
                 onClick={handleRun}
-                disabled={isRunning || !activeFile}
-                className={`flex items-center gap-1.5 px-4 py-1.5 rounded text-white text-[11px] font-black uppercase tracking-wider transition-colors ${isRunning || !activeFile ? 'bg-red-900/50 text-white/50 cursor-not-allowed' : 'bg-[#dc2626] hover:bg-red-600 shadow-lg shadow-red-600/20'
-                  }`}
+                disabled={isRunning}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
+                  isRunning
+                    ? 'bg-red-800 text-white/80 cursor-wait'
+                    : 'bg-red-600 hover:bg-red-500 border border-red-500 shadow-red-600/30 hover:shadow-red-600/50'
+                }`}
+                title="Run Program (Ctrl+Enter)"
               >
-                <Play size={12} className="fill-current" />
-                {isRunning ? 'RUNNING...' : 'RUN'}
+                {isRunning ? (
+                  <RotateCw size={13} className="animate-spin text-white" />
+                ) : (
+                  <Play size={13} className="fill-white text-white" />
+                )}
+                <span className="text-white font-extrabold">{isRunning ? 'RUNNING...' : 'RUN'}</span>
               </button>
             )}
             {remainingTime && (
-              <div className="text-red-500 font-mono text-[10px] font-black bg-red-950/40 border border-red-500/20 px-2.5 py-1 rounded animate-pulse shrink-0 ml-2">
-                TIME REMAINING: {remainingTime}
+              <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-500/20 border border-red-500/60 text-white font-mono text-xs font-bold shrink-0 ml-2 shadow-sm">
+                <Clock size={14} className="text-white shrink-0" />
+                <span className="text-white font-bold tracking-wider text-[11px]">TIME REMAINING:</span>
+                <span className="text-white font-extrabold tracking-wider bg-red-600 px-2 py-0.5 rounded border border-red-400/50 text-xs">
+                  {remainingTime}
+                </span>
               </div>
             )}
             {activeLabWallet && (
@@ -2046,17 +2144,19 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             )}
             <button
               onClick={onBack}
-              className="text-red-500 hover:text-red-400 transition-colors p-1 ml-2"
-              title="Back"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2a2d2e] hover:bg-[#383a3d] border border-white/20 hover:border-white/40 text-white text-xs font-bold transition-all shadow-sm active:scale-95 ml-1"
+              title="Back to Dashboard"
             >
-              <ArrowLeft size={16} />
+              <ArrowLeft size={14} className="text-white" />
+              <span className="text-white">Back</span>
             </button>
             <button
               onClick={onStopLab}
-              className="text-red-500 hover:text-red-400 transition-colors p-1"
-              title="Stop Lab"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 border border-red-500/40 text-white text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-red-900/30 active:scale-95"
+              title="Stop Lab Session"
             >
-              <Power size={16} />
+              <Power size={13} className="text-white" />
+              <span className="text-white">Stop Lab</span>
             </button>
           </div>
         </div>
@@ -2119,19 +2219,111 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                 )}
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-[#1e1e1e]">
-                <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-4 border border-white/10">
-                  <FileText className="w-8 h-8 text-white/20" />
+              <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-10 bg-[#18181b] relative overflow-y-auto select-none">
+                {/* Background ambient pattern */}
+                <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
+
+                <div className="relative z-10 max-w-xl w-full flex flex-col items-center text-center">
+                  {/* Hero Icon */}
+                  <div className="relative mb-5">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-br from-red-500/20 via-rose-500/10 to-amber-500/10 border border-white/10 flex items-center justify-center shadow-2xl shadow-red-500/10">
+                      <Code2 className="w-8 h-8 sm:w-10 sm:h-10 text-red-500" />
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 p-1.5 rounded-xl bg-[#27272a] border border-white/10 text-amber-400 shadow-md">
+                      <Sparkles size={13} />
+                    </div>
+                  </div>
+
+                  <h1 className="text-lg sm:text-2xl font-black text-white tracking-tight mb-2">
+                    {labId ? `${labId.replace(/[-_]/g, ' ').toUpperCase()}` : 'Virtual Cloud IDE'}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
+                    Select an existing file from the explorer on the left, or launch an action below to begin programming.
+                  </p>
+
+                  {/* Interactive Action Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mb-6">
+                    <button
+                      onClick={() => handleAddFile()}
+                      className="group flex items-center gap-3.5 p-3.5 rounded-xl bg-[#222226] hover:bg-[#2a2a2f] border border-white/5 hover:border-red-500/30 text-left transition-all duration-200 hover:-translate-y-0.5 shadow-lg active:scale-98"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center shrink-0 group-hover:bg-red-500 group-hover:text-white transition-colors">
+                        <Plus size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="block text-xs sm:text-sm font-bold text-white group-hover:text-red-300 transition-colors">
+                          Create New File
+                        </span>
+                        <span className="block text-[11px] text-slate-400 truncate">
+                          Add a code script or template
+                        </span>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="group flex items-center gap-3.5 p-3.5 rounded-xl bg-[#222226] hover:bg-[#2a2a2f] border border-white/5 hover:border-blue-500/30 text-left transition-all duration-200 hover:-translate-y-0.5 shadow-lg active:scale-98"
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0 group-hover:bg-blue-500 group-hover:text-white transition-colors">
+                        <Upload size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="block text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
+                          Upload Files
+                        </span>
+                        <span className="block text-[11px] text-slate-400 truncate">
+                          Import files from your device
+                        </span>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Quick Files List if Files Exist in Workspace */}
+                  {files.length > 0 && (
+                    <div className="w-full mb-6 text-left">
+                      <div className="flex items-center justify-between mb-2.5 px-1">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                          Workspace Files ({files.length})
+                        </span>
+                        <span className="text-[10px] text-slate-500">Click to open</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {files.slice(0, 6).map((file, i) => (
+                          <button
+                            key={file.path}
+                            onClick={() => {
+                              if (!openFilePaths.includes(file.path)) {
+                                setOpenFilePaths((prev) => [...prev, file.path]);
+                              }
+                              selectFile(i);
+                            }}
+                            className="flex items-center gap-2 p-2 rounded-lg bg-[#222226] hover:bg-[#2e2e34] border border-white/5 hover:border-white/20 transition-all text-left group"
+                          >
+                            {getFileIcon(file.name)}
+                            <span className="text-xs font-medium text-slate-300 group-hover:text-white truncate">
+                              {file.name}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Keyboard Shortcuts Hint Bar */}
+                  <div className="flex flex-wrap items-center justify-center gap-3 text-[11px] text-slate-400 bg-white/5 px-4 py-2 rounded-full border border-white/10">
+                    <span className="flex items-center gap-1.5">
+                      <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Enter</kbd> Run
+                    </span>
+                    <span className="w-1 h-1 rounded-full bg-slate-600" />
+                    <span className="flex items-center gap-1.5">
+                      <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">S</kbd> Save
+                    </span>
+                    <span className="w-1 h-1 rounded-full bg-slate-600" />
+                    <span className="flex items-center gap-1.5">
+                      <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">B</kbd> Sidebar
+                    </span>
+                  </div>
                 </div>
-                <h2 className="text-white/40 text-[11px] font-bold tracking-widest uppercase mb-4">
-                  Select a file to begin coding
-                </h2>
-                <button
-                  onClick={() => handleAddFile()}
-                  className="flex items-center gap-2 px-5 py-2 rounded-full border border-white/10 hover:border-white/30 text-white/60 hover:text-white text-[10px] font-bold uppercase tracking-widest transition-all hover:bg-white/5"
-                >
-                  <Plus size={14} /> Create New File
-                </button>
               </div>
             )}
 
@@ -2139,15 +2331,18 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             {isAndroid ? (
               <div
                 className="bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col shrink-0 min-w-0 relative"
-                style={{ width: rightPanelWidth, minWidth: 280, maxWidth: 900 }}
+                style={{ width: rightPanelWidth, minWidth: 220 }}
               >
                 <div
+                  onPointerDown={(e) => startPanelResize(e, 'right')}
                   onMouseDown={(e) => startPanelResize(e, 'right')}
-                  className="absolute top-0 -left-1 h-full w-3 cursor-col-resize z-30 hover:bg-amber-500/40 active:bg-amber-500/60"
-                  title="Drag left to widen build logs"
-                />
+                  className="absolute top-0 -left-2 h-full w-4 cursor-col-resize z-30 group flex items-center justify-center hover:bg-amber-500/20 active:bg-amber-500/40 transition-colors"
+                  title="Drag to resize build logs"
+                >
+                  <div className="w-[3px] h-full bg-amber-500/40 group-hover:bg-amber-500 group-active:bg-amber-500 transition-colors" />
+                </div>
                 <div className="h-10 bg-[#1e1e1e] flex justify-between items-center px-4 border-b border-amber-500/20 relative">
-                  <span className="text-[#f59e0b] text-[10px] font-black uppercase tracking-widest">Build Logs</span>
+                  <span className="text-[#f59e0b] text-[13px] font-extrabold uppercase tracking-wider">Build Logs</span>
                   <button
                     type="button"
                     onClick={handleCopyLogs}
@@ -2167,31 +2362,86 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               null // Selenium preview is now opened in the Editor Tab bar instead of a split layout
             ) : (
               <div
-                className="bg-white flex flex-col shrink-0 relative"
-                style={{ width: rightPanelWidth, minWidth: 280, maxWidth: 900 }}
+                className="bg-[#141416] border-l border-white/5 flex flex-col shrink-0 relative"
+                style={{ width: rightPanelWidth, minWidth: 220 }}
               >
                 <div
+                  onPointerDown={(e) => startPanelResize(e, 'right')}
                   onMouseDown={(e) => startPanelResize(e, 'right')}
-                  className="absolute top-0 -left-1 h-full w-3 cursor-col-resize z-30 hover:bg-red-500/40 active:bg-red-500/60"
-                  title="Drag left to widen preview"
-                />
-                <div className="h-10 bg-white flex justify-center items-center border-b border-red-500/20 relative">
-                  <span className="text-[#dc2626] text-[10px] font-black uppercase tracking-widest">Preview</span>
-                  <div className="absolute bottom-0 w-full h-[2px] bg-red-600" />
+                  className="absolute top-0 -left-2 h-full w-4 cursor-col-resize z-30 group flex items-center justify-center hover:bg-red-500/20 active:bg-red-500/40 transition-colors"
+                  title="Drag left/right to resize preview"
+                >
+                  <div className="w-[3px] h-full bg-red-600/40 group-hover:bg-red-600 group-active:bg-red-600 transition-colors" />
                 </div>
-                <div className="flex-1 w-full bg-white relative">
+
+                {/* Modern Browser Chrome Header */}
+                <div className="h-10 bg-[#18181b] border-b border-white/10 flex items-center justify-between px-3 gap-2 relative">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 mr-1">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                    </div>
+                    <span className="text-white text-xs font-black uppercase tracking-wider">Preview</span>
+                  </div>
+
+                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#27272a] border border-white/10 text-[10px] font-mono text-slate-300 max-w-[180px] truncate">
+                    <Globe size={11} className="text-emerald-400 shrink-0" />
+                    <span className="truncate">localhost:preview</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleRun}
+                      title="Refresh & Re-run Code (F5 / Ctrl+Enter)"
+                      className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                    >
+                      <RotateCw size={13} className={isRunning ? 'animate-spin text-red-400' : ''} />
+                    </button>
+                    {webPreviewCode && (
+                      <button
+                        onClick={handleOpenPreviewNewTab}
+                        title="Open in new window"
+                        className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+                      >
+                        <ExternalLink size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Preview Body */}
+                <div className="flex-1 w-full bg-white relative overflow-hidden">
                   {consoleSession?.active ? (
                     <ConsoleInteractivePreview
                       session={consoleSession}
                       onSubmit={handleConsoleInputSubmit}
                     />
-                  ) : (
+                  ) : webPreviewCode ? (
                     <iframe
                       srcDoc={webPreviewCode}
-                      className="absolute inset-0 w-full h-full border-0"
+                      className={`absolute inset-0 w-full h-full border-0 bg-white ${isResizing ? 'pointer-events-none' : ''}`}
                       title="Preview"
                       sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                     />
+                  ) : (
+                    <div className="absolute inset-0 bg-[#121214] flex flex-col items-center justify-center p-6 text-center select-none">
+                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-500/10 to-amber-500/10 border border-white/10 flex items-center justify-center mb-4 text-red-500 shadow-xl">
+                        <MonitorPlay className="w-7 h-7 text-red-500" />
+                      </div>
+                      <h3 className="text-white font-bold text-sm mb-1.5">Interactive Output Standby</h3>
+                      <p className="text-xs text-slate-400 max-w-xs mb-5 leading-relaxed">
+                        Execute your program to render live web preview, interactive console, or runtime output here.
+                      </p>
+                      <button
+                        onClick={handleRun}
+                        disabled={isRunning}
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-lg shadow-red-600/25 transition-all hover:scale-105 active:scale-95"
+                      >
+                        <Play size={13} className="fill-current" />
+                        {isRunning ? 'Running...' : 'Run Preview'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { 
   Upload, Smartphone, Cpu, 
   RefreshCw, Power, ArrowLeft, 
-  Terminal as TerminalIcon, FileText
+  Terminal as TerminalIcon, FileText, Clock
 } from 'lucide-react';
 
 interface AndroidEmulatorProps {
@@ -310,8 +310,12 @@ export default function AndroidEmulator({ session, onStopLab, onBack, remainingT
         
         <div className="flex items-center gap-3">
           {remainingTime && (
-            <div className="text-red-500 font-mono text-[10px] font-black bg-red-950/40 border border-red-500/20 px-2.5 py-1 rounded animate-pulse shrink-0">
-              TIME REMAINING: {remainingTime}
+            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-500/20 border border-red-500/60 text-white font-mono text-xs font-bold shrink-0 shadow-sm">
+              <Clock size={14} className="text-white shrink-0" />
+              <span className="text-white font-bold tracking-wider text-[11px]">TIME REMAINING:</span>
+              <span className="text-white font-extrabold tracking-wider bg-red-600 px-2 py-0.5 rounded border border-red-400/50 text-xs">
+                {remainingTime}
+              </span>
             </div>
           )}
           <button 

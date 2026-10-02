@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS `labs` (
     `Title`              VARCHAR(200) NOT NULL,
     `Subtitle`           VARCHAR(300),
     `Semester`           VARCHAR(100),
-    `Logo`               VARCHAR(255),
+    `Logo`               TEXT,
     `DurationMinutes`    INT          DEFAULT 0,
     `Credits`            INT          DEFAULT 0,
     `Complexity`         VARCHAR(50),

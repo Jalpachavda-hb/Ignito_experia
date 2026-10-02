@@ -170,99 +170,6 @@ export const initiateRazorpayPayment = async ({
     console.warn('Backend order endpoint not reachable, running client mode:', err);
   }
 
-  // Dynamic payment blocks explicitly enabling and ordering QR Code, UPI, Paytm, Cards, Netbanking, Wallets
-  const displayBlocks: Record<string, any> = {
-    upi_qr: {
-      name: 'UPI & Instant Dynamic QR Code',
-      instruments: [
-        {
-          method: 'upi',
-          flows: ['qr', 'intent'],
-          apps: ['google_pay', 'phonepe', 'paytm', 'bhim', 'cred'],
-        },
-      ],
-    },
-    paytm_wallets: {
-      name: 'Paytm & Popular Wallets',
-      instruments: [
-        {
-          method: 'wallet',
-          wallets: ['paytm', 'phonepe', 'mobikwik', 'freecharge', 'airtelmoney', 'olamoney', 'jiomoney'],
-        },
-      ],
-    },
-    cards: {
-      name: 'Credit & Debit Cards (Visa, MasterCard, RuPay, Maestro)',
-      instruments: [
-        {
-          method: 'card',
-        },
-      ],
-    },
-    netbanking: {
-      name: 'Net Banking (All Indian Banks - SBI, HDFC, ICICI, etc.)',
-      instruments: [
-        {
-          method: 'netbanking',
-        },
-      ],
-    },
-    paylater: {
-      name: 'Pay Later & Cardless EMI',
-      instruments: [
-        {
-          method: 'paylater',
-        },
-        {
-          method: 'emi',
-        },
-      ],
-    },
-  };
-
-  // Determine sequence based on preferredMethod
-  let sequence = [
-    'block.upi_qr',
-    'block.paytm_wallets',
-    'block.cards',
-    'block.netbanking',
-    'block.paylater',
-  ];
-
-  if (preferredMethod === 'paytm' || preferredMethod === 'wallet') {
-    sequence = [
-      'block.paytm_wallets',
-      'block.upi_qr',
-      'block.cards',
-      'block.netbanking',
-      'block.paylater',
-    ];
-  } else if (preferredMethod === 'card') {
-    sequence = [
-      'block.cards',
-      'block.upi_qr',
-      'block.paytm_wallets',
-      'block.netbanking',
-      'block.paylater',
-    ];
-  } else if (preferredMethod === 'netbanking') {
-    sequence = [
-      'block.netbanking',
-      'block.upi_qr',
-      'block.paytm_wallets',
-      'block.cards',
-      'block.paylater',
-    ];
-  } else if (preferredMethod === 'paylater') {
-    sequence = [
-      'block.paylater',
-      'block.upi_qr',
-      'block.paytm_wallets',
-      'block.cards',
-      'block.netbanking',
-    ];
-  }
-
   const options: any = {
     key: razorpayKey,
     amount: Math.round(amountInRupees * 100), // Amount in paise (1 INR = 100 Paise)
@@ -274,22 +181,15 @@ export const initiateRazorpayPayment = async ({
       name: userName,
       email: userEmail,
       contact: userPhone,
-    },
-    config: {
-      display: {
-        language: 'en',
-        blocks: displayBlocks,
-        sequence: sequence,
-        preferences: {
-          show_default_blocks: true,
-        },
-      },
-    },
-    send_sms_hash: true,
-    remember_customer: true,
-    retry: {
-      enabled: true,
-      max_count: 4,
+      method: preferredMethod === 'card' 
+        ? 'card' 
+        : preferredMethod === 'netbanking' 
+        ? 'netbanking' 
+        : preferredMethod === 'wallet' || preferredMethod === 'paytm'
+        ? 'wallet' 
+        : preferredMethod === 'upi' || preferredMethod === 'upi_qr'
+        ? 'upi' 
+        : undefined,
     },
     notes: {
       lab_id: labId,
