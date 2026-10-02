@@ -42,10 +42,10 @@ export function PurchaseCreditModal({
             <Coins className="h-7 w-7" />
           </div>
           <DialogTitle className="text-xl font-bold text-slate-900 dark:text-white">
-            Purchase Tokens Required
+            Please Purchase Tokens
           </DialogTitle>
           <DialogDescription className="text-sm text-slate-500 dark:text-slate-400 max-w-sm text-center">
-            You need tokens to use this lab environment. Please purchase tokens first to launch the lab and perform your tasks.
+            You do not have active tokens for this lab. Please purchase tokens to launch the lab environment and start your practice.
           </DialogDescription>
         </DialogHeader>
 
@@ -59,7 +59,7 @@ export function PurchaseCreditModal({
           </div>
           <div className="flex justify-between items-center text-sm">
             <span className="text-slate-500 font-medium">Required Tokens</span>
-            <span className="font-bold text-red-600 dark:text-red-400">{labCost} Tokens</span>
+            <span className="font-bold text-red-600 dark:text-red-400">{labCost} Tokens / Hour</span>
           </div>
           <div className="flex justify-between items-center text-sm">
             <span className="text-slate-500 font-medium">Your Wallet Balance</span>
@@ -79,10 +79,10 @@ export function PurchaseCreditModal({
           <Button
             type="button"
             onClick={handleBuyCredits}
-            className="w-full sm:w-1/2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl shadow-md shadow-red-500/20"
+            className="w-full sm:w-1/2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl shadow-md shadow-indigo-500/20"
           >
-            <CreditCard className="mr-2 h-4 w-4" />
-            Buy Tokens Now
+            <Coins className="mr-2 h-4 w-4" />
+            Purchase Tokens
           </Button>
         </DialogFooter>
       </DialogContent>

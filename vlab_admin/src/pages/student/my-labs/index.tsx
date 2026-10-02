@@ -211,8 +211,8 @@ export default function MyLabs() {
                       courseCode: cCode,
                       courseName: cName,
                       practicalCredit,
-                      remainingTokens: practicalCredit,
-                      tokens: practicalCredit,
+                      remainingTokens: 0,
+                      tokens: 0,
                       credits: practicalCredit,
                       image: labMatch.image || labMatch.logo || null,
                       logo: labMatch.logo || labMatch.image || null,
@@ -229,8 +229,8 @@ export default function MyLabs() {
                       durationMinutes: practicalCredit,
                       credits: practicalCredit,
                       practicalCredit,
-                      remainingTokens: practicalCredit,
-                      tokens: practicalCredit,
+                      remainingTokens: 0,
+                      tokens: 0,
                       status: 'active',
                       courseCode: cCode,
                       courseName: cName,
@@ -509,69 +509,63 @@ export default function MyLabs() {
   );
 });
 
-const coursePracticalTokens = Number(
-  labItem.practicalCredit || labItem.credits || 0
-);
+      const coursePracticalTokens = Number(
+        labItem.practicalCredit || 0
+      );
 
-const walletRemainingTokens = walletMatch
-  ? Number(
-      walletMatch.remainingTokens ??
-      (
-        Number(walletMatch.purchasedTokens || 0) -
-        Number(walletMatch.usedTokens || 0)
-      )
-    )
-  : undefined;
+      const walletRemainingTokens = walletMatch
+        ? Number(
+            walletMatch.remainingTokens ??
+            (
+              Number(walletMatch.purchasedTokens || 0) -
+              Number(walletMatch.usedTokens || 0)
+            )
+          )
+        : 0;
 
-const effectiveRemainingTokens =
-  walletRemainingTokens ??
-  (coursePracticalTokens > 0 ? coursePracticalTokens : undefined);
+      // Only count as purchased if the student actually bought personal tokens or has wallet tokens
+      const hasPurchasedTokens = Boolean(
+        (walletMatch && (Number(walletMatch.purchasedTokens || 0) > 0 || walletRemainingTokens > 0)) ||
+        purchasedLabIds.has(lId) ||
+        purchasedLabIds.has(cleanLId) ||
+        Array.from(purchasedLabNames).some(name => (lTitle && name && (lTitle.includes(name) || name.includes(lTitle))))
+      );
 
-// Only count as purchased if the student actually bought personal tokens
-const hasPurchasedTokens = Boolean(
-  walletMatch && (
-    Number(walletMatch.purchasedTokens || 0) > 0 ||
-    (walletRemainingTokens !== undefined && walletRemainingTokens > 0)
-  )
-);
+      const isPurchased = hasPurchasedTokens;
 
-const isPurchased = hasPurchasedTokens ||
-  purchasedLabIds.has(lId) ||
-  purchasedLabIds.has(cleanLId) ||
-  Array.from(purchasedLabNames).some(name => (lTitle && name && (lTitle.includes(name) || name.includes(lTitle))));
+      const isUniversity = !isDirectUser && (
+        hasCourseFilter ||
+        Boolean(labItem.courseCode) ||
+        Boolean(labItem.courseName) ||
+        enrolledUniversityLabIds.has(lId) ||
+        enrolledUniversityLabIds.has(cleanLId) ||
+        enrolledUniversityLabIds.has(lTitle)
+      );
 
-const isUniversity = !isDirectUser && (
-  hasCourseFilter ||
-  Boolean(labItem.courseCode) ||
-  Boolean(labItem.courseName) ||
-  enrolledUniversityLabIds.has(lId) ||
-  enrolledUniversityLabIds.has(cleanLId) ||
-  enrolledUniversityLabIds.has(lTitle) ||
-  coursePracticalTokens > 0
-);
+      let accessType: 'personal' | 'university' | 'catalogue' = 'catalogue';
+      let accessLabel = '';
 
-let accessType: 'personal' | 'university' | 'catalogue' = 'catalogue';
-let accessLabel = '';
+      if (isUniversity) {
+        accessType = 'university';
+        accessLabel = 'University';
+      } else if (isPurchased) {
+        accessType = 'personal';
+        accessLabel = 'Personal';
+      }
 
-if (isUniversity) {
-  accessType = 'university';
-  accessLabel = 'University';
-} else if (isPurchased) {
-  accessType = 'personal';
-  accessLabel = 'Personal';
-}
+      const effectiveRemainingTokens = walletRemainingTokens > 0 ? walletRemainingTokens : 0;
 
-return {
-  ...labItem,
-  accessType,
-  accessLabel,
-  isPurchased: !isUniversity && isPurchased,
-  isUniversity,
-  practicalCredit: coursePracticalTokens || labItem.practicalCredit,
-  remainingTokens: effectiveRemainingTokens ?? labItem.remainingTokens,
-  availableTokens: effectiveRemainingTokens ?? labItem.availableTokens,
-  tokens: effectiveRemainingTokens ?? labItem.tokens,
-};
+      return {
+        ...labItem,
+        accessType,
+        accessLabel,
+        isPurchased: !isUniversity && isPurchased,
+        isUniversity,
+        practicalCredit: coursePracticalTokens,
+        remainingTokens: effectiveRemainingTokens,
+        availableTokens: effectiveRemainingTokens,
+        tokens: effectiveRemainingTokens,
+      };
 };
 
     if (hasCourseFilter) {
@@ -600,8 +594,8 @@ return {
               courseCode: cCode,
               courseName: cName,
               practicalCredit,
-              remainingTokens: practicalCredit,
-              tokens: practicalCredit,
+              remainingTokens: 0,
+              tokens: 0,
               credits: practicalCredit,
               durationMinutes: practicalCredit,
               image: labMatch.image || labMatch.logo || null,
@@ -616,8 +610,8 @@ return {
               durationMinutes: practicalCredit,
               credits: practicalCredit,
               practicalCredit,
-              remainingTokens: practicalCredit,
-              tokens: practicalCredit,
+              remainingTokens: 0,
+              tokens: 0,
               status: 'active',
               courseCode: cCode,
               courseName: cName,
@@ -657,8 +651,8 @@ return {
               courseCode: cCode,
               courseName: cName,
               practicalCredit,
-              remainingTokens: practicalCredit,
-              tokens: practicalCredit,
+              remainingTokens: 0,
+              tokens: 0,
               credits: practicalCredit,
               durationMinutes: practicalCredit,
               image: autoMatch.image || autoMatch.logo || null,
@@ -673,8 +667,8 @@ return {
               durationMinutes: practicalCredit,
               credits: practicalCredit,
               practicalCredit,
-              remainingTokens: practicalCredit,
-              tokens: practicalCredit,
+              remainingTokens: 0,
+              tokens: 0,
               status: 'active',
               courseCode: cCode,
               courseName: cName,
@@ -784,22 +778,24 @@ return {
       (hasCourseFilter && Boolean((lab as any)?.courseCode))
     );
 
-    // Check lab-specific token wallet balance & course practicalCredit
-    const coursePracticalTokens = Number((lab as any)?.practicalCredit || (lab as any)?.credits || 0);
+    // Check lab-specific token wallet balance & transactions
     const targetCleanId = String(getLabId(lab) || labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
     const labWallet = (labWallets || []).find((w) => {
       const wId = String(w.labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
       return wId === targetCleanId;
     });
-    const remainingTokens = labWallet ? Number(labWallet.remainingTokens || 0) : coursePracticalTokens;
+    const walletRemainingTokens = labWallet ? Number(labWallet.remainingTokens || 0) : 0;
+    const remainingTokens = Math.max(walletRemainingTokens, specificLabCredits);
 
-    const canStartLab = isAdmin || remainingTokens > 0 || specificLabCredits > 0 || isEnrolledInCurriculum || coursePracticalTokens > 0;
+    const canStartLab = isAdmin || remainingTokens > 0;
 
     if (!canStartLab) {
       setSelectedTokenLabId(labId);
       setSelectedTokenLabTitle(lab.title || lab.name || labId);
-      setTokenPackagesModalOpen(true);
-      toast.info(`Please purchase tokens for ${lab.title || labId} to start practice.`);
+      setShowDirectPurchaseModal({
+        ...lab,
+        userLabCredits: remainingTokens,
+      });
       return;
     }
 
@@ -818,9 +814,7 @@ return {
       return;
     }
 
-    const effectiveTokens = coursePracticalTokens > 0
-      ? coursePracticalTokens
-      : (remainingTokens > 0 ? remainingTokens : (specificLabCredits || (typeof user.credits === 'number' && user.credits > 0 ? user.credits : 60)));
+    const effectiveTokens = remainingTokens > 0 ? remainingTokens : 60;
 
     const academicCtx = {
       programId: programIdQuery,
@@ -842,10 +836,13 @@ return {
     setSelectedDotnetLabId(null);
 
     const lab = labs.find(l => getLabId(l) === labId) || displayLabs.find(l => getLabId(l) === labId);
-    const coursePracticalTokens = Number((lab as any)?.practicalCredit || (lab as any)?.credits || 0);
-    const effectiveTokens = coursePracticalTokens > 0
-      ? coursePracticalTokens
-      : (typeof user?.credits === 'number' && user.credits > 0 ? user.credits : 60);
+    const targetCleanId = String(getLabId(lab) || labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+    const labWallet = (labWallets || []).find((w) => {
+      const wId = String(w.labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+      return wId === targetCleanId;
+    });
+    const walletRemainingTokens = labWallet ? Number(labWallet.remainingTokens || 0) : 0;
+    const effectiveTokens = walletRemainingTokens > 0 ? walletRemainingTokens : 60;
 
     const academicCtx = {
       programId: programIdQuery,
@@ -1162,8 +1159,14 @@ return {
         lab={showDirectPurchaseModal}
         userCredits={showDirectPurchaseModal?.userLabCredits ?? 0}
         onPurchase={() => {
+          const target = showDirectPurchaseModal;
           setShowDirectPurchaseModal(null);
-          navigate({ to: '/student/credit-wallet' });
+          if (target) {
+            const targetLabId = getLabId(target);
+            setSelectedTokenLabId(targetLabId);
+            setSelectedTokenLabTitle(target.title || target.name || targetLabId);
+            setTokenPackagesModalOpen(true);
+          }
         }}
       />
 

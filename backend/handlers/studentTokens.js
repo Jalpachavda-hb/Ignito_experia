@@ -92,26 +92,8 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
                 allocatedTokens: practicalCredit
               });
 
-              if (!groupedWallets.has(cleanLabId)) {
-                groupedWallets.set(cleanLabId, {
-                  id: 0,
-                  labId: cleanLabId,
-                  labTitle,
-                  purchasedTokens: practicalCredit,
-                  allocatedTokens: practicalCredit,
-                  usedTokens: 0,
-                  remainingTokens: practicalCredit,
-                  runtimeRemainingMinutes: practicalCredit,
-                  updatedAt: new Date().toISOString()
-                });
-              } else {
+              if (groupedWallets.has(cleanLabId)) {
                 const existing = groupedWallets.get(cleanLabId);
-                if (existing.purchasedTokens < practicalCredit) {
-                  existing.purchasedTokens = practicalCredit;
-                  existing.remainingTokens = Math.max(0, existing.purchasedTokens - existing.usedTokens);
-                  existing.runtimeRemainingMinutes = existing.remainingTokens;
-                }
-                existing.allocatedTokens = existing.purchasedTokens;
                 if (!existing.labTitle || existing.labTitle === `${cleanLabId.toUpperCase()} Lab`) {
                   existing.labTitle = labTitle;
                 }

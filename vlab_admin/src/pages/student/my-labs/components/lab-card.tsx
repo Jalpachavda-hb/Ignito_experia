@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles, Zap, BookOpen } from 'lucide-react';
+import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles, Zap, BookOpen, Coins } from 'lucide-react';
 import { Lab } from '../types';
 
 interface LabCardProps {
@@ -56,11 +56,11 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
   const imageUrl = rawImage ? (rawImage.startsWith('http') || rawImage.startsWith('data:') || rawImage.startsWith('/') ? rawImage : `/${rawImage}`) : null;
   const theme = getTheme(labId || name);
 
-  const displayTokens = (lab.remainingTokens !== undefined && lab.remainingTokens > 0)
-    ? lab.remainingTokens
-    : ((lab.practicalCredit !== undefined && lab.practicalCredit > 0)
-      ? lab.practicalCredit
-      : (lab.tokens || lab.credits || 0));
+  const displayTokens = (lab.remainingTokens !== undefined && Number(lab.remainingTokens) > 0)
+    ? Number(lab.remainingTokens)
+    : ((lab.tokens !== undefined && Number(lab.tokens) > 0)
+      ? Number(lab.tokens)
+      : 0);
   const hasTokens = displayTokens > 0;
 
   // List View Layout
@@ -121,10 +121,15 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
                     {accessLabel}
                   </Badge>
                 )}
-                {hasTokens && (
+                {hasTokens ? (
                   <Badge variant="outline" className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
                     <Zap className="w-2.5 h-2.5 mr-1 text-emerald-600 fill-emerald-500" />
                     {displayTokens} Tokens • {displayTokens} Mins Runtime
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300">
+                    <Coins className="w-2.5 h-2.5 mr-1 text-amber-600" />
+                    Tokens Required
                   </Badge>
                 )}
               </div>
@@ -262,7 +267,14 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
               <span>{displayTokens} Tokens</span>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="absolute top-3.5 right-3.5 z-10">
+            <div className="bg-amber-500/15 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-xs border border-amber-500/30 flex items-center gap-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+              <Coins className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+              <span>Tokens Required</span>
+            </div>
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="px-5 pt-5 pb-0 flex-1 flex flex-col relative z-20 bg-white dark:bg-slate-950">
@@ -299,6 +311,18 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             </span>
             <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
               {displayTokens} Mins Runtime
+            </span>
+          </div>
+        )}
+
+        {!isRunning && !hasTokens && (
+          <div className="mt-auto mb-3 flex items-center justify-between text-xs py-2 px-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60">
+            <span className="font-bold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+              <Coins className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              0 Tokens Available
+            </span>
+            <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+              Purchase Required
             </span>
           </div>
         )}

@@ -152,18 +152,6 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     let remainingTokens = Number(labWallet?.RemainingTokens || 0);
 
     const isAdmin = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';
-    const isLmsStudent = auth?.authType === 'LMS' || auth?.authType === 'LMS_AND_DIRECT' || auth?.isLmsStudent || Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId);
-    const providedPracticalCredit = Number(body?.practicalCredit || body?.practicalCredits || body?.credits || body?.tokens || body?.userCredits || 0);
-
-    // If LMS student has no wallet tokens yet (or practicalCredit is supplied from course),
-    // automatically initialize their lab token wallet using this practicalCredit so the lab starts using it
-    if (remainingTokens <= 0 && (providedPracticalCredit > 0 || isLmsStudent)) {
-      const initialTokens = providedPracticalCredit > 0 ? providedPracticalCredit : 60;
-      console.log(`[sessionsStartHandler] LMS practicalCredit initialization: crediting ${initialTokens} tokens for lab ${labId} to student ${userId}`);
-      await studentLabTokenWalletRepository.creditWalletTokens(tenantId, userId, labId, initialTokens, connection);
-      labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, auth?.email, connection);
-      remainingTokens = Number(labWallet?.RemainingTokens || initialTokens);
-    }
 
     if (!isAdmin && remainingTokens <= 0) {
       await connection.rollback();
