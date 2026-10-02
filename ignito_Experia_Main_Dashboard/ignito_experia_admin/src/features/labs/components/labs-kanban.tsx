@@ -125,7 +125,10 @@ function LabCard({ lab, index }: { lab: Lab; index: number }) {
           </span>
           <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 text-xs font-bold">
             <Zap className="h-3.5 w-3.5 text-emerald-500" />
-            {lab.credits} credits
+            {lab.credits} tokens
+          </span>
+          <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs font-bold" title="Price for 60 tokens">
+            ₹{lab.baseTokenPrice ?? 100} / 60T
           </span>
         </div>
       </div>

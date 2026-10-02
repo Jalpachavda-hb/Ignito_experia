@@ -38,7 +38,7 @@ const NAV_ITEMS = [
       { icon: Building2, label: 'Universities', to: '/universities' },
       { icon: User, label: 'User Management', to: '/users' },
       { icon: FlaskConical, label: 'Lab Management', to: '/labs' },
-      { icon: CreditCard, label: 'Credit Management', to: '/credits' },
+      { icon: CreditCard, label: 'Token Management', to: '/credits' },
       { icon: Receipt, label: 'Transactions', to: '/transactions' },
       { icon: TrendingUp, label: 'Revenue & Analytics', to: '/revenue' },
       { icon: BarChart3, label: 'Reports', to: '/reports' },

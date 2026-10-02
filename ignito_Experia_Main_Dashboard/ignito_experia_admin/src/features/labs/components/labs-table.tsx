@@ -76,9 +76,18 @@ export function LabsTable({ data }: LabsTableProps) {
     },
     {
       accessorKey: 'credits',
-      header: 'Credits',
+      header: 'Tokens',
       cell: ({ row }) => (
         <span className="font-mono font-semibold text-sm text-foreground">{row.original.credits}</span>
+      ),
+    },
+    {
+      accessorKey: 'baseTokenPrice',
+      header: 'Price (60 Tokens)',
+      cell: ({ row }) => (
+        <span className="font-mono font-semibold text-sm text-emerald-600 dark:text-emerald-400">
+          ₹{row.original.baseTokenPrice ?? 100}
+        </span>
       ),
     },
     {

@@ -15,6 +15,7 @@ export const labSchema = z.object({
   logoUrl: z.string().optional().default(''),
   category: z.string().optional().default(''),
   credits: z.number().min(0).default(0),
+  baseTokenPrice: z.number().min(0).default(100),
   durationMinutes: z.number().min(15).default(60),
   complexity: z.string().optional().default(''),
   runtimeType: z.string().min(1, 'Runtime Type is required.'),

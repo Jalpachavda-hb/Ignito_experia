@@ -42,6 +42,8 @@ const normalizeLabObject = (lab) => {
     logoUrl: lab.logoUrl || lab.logo || lab.Logo || "",
     durationMinutes: lab.durationMinutes ?? lab.DurationMinutes ?? 60,
     credits: lab.credits ?? lab.Credits ?? 0,
+    baseTokenPrice: lab.baseTokenPrice != null ? Number(lab.baseTokenPrice) : (lab.BaseTokenPrice != null ? Number(lab.BaseTokenPrice) : 100),
+    pricePer60Tokens: lab.baseTokenPrice != null ? Number(lab.baseTokenPrice) : (lab.BaseTokenPrice != null ? Number(lab.BaseTokenPrice) : 100),
     complexity: lab.complexity || lab.Complexity || "Intermediate",
     category: lab.category || lab.Category || "Development",
     description: lab.description || lab.Description || "",

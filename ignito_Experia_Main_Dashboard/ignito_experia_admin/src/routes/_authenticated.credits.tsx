@@ -56,7 +56,7 @@ export default function CreditsPage() {
 
   const handleTransaction = (type: 'credit' | 'debit') => {
     if (!selectedUni) return
-    alert(`Successfully ${type === 'credit' ? 'allocated' : 'reclaimed'} ${amount.toLocaleString()} credits to ${selectedUni.name}`)
+    alert(`Successfully ${type === 'credit' ? 'allocated' : 'reclaimed'} ${amount.toLocaleString()} tokens to ${selectedUni.name}`)
     setSelectedUni(null)
     setDesc('')
   }
@@ -75,9 +75,9 @@ export default function CreditsPage() {
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Credit Management</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Token Management</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Allocate compute run credits, view usage limits, and execute balance adjustments.
+                Allocate compute run tokens, view usage limits, and execute balance adjustments.
               </p>
             </div>
             <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-secondary border border-border text-xs font-semibold hover:bg-accent transition-colors">
@@ -89,14 +89,14 @@ export default function CreditsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
               <div className="glass rounded-2xl p-5 border border-border">
-                <h3 className="text-sm font-semibold text-foreground mb-4">University Credit Ledger</h3>
+                <h3 className="text-sm font-semibold text-foreground mb-4">University Token Ledger</h3>
                 <div className="rounded-xl border border-border overflow-hidden">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-border bg-secondary/50">
                         <th className="px-4 py-3 text-left text-[10px] font-semibold text-muted-foreground uppercase">University</th>
                         <th className="px-4 py-3 text-left text-[10px] font-semibold text-muted-foreground uppercase">Plan</th>
-                        <th className="px-4 py-3 text-right text-[10px] font-semibold text-muted-foreground uppercase">Credit Balance</th>
+                        <th className="px-4 py-3 text-right text-[10px] font-semibold text-muted-foreground uppercase">Token Balance</th>
                         <th className="px-4 py-3 text-right text-[10px] font-semibold text-muted-foreground uppercase">Action</th>
                       </tr>
                     </thead>
@@ -174,7 +174,7 @@ export default function CreditsPage() {
                   <Coins className="h-4.5 w-4.5 text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">Adjust Credits Balance</h3>
+                  <h3 className="text-sm font-semibold text-foreground">Adjust Token Balance</h3>
                   <p className="text-[10px] text-muted-foreground mt-0.5">Direct manual ledger entries.</p>
                 </div>
               </div>
@@ -188,7 +188,7 @@ export default function CreditsPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs text-muted-foreground">Adjust Amount (Credits)</label>
+                    <label className="text-xs text-muted-foreground">Adjust Amount (Tokens)</label>
                     <input
                       type="number"
                       value={amount}
@@ -226,7 +226,7 @@ export default function CreditsPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 px-4 rounded-xl border border-dashed border-border gap-2 text-center">
                   <Landmark className="h-5 w-5 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Select a university from the ledger to adjust credit bounds.</p>
+                  <p className="text-xs text-muted-foreground">Select a university from the ledger to adjust token bounds.</p>
                 </div>
               )}
             </div>

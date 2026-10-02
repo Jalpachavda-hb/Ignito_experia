@@ -160,7 +160,7 @@ function UsersPage() {
               </div>
               <div>
                 <span className="text-xs text-muted-foreground font-semibold block">Available Tokens in Wallets</span>
-                <span className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">{totalTokensCirculating.toLocaleString()} Credits</span>
+                <span className="text-2xl font-extrabold text-amber-600 dark:text-amber-400">{totalTokensCirculating.toLocaleString()} Tokens</span>
               </div>
             </div>
           </div>
@@ -209,7 +209,7 @@ function UsersPage() {
                     <th className="px-6 py-4">EMAIL & PHONE</th>
                     <th className="px-6 py-4">PLATFORM ROLE</th>
                     <th className="px-6 py-4">PURCHASED LABS</th>
-                    <th className="px-6 py-4">WALLET CREDITS</th>
+                    <th className="px-6 py-4">WALLET TOKENS</th>
                     <th className="px-6 py-4">STATUS</th>
                     <th className="px-6 py-4 text-center">ACTION</th>
                   </tr>
@@ -287,7 +287,7 @@ function UsersPage() {
                         {/* Wallet Balance */}
                         <td className="px-6 py-4">
                           <div className="font-bold text-amber-600 dark:text-amber-400">
-                            {Number(user.CreditBalance || 0)} Credits
+                            {Number(user.CreditBalance || 0)} Tokens
                           </div>
                           {Number(user.ConsumedCredits || 0) > 0 && (
                             <span className="text-[10px] text-muted-foreground block">
@@ -380,7 +380,7 @@ function UsersPage() {
                 <div className="text-right">
                   <span className="text-xs font-semibold text-muted-foreground block">Wallet Balance</span>
                   <span className="text-lg font-extrabold text-amber-600 dark:text-amber-400">
-                    {selectedStudentForLabs.CreditBalance} Credits
+                    {selectedStudentForLabs.CreditBalance} Tokens
                   </span>
                 </div>
               </div>

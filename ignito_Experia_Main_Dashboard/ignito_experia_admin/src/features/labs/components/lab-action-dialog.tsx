@@ -41,7 +41,7 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
     resolver: zodResolver(formSchema),
     defaultValues: {
       id: '', title: '', subtitle: '', logoUrl: '',
-      category: '', credits: 100, durationMinutes: 60, complexity: 'Intermediate',
+      category: '', credits: 100, baseTokenPrice: 100, durationMinutes: 60, complexity: 'Intermediate',
       runtimeType: 'ide', runtimePort: 8080, runtimePath: '/workspace',
       containerApiEnabled: false, containerApiPort: null,
       taskDefinition: '', description: '', status: 'active',
@@ -59,6 +59,7 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
         logoUrl: currentRow.logoUrl || '',
         category: currentRow.category || '',
         credits: currentRow.credits || 0,
+        baseTokenPrice: currentRow.baseTokenPrice ?? 100,
         durationMinutes: currentRow.durationMinutes || 60,
         complexity: currentRow.complexity || 'Intermediate',
         runtimeType: currentRow.runtimeType || 'ide',
@@ -75,7 +76,7 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
     } else {
       form.reset({
         id: '', title: '', subtitle: '', logoUrl: '',
-        category: '', credits: 100, durationMinutes: 60, complexity: 'Intermediate',
+        category: '', credits: 100, baseTokenPrice: 100, durationMinutes: 60, complexity: 'Intermediate',
         runtimeType: 'ide', runtimePort: 8080, runtimePath: '/workspace',
         containerApiEnabled: false, containerApiPort: null,
         taskDefinition: '', description: '', status: 'active',
@@ -156,9 +157,12 @@ export function LabActionDialog({ currentRow, mode, open, onOpenChange }: LabAct
 
             <section className="space-y-4">
               <h3 className="text-sm font-semibold text-foreground border-b border-border pb-2">Environment & Billing</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Credit Cost">
+              <div className="grid grid-cols-3 gap-4">
+                <Field label="Token Cost" error={form.formState.errors.credits?.message}>
                   <input type="number" min={0} {...form.register('credits', { valueAsNumber: true })} className={inputCls()} />
+                </Field>
+                <Field label="Price for 60 Tokens (₹)" error={form.formState.errors.baseTokenPrice?.message}>
+                  <input type="number" min={0} step={1} placeholder="100" {...form.register('baseTokenPrice', { valueAsNumber: true })} className={inputCls()} />
                 </Field>
                 <Field label="Duration (Minutes)">
                   <input type="number" min={15} step={15} {...form.register('durationMinutes', { valueAsNumber: true })} className={inputCls()} />

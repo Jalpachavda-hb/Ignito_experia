@@ -1,4 +1,4 @@
-import { Pencil, Trash2, FlaskConical, Clock, Zap, Cpu, CalendarDays } from 'lucide-react'
+import { Pencil, Trash2, FlaskConical, Clock, Zap, Cpu, CalendarDays, Coins } from 'lucide-react'
 import { type Lab } from '../data/schema'
 import { cn, formatDateTime } from '@/lib/utils'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
@@ -62,9 +62,10 @@ export function LabDetailsDrawer({ lab, open, onOpenChange, onEdit, onDelete }: 
             </div>
           )}
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { icon: Zap, label: 'Credits', value: lab.credits },
+              { icon: Zap, label: 'Tokens', value: lab.credits },
+              { icon: Coins, label: 'Price (60T)', value: `₹${lab.baseTokenPrice ?? 100}` },
               { icon: Clock, label: 'Duration', value: `${lab.durationMinutes} min` },
               { icon: Cpu, label: 'Runtime', value: lab.runtimeType?.toUpperCase() || 'IDE' },
             ].map(({ icon: Icon, label, value }) => (

@@ -10,6 +10,8 @@ const mapDbLabToApi = (dbLab) => ({
   logoUrl: dbLab.Logo,
   durationMinutes: dbLab.DurationMinutes,
   credits: dbLab.Credits,
+  baseTokenPrice: dbLab.BaseTokenPrice != null ? Number(dbLab.BaseTokenPrice) : 100,
+  pricePer60Tokens: dbLab.BaseTokenPrice != null ? Number(dbLab.BaseTokenPrice) : 100,
   complexity: dbLab.Complexity,
   category: dbLab.Category,
   description: dbLab.Description,

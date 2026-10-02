@@ -692,7 +692,7 @@ function UniversitiesPage() {
                           <p className="text-sm font-semibold text-foreground/90 mt-0.5">{uni.faculty}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-[10px] text-muted-foreground/70 uppercase font-semibold tracking-wider">CREDITS</p>
+                          <p className="text-[10px] text-muted-foreground/70 uppercase font-semibold tracking-wider">TOKENS</p>
                           <p className="text-sm font-semibold text-rose-500 dark:text-rose-400 mt-0.5">{uni.credits}</p>
                         </div>
                       </div>
