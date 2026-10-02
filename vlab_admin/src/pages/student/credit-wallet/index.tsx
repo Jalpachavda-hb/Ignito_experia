@@ -28,7 +28,7 @@ export default function CreditWallet() {
   const { user } = auth;
   const isUniversity = isUniversityStudent(user);
   const { addTransaction, fetchTransactions } = useTransactionStore();
-  const { labWallets, fetchStudentLabTokens } = useLabTokenStore();
+  const { labWallets, courseAllocations, fetchStudentLabTokens } = useLabTokenStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [view, setView] = useState<'grid' | 'list'>('grid');
@@ -50,7 +50,7 @@ export default function CreditWallet() {
     }
   }, [loadLabs, fetchStudentLabTokens]);
 
-  // Compute live lab token info map from real database labWallets
+  // Compute live lab token info map from real database labWallets & university allocations
   const labTokensMap = useMemo(() => {
     const map: Record<string, LabTokenInfo> = {};
 
@@ -66,12 +66,24 @@ export default function CreditWallet() {
       map[`${cleanId}-lab`] = info;
     });
 
+    (courseAllocations || []).forEach((ca: any) => {
+      const rawId = String(ca.labId || '').toLowerCase().trim();
+      const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
+      if (!map[cleanId] || map[cleanId].availableTokens === 0) {
+        const info = { availableTokens: Number(ca.allocatedTokens || 60), reservedTokens: 0 };
+        map[cleanId] = info;
+        map[rawId] = info;
+        map[`lab-${cleanId}`] = info;
+        map[`${cleanId}-lab`] = info;
+      }
+    });
+
     labs.forEach((lab) => {
       const rawId = String(lab.id || lab.labId || lab.name || '').toLowerCase().trim();
       const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
 
       if (map[cleanId] === undefined && map[rawId] === undefined) {
-        const remaining = Number(lab.userTokens ?? lab.availableTokens ?? lab.remainingTokens ?? lab.tokens ?? 0);
+        const remaining = Number(lab.userTokens ?? lab.availableTokens ?? lab.remainingTokens ?? lab.tokens ?? (isUniversity ? 60 : 0));
         const info = { availableTokens: remaining, reservedTokens: 0 };
         map[cleanId] = info;
         map[rawId] = info;
@@ -79,7 +91,7 @@ export default function CreditWallet() {
     });
 
     return map;
-  }, [labWallets, labs]);
+  }, [labWallets, labs, courseAllocations, isUniversity]);
 
   const handleToggleSelectForCart = (lab: any, currentTokens: number = 60) => {
     const labId = lab.id || lab.labId;

@@ -34,6 +34,17 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
     if (summary && typeof summary.totalRemaining === 'number' && summary.totalRemaining > 0) {
       return summary.totalRemaining;
     }
+    // For LMS / University students, sum tokens available across their assigned university labs
+    if (!isDirectStudent(user) && labs && labs.length > 0) {
+      const uniLabs = labs.filter(l => l.accessType === 'university' || l.isUniversity || Boolean(l.courseCode));
+      if (uniLabs.length > 0) {
+        const sumUni = uniLabs.reduce((acc, l) => {
+          const t = Number(l.remainingTokens ?? l.tokens ?? l.availableTokens ?? l.practicalCredit ?? 60);
+          return acc + (t > 0 ? t : 60);
+        }, 0);
+        if (sumUni > 0) return sumUni;
+      }
+    }
     if (typeof user?.tokens === 'number' && user.tokens > 0) {
       return Math.max(0, Math.round(user.tokens));
     }

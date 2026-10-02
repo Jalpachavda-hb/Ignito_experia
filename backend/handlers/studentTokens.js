@@ -1,5 +1,6 @@
 import { ok } from "../lib/apigw.js";
 import { unauthorized, notFound } from "../lib/errors.js";
+import pool from "../lib/mysql.js";
 import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWalletRepository.js";
 import labTokenPackageRepository from "../repositories/LabTokenPackageRepository.js";
 import labTokenUsageRepository from "../repositories/LabTokenUsageRepository.js";
@@ -48,13 +49,13 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
   let universityName = null;
   const courseAllocations = [];
 
-  try {
-    const isLmsCandidate = auth?.authType === 'LMS' ||
-      auth?.authType === 'LMS_AND_DIRECT' ||
-      auth?.isLmsStudent ||
-      Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId) ||
-      (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT');
+  const isLmsCandidate = auth?.authType === 'LMS' ||
+    auth?.authType === 'LMS_AND_DIRECT' ||
+    auth?.isLmsStudent ||
+    Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId) ||
+    (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT');
 
+  try {
     if (isLmsCandidate) {
       const ctx = await loadStudentLmsContext(auth).catch(() => null);
       if (ctx?.universityStudent && ctx?.tenant) {
@@ -91,16 +92,91 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
                 labTitle,
                 allocatedTokens: practicalCredit
               });
-
-              if (groupedWallets.has(cleanLabId)) {
-                const existing = groupedWallets.get(cleanLabId);
-                if (!existing.labTitle || existing.labTitle === `${cleanLabId.toUpperCase()} Lab`) {
-                  existing.labTitle = labTitle;
-                }
-              }
             }
           }
         }
+      }
+
+      // If no allocations found from external LMS API, fallback to course_lab_mappings in database
+      if (courseAllocations.length === 0) {
+        const [dbMappings] = await pool.query(
+          `SELECT course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
+          [tenantId || 'PLATFORM']
+        ).catch(() => [[]]);
+
+        if (Array.isArray(dbMappings) && dbMappings.length > 0) {
+          isUniversityStudent = true;
+          dbMappings.forEach((m) => {
+            const cleanLabId = String(m.lab_id).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+            let labTitle = `${cleanLabId.toUpperCase()} Lab`;
+            if (cleanLabId.includes('dbms')) labTitle = 'Relational Database Management Systems';
+            else if (cleanLabId.includes('linux')) labTitle = 'Programming with C';
+            else if (cleanLabId.includes('dotnet')) labTitle = 'Web Technology Using .NET';
+            else if (cleanLabId.includes('python')) labTitle = 'Python Programming';
+            else if (cleanLabId.includes('java')) labTitle = 'Java Development';
+
+            if (!courseAllocations.some((ca) => ca.labId === cleanLabId && ca.courseCode === m.course_code)) {
+              courseAllocations.push({
+                courseCode: m.course_code,
+                courseName: labTitle,
+                labId: cleanLabId,
+                labTitle,
+                allocatedTokens: 60
+              });
+            }
+          });
+        }
+      }
+
+      // Auto-provision and enrich wallets with university allocations
+      for (const ca of courseAllocations) {
+        const cleanLabId = ca.labId;
+        const practicalCredit = Number(ca.allocatedTokens || 60);
+
+        if (groupedWallets.has(cleanLabId)) {
+          const existing = groupedWallets.get(cleanLabId);
+          existing.allocatedTokens = Math.max(existing.allocatedTokens || 0, practicalCredit);
+          existing.purchasedTokens = Math.max(existing.purchasedTokens || 0, practicalCredit);
+          existing.remainingTokens = Math.max(0, existing.purchasedTokens - existing.usedTokens);
+          existing.runtimeRemainingMinutes = existing.remainingTokens;
+          if (!existing.labTitle || existing.labTitle === `${cleanLabId.toUpperCase()} Lab`) {
+            existing.labTitle = ca.labTitle;
+          }
+        } else {
+          groupedWallets.set(cleanLabId, {
+            id: `uni-${cleanLabId}`,
+            labId: cleanLabId,
+            labTitle: ca.labTitle,
+            purchasedTokens: practicalCredit,
+            allocatedTokens: practicalCredit,
+            usedTokens: 0,
+            remainingTokens: practicalCredit,
+            runtimeRemainingMinutes: practicalCredit,
+            updatedAt: new Date().toISOString()
+          });
+        }
+
+        // Persist/ensure wallet in student_lab_token_wallets table so session start & billing succeed
+        try {
+          await pool.query(
+            `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+             VALUES (?, ?, ?, ?, 0, ?, 1)
+             ON DUPLICATE KEY UPDATE
+               TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+               RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
+            [tenantId || 'DEFAULT', String(studentId), cleanLabId, practicalCredit, practicalCredit]
+          );
+          if (auth?.email && String(auth.email).toLowerCase() !== String(studentId).toLowerCase()) {
+            await pool.query(
+              `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+               VALUES (?, ?, ?, ?, 0, ?, 1)
+               ON DUPLICATE KEY UPDATE
+                 TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+                 RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
+              [tenantId || 'DEFAULT', String(auth.email).toLowerCase(), cleanLabId, practicalCredit, practicalCredit]
+            ).catch(() => {});
+          }
+        } catch (e) {}
       }
     }
   } catch (err) {
@@ -109,13 +185,15 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
 
   const labWallets = Array.from(groupedWallets.values());
   let totalPurchased = 0;
+  let totalAllocated = 0;
   let totalUsed = 0;
   let totalRemaining = 0;
 
   labWallets.forEach(w => {
-    totalPurchased += w.purchasedTokens;
-    totalUsed += w.usedTokens;
-    totalRemaining += w.remainingTokens;
+    totalPurchased += Number(w.purchasedTokens || 0);
+    totalAllocated += Number(w.allocatedTokens || w.purchasedTokens || 0);
+    totalUsed += Number(w.usedTokens || 0);
+    totalRemaining += Number(w.remainingTokens || 0);
   });
 
   return ok({
@@ -123,7 +201,7 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
     universityName,
     summary: {
       totalPurchased,
-      totalAllocated: totalPurchased,
+      totalAllocated,
       totalUsed,
       totalRemaining
     },
@@ -137,12 +215,28 @@ export const studentLabSingleTokenBalanceHandler = async ({ pathParameters, auth
   const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
   const labId = pathParameters?.labId;
 
-  const wallet = await studentLabTokenWalletRepository.getWallet(tenantId, auth.userId, labId, auth.email);
+  let wallet = await studentLabTokenWalletRepository.getWallet(tenantId, auth.userId, labId, auth.email);
+
+  const isLmsStudent = auth?.authType === 'LMS' ||
+    auth?.authType === 'LMS_AND_DIRECT' ||
+    auth?.isLmsStudent ||
+    Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId) ||
+    (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT');
+
+  let purchasedTokens = wallet ? Number(wallet.TotalPurchasedTokens) : 0;
+  let usedTokens = wallet ? Number(wallet.ConsumedTokens) : 0;
+  let remainingTokens = wallet ? Number(wallet.RemainingTokens) : 0;
+
+  if (isLmsStudent && remainingTokens <= 0 && usedTokens === 0) {
+    purchasedTokens = 60;
+    remainingTokens = 60;
+  }
+
   return ok({
     labId,
-    purchasedTokens: wallet ? Number(wallet.TotalPurchasedTokens) : 0,
-    usedTokens: wallet ? Number(wallet.ConsumedTokens) : 0,
-    remainingTokens: wallet ? Number(wallet.RemainingTokens) : 0
+    purchasedTokens,
+    usedTokens,
+    remainingTokens
   });
 };
 

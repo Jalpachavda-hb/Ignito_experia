@@ -253,6 +253,38 @@ class SsoService {
       await connection.commit();
       await connection.beginTransaction();
 
+      // Auto-provision initial university lab wallets for LMS student
+      try {
+        const [mappings] = await connection.query(
+          `SELECT DISTINCT lab_id FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
+          [tenantId || 'PLATFORM']
+        );
+        for (const m of mappings) {
+          const rawLabId = String(m.lab_id).toLowerCase().trim();
+          const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+          await connection.query(
+            `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+             VALUES (?, ?, ?, 60, 0, 60, 1)
+             ON DUPLICATE KEY UPDATE
+               TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+               RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
+            [tenantId || 'DEFAULT', String(userId), cleanLabId]
+          );
+          if (email) {
+            await connection.query(
+              `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+               VALUES (?, ?, ?, 60, 0, 60, 1)
+               ON DUPLICATE KEY UPDATE
+                 TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+                 RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
+              [tenantId || 'DEFAULT', String(email).toLowerCase(), cleanLabId]
+            ).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn("[SsoService] Auto-provisioning lab wallets skipped:", e.message);
+      }
+
       // 3. Create Authenticated Session Context
       const sessionId = crypto.randomUUID();
       const hasPassword = Boolean(userObj?.PasswordHash);

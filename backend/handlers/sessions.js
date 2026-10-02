@@ -154,9 +154,48 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     const isAdmin = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';
 
     if (!isAdmin && remainingTokens <= 0) {
-      await connection.rollback();
-      connection.release();
-      throw forbidden(`You do not have available tokens for lab '${lab.title || labId}'. Please purchase lab tokens to start this session.`);
+      const isLmsCandidate = auth?.authType === 'LMS' ||
+        auth?.authType === 'LMS_AND_DIRECT' ||
+        auth?.isLmsStudent ||
+        Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId) ||
+        (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT') ||
+        Boolean(body?.academicCtx);
+
+      if (isLmsCandidate) {
+        const rawLabId = String(labId).toLowerCase().trim();
+        const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+        const practicalCredit = Number(body?.practicalCredit || body?.academicCtx?.practicalCredit || 60);
+
+        try {
+          await connection.query(
+            `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+             VALUES (?, ?, ?, ?, 0, ?, 1)
+             ON DUPLICATE KEY UPDATE
+               TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+               RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
+            [tenantId || 'DEFAULT', String(userId), cleanLabId, practicalCredit, practicalCredit]
+          );
+          if (auth?.email && String(auth.email).toLowerCase() !== String(userId).toLowerCase()) {
+            await connection.query(
+              `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+               VALUES (?, ?, ?, ?, 0, ?, 1)
+               ON DUPLICATE KEY UPDATE
+                 TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+                 RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
+              [tenantId || 'DEFAULT', String(auth.email).toLowerCase(), cleanLabId, practicalCredit, practicalCredit]
+            ).catch(() => {});
+          }
+        } catch (e) {}
+
+        labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, auth?.email, connection);
+        remainingTokens = Number(labWallet?.RemainingTokens || practicalCredit);
+      }
+
+      if (!isAdmin && remainingTokens <= 0) {
+        await connection.rollback();
+        connection.release();
+        throw forbidden(`You do not have available tokens for lab '${lab.title || labId}'. Please purchase lab tokens to start this session.`);
+      }
     }
 
     const sessionTokens = remainingTokens > 0 ? remainingTokens : 60; // Admin fallback duration

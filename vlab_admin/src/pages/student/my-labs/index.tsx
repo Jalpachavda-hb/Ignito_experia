@@ -203,6 +203,13 @@ export default function MyLabs() {
                     c.credits ||
                     60
                   );
+                  const matchedW = (labWallets || []).find((w) => {
+                    const wId = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+                    return wId === mId.toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+                  });
+                  const walletRem = matchedW ? Number(matchedW.remainingTokens ?? (Number(matchedW.purchasedTokens || 0) - Number(matchedW.usedTokens || 0))) : practicalCredit;
+                  const finalTokens = walletRem > 0 ? walletRem : practicalCredit;
+
                   if (labMatch) {
                     allMapped.push({
                       ...labMatch,
@@ -211,8 +218,9 @@ export default function MyLabs() {
                       courseCode: cCode,
                       courseName: cName,
                       practicalCredit,
-                      remainingTokens: 0,
-                      tokens: 0,
+                      remainingTokens: finalTokens,
+                      tokens: finalTokens,
+                      availableTokens: finalTokens,
                       credits: practicalCredit,
                       image: labMatch.image || labMatch.logo || null,
                       logo: labMatch.logo || labMatch.image || null,
@@ -229,8 +237,9 @@ export default function MyLabs() {
                       durationMinutes: practicalCredit,
                       credits: practicalCredit,
                       practicalCredit,
-                      remainingTokens: 0,
-                      tokens: 0,
+                      remainingTokens: finalTokens,
+                      tokens: finalTokens,
+                      availableTokens: finalTokens,
                       status: 'active',
                       courseCode: cCode,
                       courseName: cName,
@@ -553,7 +562,12 @@ export default function MyLabs() {
         accessLabel = 'Personal';
       }
 
-      const effectiveRemainingTokens = walletRemainingTokens > 0 ? walletRemainingTokens : 0;
+      const assignedUniTokens = coursePracticalTokens || Number(labItem.practicalCredit) || 60;
+      const effectiveRemainingTokens = walletRemainingTokens > 0
+        ? walletRemainingTokens
+        : (walletMatch && Number(walletMatch.usedTokens || 0) > 0
+            ? Math.max(0, assignedUniTokens - Number(walletMatch.usedTokens))
+            : (isUniversity ? assignedUniTokens : 0));
 
       return {
         ...labItem,
@@ -594,8 +608,9 @@ export default function MyLabs() {
               courseCode: cCode,
               courseName: cName,
               practicalCredit,
-              remainingTokens: 0,
-              tokens: 0,
+              remainingTokens: practicalCredit,
+              tokens: practicalCredit,
+              availableTokens: practicalCredit,
               credits: practicalCredit,
               durationMinutes: practicalCredit,
               image: labMatch.image || labMatch.logo || null,
@@ -610,8 +625,9 @@ export default function MyLabs() {
               durationMinutes: practicalCredit,
               credits: practicalCredit,
               practicalCredit,
-              remainingTokens: 0,
-              tokens: 0,
+              remainingTokens: practicalCredit,
+              tokens: practicalCredit,
+              availableTokens: practicalCredit,
               status: 'active',
               courseCode: cCode,
               courseName: cName,
@@ -651,8 +667,9 @@ export default function MyLabs() {
               courseCode: cCode,
               courseName: cName,
               practicalCredit,
-              remainingTokens: 0,
-              tokens: 0,
+              remainingTokens: practicalCredit,
+              tokens: practicalCredit,
+              availableTokens: practicalCredit,
               credits: practicalCredit,
               durationMinutes: practicalCredit,
               image: autoMatch.image || autoMatch.logo || null,
@@ -667,8 +684,9 @@ export default function MyLabs() {
               durationMinutes: practicalCredit,
               credits: practicalCredit,
               practicalCredit,
-              remainingTokens: 0,
-              tokens: 0,
+              remainingTokens: practicalCredit,
+              tokens: practicalCredit,
+              availableTokens: practicalCredit,
               status: 'active',
               courseCode: cCode,
               courseName: cName,
@@ -785,7 +803,9 @@ export default function MyLabs() {
       return wId === targetCleanId;
     });
     const walletRemainingTokens = labWallet ? Number(labWallet.remainingTokens || 0) : 0;
-    const remainingTokens = Math.max(walletRemainingTokens, specificLabCredits);
+    const isUniversityLab = isEnrolledInCurriculum || (lab as any)?.isUniversity || (lab as any)?.accessType === 'university' || !isDirectUser;
+    const assignedTokens = isUniversityLab ? (Number((lab as any)?.practicalCredit || (lab as any)?.tokens || (lab as any)?.credits) || 60) : 0;
+    const remainingTokens = Math.max(walletRemainingTokens, specificLabCredits, assignedTokens);
 
     const canStartLab = isAdmin || remainingTokens > 0;
 
