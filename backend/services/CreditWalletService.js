@@ -400,7 +400,59 @@ class CreditWalletService {
     const rows = await creditWalletRepository.getTransactions(userId, tenantId, limit, offset, userEmail);
     const refs = rows.map((row) => row.PaymentReference).filter(Boolean);
     const labRows = await studentLabTokenTransactionRepository.getByReferenceIds(refs);
-    return this.expandPurchaseRows(rows, labRows);
+    const expanded = this.expandPurchaseRows(rows, labRows);
+
+    // Also fetch direct student_lab_token_transactions to ensure 100% visibility of all token transactions
+    try {
+      const sId = userId != null ? String(userId).trim() : '';
+      const email = userEmail != null ? String(userEmail).trim().toLowerCase() : '';
+      const [tokenTxns] = await pool.query(
+        `SELECT Id, TenantId, StudentId, LabId, TransactionType, Tokens, ReferenceType, ReferenceId, Description, IdempotencyKey, CreatedAt
+         FROM student_lab_token_transactions
+         WHERE (StudentId = ? OR (? != '' AND LOWER(StudentId) = ?))
+         ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`,
+        [sId, email, email, Number(limit), Number(offset)]
+      ).catch(() => [[]]);
+
+      const seenKeys = new Set(expanded.map(r => r.PaymentReference || r.IdempotencyKey || r.TransactionId));
+      for (const t of (tokenTxns || [])) {
+        const key = t.ReferenceId || t.IdempotencyKey || t.Id;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          const isPurchase = t.TransactionType === 'PURCHASE';
+          const cleanLab = String(t.LabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+          let labTitle = cleanLab ? `${cleanLab.toUpperCase()} Lab` : 'Virtual Lab';
+          if (cleanLab.includes('dbms')) labTitle = 'DBMS & SQL Lab';
+          else if (cleanLab.includes('dotnet')) labTitle = 'Web Technology Using .NET';
+          else if (cleanLab.includes('linux')) labTitle = 'Linux Administration Lab';
+          else if (cleanLab.includes('python')) labTitle = 'Python Programming Lab';
+          else if (cleanLab.includes('java')) labTitle = 'Java Development Lab';
+
+          expanded.push({
+            TransactionId: t.Id,
+            TenantId: t.TenantId,
+            UserId: t.StudentId,
+            Type: isPurchase ? 'PURCHASE' : 'USAGE',
+            Source: isPurchase ? 'STUDENT_PURCHASE' : 'SESSION_USAGE',
+            Credits: Number(t.Tokens || 0),
+            Amount: Number(t.Tokens || 0),
+            Currency: 'INR',
+            PaymentReference: t.ReferenceId,
+            LabId: t.LabId,
+            labId: cleanLab,
+            labName: labTitle,
+            description: t.Description || labTitle,
+            IdempotencyKey: t.IdempotencyKey,
+            Status: 'SUCCESS',
+            CreatedAt: t.CreatedAt
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[CreditWalletService] token transaction merge warning:', e.message);
+    }
+
+    return expanded.sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
   }
 }
 

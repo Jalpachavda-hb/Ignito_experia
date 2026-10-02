@@ -131,18 +131,18 @@ class CreditWalletRepository {
   }
 
   async getTransactions(userId, tenantId, limit = 50, offset = 0, userEmail = null, db = pool) {
+    const sId = userId != null ? String(userId).trim() : '';
+    const email = userEmail != null ? String(userEmail).trim().toLowerCase() : '';
+
     let query = `SELECT TransactionId, TenantId, UserId, Type, Source, Credits, Amount, Currency, PaymentReference, LabId, LabSessionId, IdempotencyKey, Status, MetadataJson, CreatedAt
        FROM credit_transactions
-       WHERE (UserId = ? OR ? IS NOT NULL AND LOWER(CAST(UserId AS CHAR)) = LOWER(?))`;
-    const params = [userId, userEmail, userEmail || ''];
-
-    if (tenantId && tenantId !== 'DEFAULT') {
-      query += ` AND (TenantId = ? OR TenantId IS NULL OR TenantId = 'DEFAULT')`;
-      params.push(tenantId);
-    }
-
-    query += ` ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`;
-    params.push(Number(limit), Number(offset));
+       WHERE (UserId = ? 
+              OR (? != '' AND LOWER(CAST(UserId AS CHAR)) = ?) 
+              OR (? != '' AND LOWER(CAST(UserId AS CHAR)) = ?)
+              OR (? != '' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.userEmail'))) = ?)
+              OR (? != '' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.studentEmail'))) = ?))
+       ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`;
+    const params = [sId, sId, sId.toLowerCase(), email, email, email, email, email, email, Number(limit), Number(offset)];
 
     const [rows] = await db.query(query, params);
     return rows;

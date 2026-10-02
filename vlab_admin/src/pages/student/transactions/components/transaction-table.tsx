@@ -50,8 +50,10 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
 
   const currentStudentEmail = auth?.user?.email?.toLowerCase();
 
-  // All transactions returned by the backend API are already strictly scoped to this authenticated student
-  const allTransactions = storeTransactions || [];
+  // All transactions returned by the backend API or passed as props
+  const allTransactions = (propTransactions && propTransactions.length > 0)
+    ? propTransactions
+    : (storeTransactions || []);
 
   const filteredTransactions = allTransactions.filter(tx => {
     const search = (searchTerm || '').toLowerCase();

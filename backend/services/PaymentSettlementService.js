@@ -3,6 +3,7 @@ import pool from "../lib/mysql.js";
 import tokenOrderRepository from "../repositories/TokenOrderRepository.js";
 import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWalletRepository.js";
 import studentLabTokenTransactionRepository from "../repositories/StudentLabTokenTransactionRepository.js";
+import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import notificationService from "./NotificationService.js";
 import { badRequest, notFound } from "../lib/errors.js";
 
@@ -70,7 +71,7 @@ class PaymentSettlementService {
           connection
         );
 
-        // Write Immutable Idempotent Ledger Entry
+        // Write Immutable Idempotent Ledger Entry in student_lab_token_transactions
         const idempotencyKey = `order_${order.Id}_lab_${labId}_item_${item.Id}`;
         await studentLabTokenTransactionRepository.createTransaction(
           {
@@ -86,6 +87,33 @@ class PaymentSettlementService {
           },
           connection
         );
+
+        // Also record in credit_transactions for unified student transaction ledger
+        try {
+          await creditWalletRepository.insertTransaction({
+            tenantId: order.TenantId || 'DEFAULT',
+            userId: String(order.StudentId),
+            type: 'PURCHASE',
+            source: 'STUDENT_PURCHASE',
+            credits: tokensToAdd,
+            amount: Number(item.LineTotalAmount || 0),
+            currency: order.Currency || 'INR',
+            paymentReference: paymentIdToSave,
+            labId,
+            idempotencyKey,
+            status: 'SUCCESS',
+            metadataJson: {
+              orderId: order.Id,
+              orderNumber: order.OrderNumber,
+              labId,
+              labName: item.LabNameSnapshot || `${labId.toUpperCase()} Lab`,
+              tokens: tokensToAdd,
+              studentId: order.StudentId
+            }
+          }, connection);
+        } catch (txnErr) {
+          console.warn("[PaymentSettlementService] credit_transactions sync note:", txnErr.message);
+        }
 
         // Real-time Notification Event
         notificationService.emitBalanceUpdated({

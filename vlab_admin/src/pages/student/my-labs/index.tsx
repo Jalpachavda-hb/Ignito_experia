@@ -197,11 +197,13 @@ export default function MyLabs() {
                     );
                   });
 
+                  const defaultCred = cCode.includes('4031') ? 90 : (cCode.includes('4011') ? 70 : 60);
                   const practicalCredit = Number(
                     c.practicalCredit ||
                     mappedLabObj.practicalCredit ||
+                    mappedLabObj.tokens ||
                     c.credits ||
-                    60
+                    defaultCred
                   );
                   const matchedW = (labWallets || []).find((w) => {
                     const wId = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
@@ -259,19 +261,20 @@ export default function MyLabs() {
                     if (cNameLower.includes('database') || cNameLower.includes('dbms') || cNameLower.includes('sql') || cNameLower.includes('rdbms')) {
                       return lId.includes('dbms') || lTitle.includes('dbms') || lTitle.includes('sql');
                     }
-                    if (cNameLower.includes('programming with c') || cNameLower.includes('c programming') || cNameLower.includes('c++')) {
-                      return lId.includes('linux') || lTitle.includes('linux') || lId.includes('c-lab');
+                    if (cNameLower.includes('programming with c') || cNameLower.includes('c#') || cNameLower.includes('.net') || cNameLower.includes('dotnet') || cCode.includes('4011')) {
+                      return lId.includes('dotnet') || lTitle.includes('dotnet') || lTitle.includes('.net') || lId.includes('dotnet-lab');
                     }
                     if (cNameLower.includes('python')) return lId.includes('python') || lTitle.includes('python');
                     if (cNameLower.includes('java')) return lId.includes('java') || lTitle.includes('java');
-                    if (cNameLower.includes('.net') || cNameLower.includes('dotnet')) return lId.includes('dotnet') || lTitle.includes('.net');
+                    if (cNameLower.includes('linux')) return lId.includes('linux') || lTitle.includes('linux');
                     return false;
                   });
                   if (autoMatch) {
                     const uniqueKey = `${autoMatch.id}-${cCode}`;
                     if (!seenLabKeys.has(uniqueKey)) {
                       seenLabKeys.add(uniqueKey);
-                      const practicalCredit = Number(c.practicalCredit || c.credits || 60);
+                      const defaultCred = cCode.includes('4031') ? 90 : (cCode.includes('4011') ? 70 : 60);
+                      const practicalCredit = Number(c.practicalCredit || c.credits || defaultCred);
                       allMapped.push({
                         ...autoMatch,
                         title: cName,
@@ -347,7 +350,71 @@ export default function MyLabs() {
     const seenKeys = new Set<string>();
     const result: any[] = [];
 
-    // 1. Include labs with tokens in student labWallets
+    // For LMS / University students, ONLY include labs that have an actual completed purchase transaction!
+    // Never auto-include unassigned lab wallets from initial seeds.
+    if (!isDirectUser) {
+      (transactions || []).forEach((tx) => {
+        const isCompleted = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
+        if (isCompleted && tx.type === 'Credit') {
+          const tLabId = tx.labId ? String(tx.labId).toLowerCase().trim() : '';
+          const cleanTLabId = tLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+          const tLabName = tx.labName ? String(tx.labName).toLowerCase().trim() : '';
+
+          if (cleanTLabId || tLabName) {
+            const match = labs.find((l) => {
+              const lId = String(l.id || l.labId || l.LabId || '').toLowerCase().trim();
+              const cleanLId = lId.replace(/^lab-/, '').replace(/-lab$/, '');
+              const lTitle = String(l.title || l.name || '').toLowerCase().trim();
+              return (
+                cleanLId === cleanTLabId ||
+                lId === tLabId ||
+                (tLabName && (lTitle.includes(tLabName) || tLabName.includes(lTitle)))
+              );
+            });
+
+            if (match) {
+              const key = String(match.id || match.labId || match.title).toLowerCase();
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                const w = (labWallets || []).find((wallet) => {
+                  const wId = String(wallet.labId || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
+                  return wId === cleanTLabId;
+                });
+                const rem = w ? Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0))) : Number(tx.amount || 0);
+                result.push({
+                  ...match,
+                  remainingTokens: rem,
+                  availableTokens: rem,
+                  tokens: rem,
+                  subtitle: 'Purchased Lab Access',
+                  category: match.category || 'Purchased Lab',
+                });
+              }
+            } else if (tx.labName) {
+              const key = cleanTLabId || String(tx.labName).toLowerCase();
+              if (!seenKeys.has(key)) {
+                seenKeys.add(key);
+                result.push({
+                  id: cleanTLabId ? `purchased-${cleanTLabId}` : `purchased-${Date.now()}`,
+                  title: tx.labName,
+                  subtitle: 'Purchased Lab Access',
+                  category: 'Purchased Lab',
+                  durationMinutes: Number(tx.amount || 60),
+                  credits: Number(tx.amount || 60),
+                  remainingTokens: Number(tx.amount || 60),
+                  availableTokens: Number(tx.amount || 60),
+                  tokens: Number(tx.amount || 60),
+                  status: 'active',
+                });
+              }
+            }
+          }
+        }
+      });
+      return result;
+    }
+
+    // Direct student logic: include labs with tokens in student labWallets
     (labWallets || []).forEach((w) => {
       const remaining = Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0)));
       const purchased = Number(w.purchasedTokens || 0);
@@ -402,7 +469,7 @@ export default function MyLabs() {
       }
     });
 
-    // 2. Also include labs from successful purchase transactions
+    // Also include labs from transactions
     (transactions || []).forEach((tx) => {
       const isCompleted = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
       if (isCompleted && tx.type === 'Credit') {
@@ -449,7 +516,7 @@ export default function MyLabs() {
     });
 
     return result;
-  }, [transactions, labs, labWallets]);
+  }, [transactions, labs, labWallets, isDirectUser]);
 
   const displayLabs = useMemo(() => {
     const currentStudentEmail = user?.email?.toLowerCase();
@@ -645,12 +712,11 @@ export default function MyLabs() {
             if (cNameLower.includes('database') || cNameLower.includes('dbms') || cNameLower.includes('sql') || cNameLower.includes('rdbms')) {
               return lId.includes('dbms') || lTitle.includes('dbms') || lTitle.includes('sql');
             }
-            if (cNameLower.includes('programming with c') || cNameLower.includes('c programming') || cNameLower.includes('c++')) {
-              return lId.includes('linux') || lTitle.includes('linux') || lId.includes('c-lab');
+            if (cNameLower.includes('programming with c') || cNameLower.includes('c#') || cNameLower.includes('.net') || cNameLower.includes('dotnet') || cCode.includes('4011')) {
+              return lId.includes('dotnet') || lTitle.includes('dotnet') || lTitle.includes('.net') || lId.includes('dotnet-lab');
             }
             if (cNameLower.includes('python')) return lId.includes('python') || lTitle.includes('python');
             if (cNameLower.includes('java')) return lId.includes('java') || lTitle.includes('java');
-            if (cNameLower.includes('.net') || cNameLower.includes('dotnet')) return lId.includes('dotnet') || lTitle.includes('.net');
             if (cNameLower.includes('android') || cNameLower.includes('mobile')) return lId.includes('mobile') || lId.includes('android');
             if (cNameLower.includes('linux')) return lId.includes('linux') || lTitle.includes('linux');
             if (cNameLower.includes('data science')) return lId.includes('data-science') || lTitle.includes('data science');

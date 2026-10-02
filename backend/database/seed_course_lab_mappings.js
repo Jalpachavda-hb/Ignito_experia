@@ -8,13 +8,13 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 export async function seedCourseLabMappings() {
   const { default: pool } = await import('../lib/mysql.js');
   const rows = [
-    ['tnt_4925e025aa50', '2', '1', 'MC01094011', 'linux-lab', 'active', 'system'],
+    ['tnt_4925e025aa50', '2', '1', 'MC01094011', 'dotnet-lab', 'active', 'system'],
     ['tnt_4925e025aa50', '2', '1', 'MC01094031', 'dbms-lab', 'active', 'system'],
-    ['tnt_4925e025aa50', '2', '5', 'MC01094011', 'linux-lab', 'active', 'system'],
+    ['tnt_4925e025aa50', '2', '5', 'MC01094011', 'dotnet-lab', 'active', 'system'],
     ['tnt_4925e025aa50', '2', '5', 'MC01094031', 'dbms-lab', 'active', 'system'],
-    ['PLATFORM', '2', '1', 'MC01094011', 'linux-lab', 'active', 'system'],
+    ['PLATFORM', '2', '1', 'MC01094011', 'dotnet-lab', 'active', 'system'],
     ['PLATFORM', '2', '1', 'MC01094031', 'dbms-lab', 'active', 'system'],
-    ['PLATFORM', '2', '5', 'MC01094011', 'linux-lab', 'active', 'system'],
+    ['PLATFORM', '2', '5', 'MC01094011', 'dotnet-lab', 'active', 'system'],
     ['PLATFORM', '2', '5', 'MC01094031', 'dbms-lab', 'active', 'system'],
   ];
 

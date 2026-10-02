@@ -98,12 +98,11 @@ class LmsCourseLabService {
       if (name.includes("database") || name.includes("dbms") || name.includes("sql") || name.includes("rdbms") || code.includes("4031")) {
         return { lab_id: "dbms-lab", title: "DBMS & SQL Lab" };
       }
-      if (name.includes("programming with c") || name.includes(" c ") || name.startsWith("c ") || name.endsWith(" c") || name === "c" || name.includes("c++") || code.includes("4011")) {
-        return { lab_id: "linux-lab", title: "Linux Administration Lab" };
+      if (name.includes("programming with c") || name.includes("c#") || code.includes("4011") || name.includes("dotnet") || name.includes(".net")) {
+        return { lab_id: "dotnet-lab", title: "Web Technology Using .NET" };
       }
       if (name.includes("python")) return { lab_id: "python-lab", title: "Python" };
       if (name.includes("java")) return { lab_id: "java-lab", title: "Java Development Lab" };
-      if (name.includes("dotnet") || name.includes(".net")) return { lab_id: "dotnet-lab", title: "Web Technology Using .NET" };
       if (name.includes("linux")) return { lab_id: "linux-lab", title: "Linux Administration Lab" };
       if (name.includes("data science")) return { lab_id: "data-science-lab", title: "Data Science-I" };
       if (name.includes("big data")) return { lab_id: "big-data-lab", title: "Big Data Analytics-I" };
@@ -130,9 +129,13 @@ class LmsCourseLabService {
         }
       }
 
-      const practicalCredit = course?.practicalCredit != null && !isNaN(Number(course.practicalCredit))
+      const practicalCredit = (course?.practicalCredit != null && !isNaN(Number(course.practicalCredit)))
         ? Number(course.practicalCredit)
-        : 60;
+        : (course?.mappedLab?.practicalCredit != null && !isNaN(Number(course.mappedLab.practicalCredit))
+            ? Number(course.mappedLab.practicalCredit)
+            : (course?.mappedLab?.tokens != null && !isNaN(Number(course.mappedLab.tokens))
+                ? Number(course.mappedLab.tokens)
+                : 60));
 
       if (!mapped) return { ...course, practicalCredit, mappedLab: null };
 

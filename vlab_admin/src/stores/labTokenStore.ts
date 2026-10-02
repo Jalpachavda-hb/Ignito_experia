@@ -206,6 +206,10 @@ export const useLabTokenStore = create<LabTokenState>((set, get) => ({
         get().clearCart();
         await get().fetchStudentLabTokens();
         await get().fetchStudentOrders();
+        try {
+          const { useTransactionStore } = await import('@/stores/transactionStore');
+          await useTransactionStore.getState().fetchTransactions();
+        } catch (e) {}
         return true;
       }
       return false;

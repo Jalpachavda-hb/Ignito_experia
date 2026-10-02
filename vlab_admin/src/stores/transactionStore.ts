@@ -74,17 +74,25 @@ function expandLabPurchases(rows: TransactionRecord[]): TransactionRecord[] {
   return expanded;
 }
 
-// Clear any residual localStorage cache from previous test runs
-if (typeof window !== 'undefined') {
+function getSavedTransactions(): TransactionRecord[] {
+  if (typeof window === 'undefined') return [];
   try {
-    localStorage.removeItem('vlab_student_transactions');
+    const raw = localStorage.getItem('vlab_student_transactions');
+    return raw ? JSON.parse(raw) : [];
   } catch (e) {
-    // Ignored
+    return [];
   }
 }
 
-export const useTransactionStore = create<TransactionState>((set) => ({
-  transactions: [],
+function saveTransactions(txs: TransactionRecord[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('vlab_student_transactions', JSON.stringify(txs));
+  } catch (e) {}
+}
+
+export const useTransactionStore = create<TransactionState>((set, get) => ({
+  transactions: getSavedTransactions(),
   isLoading: false,
 
   fetchTransactions: async () => {
@@ -113,7 +121,22 @@ export const useTransactionStore = create<TransactionState>((set) => ({
           status: (t.status || t.Status || 'SUCCESS').toUpperCase() === 'SUCCESS' ? 'Completed' as const : 'Failed' as const
         };
       }));
-      set({ transactions: formatted, isLoading: false });
+
+      const mergedMap = new Map<string, TransactionRecord>();
+      // First insert newly fetched transactions
+      formatted.forEach((t) => mergedMap.set(String(t.id || t.razorpayPaymentId), t));
+      // Then merge any existing local transactions so freshly made purchases are preserved
+      get().transactions.forEach((t) => {
+        const key = String(t.id || t.razorpayPaymentId);
+        if (!mergedMap.has(key)) {
+          mergedMap.set(key, t);
+        }
+      });
+      const finalTransactions = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      saveTransactions(finalTransactions);
+      set({ transactions: finalTransactions, isLoading: false });
       return;
     } catch (e) {
       console.warn('Failed to fetch transactions from DB:', e);
@@ -121,28 +144,36 @@ export const useTransactionStore = create<TransactionState>((set) => ({
     set({ isLoading: false });
   },
 
-  addTransaction: (tx) =>
+  addTransaction: (tx) => {
+    const newTx: TransactionRecord = {
+      id: tx.id || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
+      date: tx.date || new Date().toISOString(),
+      description: tx.description,
+      labName: tx.labName || 'Virtual Lab',
+      labId: tx.labId,
+      type: tx.type || 'Credit',
+      amount: tx.amount,
+      amountRupees: tx.amountRupees ?? tx.amount,
+      paymentMethod: tx.paymentMethod || 'Razorpay',
+      studentEmail: tx.studentEmail || '',
+      studentPhone: tx.studentPhone || '',
+      studentName: tx.studentName || 'Student User',
+      status: tx.status || 'Completed',
+      razorpayPaymentId: tx.razorpayPaymentId,
+    };
+
     set((state) => {
-      const newTx: TransactionRecord = {
-        id: tx.id || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
-        date: tx.date || new Date().toISOString(),
-        description: tx.description,
-        labName: tx.labName || 'Virtual Lab',
-        labId: tx.labId,
-        type: tx.type || 'Credit',
-        amount: tx.amount,
-        amountRupees: tx.amountRupees ?? tx.amount,
-        paymentMethod: tx.paymentMethod || 'Razorpay',
-        studentEmail: tx.studentEmail || '',
-        studentPhone: tx.studentPhone || '',
-        studentName: tx.studentName || 'Student User',
-        status: tx.status || 'Completed',
-        razorpayPaymentId: tx.razorpayPaymentId,
-      };
+      const filtered = state.transactions.filter(
+        (t) => t.id !== newTx.id && (!newTx.razorpayPaymentId || t.razorpayPaymentId !== newTx.razorpayPaymentId)
+      );
+      const updated = [newTx, ...filtered];
+      saveTransactions(updated);
+      return { transactions: updated };
+    });
+  },
 
-      return { transactions: [newTx, ...state.transactions] };
-    }),
-
-  clearTransactions: () =>
-    set(() => ({ transactions: [] })),
+  clearTransactions: () => {
+    saveTransactions([]);
+    set(() => ({ transactions: [] }));
+  },
 }));
