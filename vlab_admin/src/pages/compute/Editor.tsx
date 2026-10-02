@@ -1064,8 +1064,14 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 
-    const formattedOutput = escapeHtml(rawOutput);
-    const formattedError = escapeHtml(rawError);
+    const cleanAnsi = (text: string) =>
+      (text || '')
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z=]/g, '')
+        .replace(/\x1b[=>]/g, '')
+        .replace(/\+\[[0-9;?]*[a-zA-Z=]/g, '');
+
+    const formattedOutput = escapeHtml(cleanAnsi(rawOutput));
+    const formattedError = escapeHtml(cleanAnsi(rawError));
     const successTitle =
       mode === 'build' ? 'Build Succeeded' : mode === 'run' ? 'Run Succeeded' : 'Execution Succeeded';
     const failureTitle =

@@ -160,7 +160,7 @@ export const runCommandInContainer = async (session, commandValue, options = {})
 /**
  * SSM bridge payload executor mapping path/content/language directly to Fargate execute-command shell writes.
  */
-export const executeViaSsm = async (session, { path: filePath, content, language, labType }) => {
+export const executeViaSsm = async (session, { path: filePath, content, language, labType, action }) => {
   const b64 = Buffer.from(content || "").toString("base64");
   
   let containerPath = filePath.replace(/\\/g, "/");
@@ -168,12 +168,15 @@ export const executeViaSsm = async (session, { path: filePath, content, language
     containerPath = "/tmp/workspace/workspace/" + containerPath.substring(11);
   } else if (containerPath.startsWith("workspace/")) {
     containerPath = "/tmp/workspace/workspace/" + containerPath.substring(10);
+  } else if (!containerPath.startsWith("/tmp/")) {
+    containerPath = "/tmp/workspace/workspace/" + containerPath.replace(/^\/+/, "");
   }
 
   // Resolve parent directory path in Node.js using unix forward slashes for the container
   const parentDir = path.dirname(containerPath).replace(/\\/g, "/");
   const fileName = path.basename(containerPath);
   const currentLabType = labType || session?.labType || "";
+  const isDotnet = language === "csharp" || filePath.endsWith(".cs") || currentLabType === "dotnet";
 
   let runCmd = "";
   let interpreter = "";
@@ -191,8 +194,12 @@ export const executeViaSsm = async (session, { path: filePath, content, language
   } else if (language === "javascript" || filePath.endsWith(".js")) {
     runCmd = `node ${containerPath}`;
     interpreter = "node";
-  } else if (language === "csharp" || filePath.endsWith(".cs")) {
-    runCmd = `dotnet run`;
+  } else if (isDotnet) {
+    if (action === "build") {
+      runCmd = `dotnet build --nologo`;
+    } else {
+      runCmd = `dotnet run --nologo`;
+    }
     interpreter = "sh";
   } else {
     runCmd = `sh ${containerPath}`;
@@ -207,6 +214,19 @@ if [ $? -ne 0 ]; then
   exit $?
 fi
 
+cd "${parentDir}"
+${isDotnet ? `
+# Check if a .NET project file exists in current folder or parent workspace
+PROJECT_ARG=""
+if ! find . -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+  if find /tmp/workspace/workspace -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+    PROJECT_ARG="--project /tmp/workspace/workspace"
+  else
+    dotnet new console --force 2>/dev/null || dotnet new console
+  fi
+fi
+` : ""}
+
 echo "${b64}" | base64 -d > "${containerPath}"
 if [ $? -ne 0 ]; then
   echo "###EXIT_CODE:$?"
@@ -217,7 +237,7 @@ chmod +x "${containerPath}"
 cd "${parentDir}"
 
 # Execute target command
-${runCmd}
+${runCmd} \${PROJECT_ARG:-}
 echo "###EXIT_CODE:$?"
 `;
 
@@ -233,8 +253,17 @@ echo "###EXIT_CODE:$?"
   let cleanOutput = rawOutput || "";
   if (exitCodeMatch) {
     exitCode = parseInt(exitCodeMatch[1], 10);
-    cleanOutput = rawOutput.replace(/###EXIT_CODE:\d+[\r\n]*/g, "").trim();
+    cleanOutput = rawOutput.replace(/###EXIT_CODE:\d+[\r\n]*/g, "");
   }
+
+  // Strip ANSI escape codes, terminal control sequences and formatting artifacts
+  cleanOutput = cleanOutput
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z=]/g, "")
+    .replace(/\x1b[=>]/g, "")
+    .replace(/\+\[[0-9;?]*[a-zA-Z=]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
 
   const success = (exitCode === 0);
   return {

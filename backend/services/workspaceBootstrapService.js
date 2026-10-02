@@ -178,6 +178,15 @@ if [ -f "$TMP_TAR" ]; then
         fi
     done
     
+    # If .NET workspace has Program.cs but no .csproj, initialize console project behind the scenes
+    if [ -f "$DEST_DIR/Program.cs" ] && ! find "$DEST_DIR" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+        cp "$DEST_DIR/Program.cs" /tmp/Program.cs.bak 2>/dev/null || true
+        (cd "$DEST_DIR" && dotnet new console --force 2>/dev/null || true)
+        if [ -f /tmp/Program.cs.bak ]; then
+            mv /tmp/Program.cs.bak "$DEST_DIR/Program.cs"
+        fi
+    fi
+
     # Change ownership back to container's non-root user
     if [ -f "/app/lab_server.py" ]; then
         chown -R $(stat -c '%U:%G' /app/lab_server.py) /tmp/workspace
