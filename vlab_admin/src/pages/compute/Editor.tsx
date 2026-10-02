@@ -718,11 +718,11 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem('vlab.ide.sidebarWidth'));
-    return Number.isFinite(saved) && saved >= 180 ? saved : 320;
+    return Number.isFinite(saved) && saved >= 140 ? saved : 250;
   });
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const saved = Number(localStorage.getItem('vlab.ide.rightPanelWidth'));
-    return Number.isFinite(saved) && saved >= 240 ? saved : 420;
+    return Number.isFinite(saved) && saved >= 180 ? saved : 420;
   });
   const sidebarWidthRef = useRef(sidebarWidth);
   const rightPanelWidthRef = useRef(rightPanelWidth);
@@ -732,41 +732,50 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const [isResizing, setIsResizing] = useState<'sidebar' | 'right' | null>(null);
 
   const startPanelResize = (
-    e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>,
+    e: React.PointerEvent<HTMLDivElement>,
     panel: 'sidebar' | 'right'
   ) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
 
-    const startX = e.clientX;
-    const startSidebarW = sidebarWidthRef.current;
-    const startRightW = rightPanelWidthRef.current;
-    const totalW = window.innerWidth;
+    const handleEl = e.currentTarget;
+    const pointerId = e.pointerId;
+
+    try {
+      handleEl.setPointerCapture(pointerId);
+    } catch (_) {}
 
     setIsResizing(panel);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    // Capture pointer on handle element if supported
-    const handleEl = e.currentTarget;
-    const pointerId = 'pointerId' in e ? (e as React.PointerEvent).pointerId : null;
-    if (pointerId !== null && typeof handleEl.setPointerCapture === 'function') {
-      try {
-        handleEl.setPointerCapture(pointerId);
-      } catch (_) {}
-    }
+    // Measure the closest workspace container row for 1:1 pixel coordinate precision
+    const container =
+      handleEl.closest<HTMLElement>('.ide-workspace-row') ||
+      handleEl.closest<HTMLElement>('.ide-root-container') ||
+      handleEl.parentElement?.parentElement ||
+      document.body;
 
-    const onMove = (ev: MouseEvent | PointerEvent) => {
+    const getRect = () => container.getBoundingClientRect();
+    const initialRect = getRect();
+    const containerWidth = initialRect.width || window.innerWidth;
+    const containerRight = initialRect.right || window.innerWidth;
+    const containerLeft = initialRect.left || 0;
+
+    const onPointerMove = (ev: PointerEvent) => {
       ev.preventDefault();
-      const deltaX = ev.clientX - startX;
+      const rect = getRect();
+      const currentContainerW = rect.width || containerWidth;
+      const currentContainerRight = rect.right || containerRight;
+      const currentContainerLeft = rect.left || containerLeft;
 
       if (panel === 'sidebar') {
         const minW = 120;
-        const maxW = Math.min(650, totalW - 280);
-        const rawW = Math.round(startSidebarW + deltaX);
+        const maxW = Math.min(650, Math.max(200, currentContainerW - 280));
+        const rawW = Math.round(ev.clientX - currentContainerLeft);
 
         if (rawW < 75) {
-          // Dragged far to the left: auto-collapse sidebar
           setIsSidebarOpen(false);
         } else {
           setIsSidebarOpen(true);
@@ -775,41 +784,41 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           setSidebarWidth(clamped);
         }
       } else {
-        // Dragging left (negative deltaX) increases right panel width
+        // Right preview / build panel: direct width from mouse X to right edge of container
         const currentSidebarW = isSidebarOpen ? sidebarWidthRef.current : 0;
-        const maxW = Math.max(280, totalW - currentSidebarW - 220);
-        const minW = 160;
-        const rawW = Math.round(startRightW - deltaX);
+        const maxW = Math.max(280, currentContainerW - currentSidebarW - 220);
+        const minW = 180;
+        const rawW = Math.round(currentContainerRight - ev.clientX);
         const clamped = Math.min(maxW, Math.max(minW, rawW));
         rightPanelWidthRef.current = clamped;
         setRightPanelWidth(clamped);
       }
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       setIsResizing(null);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
 
-      if (pointerId !== null && typeof handleEl.releasePointerCapture === 'function') {
-        try {
+      try {
+        if (handleEl.hasPointerCapture(pointerId)) {
           handleEl.releasePointerCapture(pointerId);
-        } catch (_) {}
-      }
+        }
+      } catch (_) {}
 
-      window.removeEventListener('pointermove', onMove as any);
-      window.removeEventListener('pointerup', onUp as any);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+      window.removeEventListener('blur', cleanup);
 
       localStorage.setItem('vlab.ide.sidebarWidth', String(sidebarWidthRef.current));
       localStorage.setItem('vlab.ide.rightPanelWidth', String(rightPanelWidthRef.current));
     };
 
-    window.addEventListener('pointermove', onMove as any, { passive: false });
-    window.addEventListener('pointerup', onUp as any);
-    window.addEventListener('mousemove', onMove, { passive: false });
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', cleanup);
+    window.addEventListener('pointercancel', cleanup);
+    window.addEventListener('blur', cleanup);
   };
   const [openFilePaths, setOpenFilePaths] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1901,7 +1910,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   }
 
   return (
-    <div className="h-full w-full flex bg-[#1e1e1e] overflow-hidden select-none font-sans relative">
+    <div className="ide-root-container h-full w-full flex bg-[#1e1e1e] overflow-hidden select-none font-sans relative">
       {/* Resizing overlay to prevent iframe or editor pointer interception */}
       {isResizing && (
         <div className="fixed inset-0 z-50 cursor-col-resize select-none bg-transparent" />
@@ -1983,11 +1992,23 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
           <div
             onPointerDown={(e) => startPanelResize(e, 'sidebar')}
-            onMouseDown={(e) => startPanelResize(e, 'sidebar')}
-            className="absolute top-0 -right-2 h-full w-4 cursor-col-resize z-30 group flex items-center justify-center hover:bg-red-500/20 active:bg-red-500/40 transition-colors"
-            title="Drag to resize explorer"
+            onDoubleClick={() => {
+              setSidebarWidth(250);
+              sidebarWidthRef.current = 250;
+              localStorage.setItem('vlab.ide.sidebarWidth', '250');
+            }}
+            className={`absolute top-0 -right-2.5 h-full w-5 cursor-col-resize z-30 group flex items-center justify-center touch-none select-none transition-colors ${
+              isResizing === 'sidebar' ? 'bg-red-500/30' : 'hover:bg-red-500/20 active:bg-red-500/40'
+            }`}
+            title="Drag to resize explorer (double click to reset)"
           >
-            <div className="w-[3px] h-full bg-white/10 group-hover:bg-red-500 group-active:bg-red-600 transition-colors" />
+            <div
+              className={`w-[3px] h-full transition-colors ${
+                isResizing === 'sidebar'
+                  ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'
+                  : 'bg-white/10 group-hover:bg-red-500 group-active:bg-red-600'
+              }`}
+            />
           </div>
         </div>
       )}
@@ -2167,10 +2188,10 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <div className="ide-workspace-row flex-1 flex overflow-hidden min-w-0">
             {isPreviewTabActive ? (
-              <div className="flex-1 flex flex-col relative bg-[#0c0c0c] min-h-0">
+              <div className="flex-1 flex flex-col relative bg-[#0c0c0c] min-h-0 min-w-0">
                 <TestingWorkspace
                   ref={testingWorkspaceRef}
                   session={propSession}
@@ -2183,7 +2204,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                 />
               </div>
             ) : activeFileIndex !== -1 && activeFile ? (
-              <div className="flex-1 flex flex-col relative border-r border-[#1f1f1f] select-text">
+              <div className={`flex-1 flex flex-col relative border-r border-[#1f1f1f] select-text min-w-0 ${isResizing ? 'pointer-events-none select-none' : ''}`}>
                 <div className="absolute top-4 right-6 z-10 flex gap-2">
                   <button
                     onClick={() => handleSave(true)}
@@ -2225,7 +2246,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                 )}
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-10 bg-[#18181b] relative overflow-y-auto select-none">
+              <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-10 bg-[#18181b] relative overflow-y-auto select-none min-w-0">
                 {/* Background ambient pattern */}
                 <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
 
@@ -2337,15 +2358,27 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             {isAndroid ? (
               <div
                 className="bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col shrink-0 min-w-0 relative"
-                style={{ width: rightPanelWidth, minWidth: 220 }}
+                style={{ width: rightPanelWidth }}
               >
                 <div
                   onPointerDown={(e) => startPanelResize(e, 'right')}
-                  onMouseDown={(e) => startPanelResize(e, 'right')}
-                  className="absolute top-0 -left-2 h-full w-4 cursor-col-resize z-30 group flex items-center justify-center hover:bg-amber-500/20 active:bg-amber-500/40 transition-colors"
-                  title="Drag to resize build logs"
+                  onDoubleClick={() => {
+                    setRightPanelWidth(420);
+                    rightPanelWidthRef.current = 420;
+                    localStorage.setItem('vlab.ide.rightPanelWidth', '420');
+                  }}
+                  className={`absolute top-0 -left-2.5 h-full w-5 cursor-col-resize z-30 group flex items-center justify-center touch-none select-none transition-colors ${
+                    isResizing === 'right' ? 'bg-amber-500/30' : 'hover:bg-amber-500/20 active:bg-amber-500/40'
+                  }`}
+                  title="Drag left/right to resize build logs (double click to reset)"
                 >
-                  <div className="w-[3px] h-full bg-amber-500/40 group-hover:bg-amber-500 group-active:bg-amber-500 transition-colors" />
+                  <div
+                    className={`w-[3px] h-full transition-colors ${
+                      isResizing === 'right'
+                        ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]'
+                        : 'bg-amber-500/40 group-hover:bg-amber-500 group-active:bg-amber-500'
+                    }`}
+                  />
                 </div>
                 <div className="h-10 bg-[#1e1e1e] flex justify-between items-center px-4 border-b border-amber-500/20 relative">
                   <span className="text-[#f59e0b] text-[13px] font-extrabold uppercase tracking-wider">Build Logs</span>
@@ -2368,56 +2401,37 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               null // Selenium preview is now opened in the Editor Tab bar instead of a split layout
             ) : (
               <div
-                className="bg-[#141416] border-l border-white/5 flex flex-col shrink-0 relative"
-                style={{ width: rightPanelWidth, minWidth: 220 }}
+                className="bg-[#141416] border-l border-white/5 flex flex-col shrink-0 min-w-0 relative"
+                style={{ width: rightPanelWidth }}
               >
                 <div
                   onPointerDown={(e) => startPanelResize(e, 'right')}
-                  onMouseDown={(e) => startPanelResize(e, 'right')}
-                  className="absolute top-0 -left-2 h-full w-4 cursor-col-resize z-30 group flex items-center justify-center hover:bg-red-500/20 active:bg-red-500/40 transition-colors"
-                  title="Drag left/right to resize preview"
+                  onDoubleClick={() => {
+                    setRightPanelWidth(420);
+                    rightPanelWidthRef.current = 420;
+                    localStorage.setItem('vlab.ide.rightPanelWidth', '420');
+                  }}
+                  className={`absolute top-0 -left-2.5 h-full w-5 cursor-col-resize z-30 group flex items-center justify-center touch-none select-none transition-colors ${
+                    isResizing === 'right' ? 'bg-red-500/30' : 'hover:bg-red-500/20 active:bg-red-500/40'
+                  }`}
+                  title="Drag left/right to resize preview (double click to reset)"
                 >
-                  <div className="w-[3px] h-full bg-red-600/40 group-hover:bg-red-600 group-active:bg-red-600 transition-colors" />
+                  <div
+                    className={`w-[3px] h-full transition-colors ${
+                      isResizing === 'right'
+                        ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'
+                        : 'bg-red-600/40 group-hover:bg-red-500 group-active:bg-red-600'
+                    }`}
+                  />
                 </div>
 
-                {/* Modern Browser Chrome Header */}
-                <div className="h-10 bg-[#18181b] border-b border-white/10 flex items-center justify-between px-3 gap-2 relative">
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center gap-1.5 mr-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
-                    </div>
-                    <span className="text-white text-xs font-black uppercase tracking-wider">Preview</span>
-                  </div>
-
-                  <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-[#27272a] border border-white/10 text-[10px] font-mono text-slate-300 max-w-[180px] truncate">
-                    <Globe size={11} className="text-emerald-400 shrink-0" />
-                    <span className="truncate">localhost:preview</span>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={handleRun}
-                      title="Refresh & Re-run Code (F5 / Ctrl+Enter)"
-                      className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                    >
-                      <RotateCw size={13} className={isRunning ? 'animate-spin text-red-400' : ''} />
-                    </button>
-                    {webPreviewCode && (
-                      <button
-                        onClick={handleOpenPreviewNewTab}
-                        title="Open in new window"
-                        className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                      >
-                        <ExternalLink size={13} />
-                      </button>
-                    )}
-                  </div>
+                {/* Preview Header */}
+                <div className="h-10 bg-[#18181b] border-b border-white/10 flex items-center justify-between px-4 relative">
+                  <span className="text-white text-xs font-black uppercase tracking-wider">Preview</span>
                 </div>
 
                 {/* Preview Body */}
-                <div className="flex-1 w-full bg-white relative overflow-hidden">
+                <div className={`flex-1 w-full bg-white relative overflow-hidden ${isResizing ? 'pointer-events-none select-none' : ''}`}>
                   {consoleSession?.active ? (
                     <ConsoleInteractivePreview
                       session={consoleSession}
