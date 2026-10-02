@@ -188,14 +188,14 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
       // Check if student has purchased non-assigned labs via credit_transactions or student_lab_token_transactions
       const [creditPurchases] = await pool.query(
         `SELECT DISTINCT LabId FROM credit_transactions 
-         WHERE (UserId = ? OR UserId = ?) AND Status = 'SUCCESS' AND Type = 'PURCHASE'`,
-        [String(studentId), auth?.email || '']
+         WHERE (UserId = ? OR UserId = ? OR UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ?)) AND Status = 'SUCCESS' AND Type = 'PURCHASE'`,
+        [String(studentId), auth?.email || '', auth?.email || '', String(studentId)]
       ).catch(() => [[]]);
 
       const [tokenPurchases] = await pool.query(
         `SELECT DISTINCT LabId FROM student_lab_token_transactions 
-         WHERE (StudentId = ? OR StudentId = ?) AND TransactionType = 'PURCHASE'`,
-        [String(studentId), auth?.email || '']
+         WHERE (StudentId = ? OR StudentId = ? OR StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ?)) AND TransactionType = 'PURCHASE'`,
+        [String(studentId), auth?.email || '', auth?.email || '', String(studentId)]
       ).catch(() => [[]]);
 
       const purchasedLabIds = new Set([

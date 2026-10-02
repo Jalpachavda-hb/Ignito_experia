@@ -72,12 +72,39 @@ const queryClient = new QueryClient({
   }),
 })
 
+// Auto-recover from deployment chunk hash mismatches (stale cache)
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', () => {
+    const lastReload = Number(sessionStorage.getItem('vite_preload_reload') || 0)
+    const now = Date.now()
+    if (now - lastReload > 8000) {
+      sessionStorage.setItem('vite_preload_reload', String(now))
+      window.location.reload()
+    }
+  })
+}
+
+function GlobalPending() {
+  return (
+    <div className="flex h-screen w-full items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-9 w-9 animate-spin rounded-full border-4 border-red-500/20 border-t-red-600" />
+        <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+          Loading...
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // Create a new router instance
 const router = createRouter({
   routeTree,
   context: { queryClient },
   defaultPreload: 'intent',
   defaultPreloadStaleTime: 0,
+  defaultPendingComponent: GlobalPending,
+  defaultPendingMs: 150,
 })
 
 // Register the router instance for type safety

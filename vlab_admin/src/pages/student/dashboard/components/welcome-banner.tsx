@@ -33,7 +33,7 @@ export function WelcomeBanner({
           
           <div>
             <p className="text-sm font-medium text-muted-foreground flex items-center gap-2 mb-1">
-              Good Morning <span>👋</span>
+           
             </p>
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-2">
               {auth.user?.fullName || auth.user?.name || student.name}

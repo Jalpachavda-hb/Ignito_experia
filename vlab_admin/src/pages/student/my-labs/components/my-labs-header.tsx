@@ -25,56 +25,70 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
   const isRunning = Boolean(activeSession && ['running', 'starting', 'expiring_soon'].includes(rawStatus));
   const activeSessionText = isRunning ? '1' : '0';
   
-  // Real User Tokens calculated dynamically to match CreditWalletSummary
-  const creditsBalance = useMemo(() => {
-    if (labWallets && labWallets.length > 0) {
-      const sum = labWallets.reduce((acc, w) => acc + Number(w.remainingTokens || 0), 0);
-      if (sum > 0) return sum;
-    }
-    if (summary && typeof summary.totalRemaining === 'number' && summary.totalRemaining > 0) {
-      return summary.totalRemaining;
-    }
-    // For LMS / University students, sum tokens available across their assigned university labs
-    if (!isDirectStudent(user) && labs && labs.length > 0) {
-      const uniLabs = labs.filter(l => l.accessType === 'university' || l.isUniversity || Boolean(l.courseCode));
-      if (uniLabs.length > 0) {
-        const sumUni = uniLabs.reduce((acc, l) => {
-          const t = Number(l.remainingTokens ?? l.tokens ?? l.availableTokens ?? l.practicalCredit ?? 60);
-          return acc + (t > 0 ? t : 60);
-        }, 0);
-        if (sumUni > 0) return sumUni;
-      }
-    }
-    if (typeof user?.tokens === 'number' && user.tokens > 0) {
-      return Math.max(0, Math.round(user.tokens));
-    }
-    if (typeof user?.credits === 'number' && user.credits !== 1000 && user.credits > 0) {
-      return Math.max(0, Math.round(user.credits));
-    }
+  // Real User Tokens calculated dynamically to match university allocations + personal purchased tokens
+  const { totalBalance, uniTokens, personalTokens } = useMemo(() => {
+    let uSum = 0;
+    let pSum = 0;
+    const seenLabIds = new Set<string>();
 
-    // Sum from successful transactions (matches Token Wallet Summary on Dashboard)
+    (labs || []).forEach((l: any) => {
+      const cleanId = String(l.id || l.labId || l.LabId || l.title || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+      seenLabIds.add(cleanId);
+      const remaining = Number(l.remainingTokens ?? l.tokens ?? l.availableTokens ?? l.practicalCredit ?? 0);
+      const isUni = l.accessType === 'university' || l.isUniversity || Boolean(l.courseCode);
+      const isPersonal = l.accessType === 'personal' || l.isPurchased;
+
+      if (isUni) {
+        uSum += remaining > 0 ? remaining : (Number(l.practicalCredit) || 60);
+      } else if (isPersonal) {
+        pSum += remaining;
+      }
+    });
+
+    // Also check labWallets for any personal labs not already counted
+    (labWallets || []).forEach((w: any) => {
+      const cleanWId = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+      const rem = Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0)));
+      if (rem > 0 && !seenLabIds.has(cleanWId)) {
+        seenLabIds.add(cleanWId);
+        pSum += rem;
+      }
+    });
+
+    // Also check transactions for personal purchases
     const currentStudentEmail = user?.email?.toLowerCase();
     const liveTransactions = (transactions || []).filter(tx => {
       if (!currentStudentEmail) return true;
       return !tx.studentEmail || tx.studentEmail.toLowerCase() === currentStudentEmail;
     });
 
-    let netTxBalance = 0;
+    let txPersonalSum = 0;
     liveTransactions.forEach((tx) => {
       const isSuccess = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
-      if (isSuccess) {
-        if (tx.type === 'Credit' || (tx.type as string) === 'Token' || !tx.type) {
-          netTxBalance += Number(tx.amount) || 0;
-        } else if (tx.type === 'Debit') {
-          netTxBalance -= Number(tx.amount) || 0;
-        }
+      if (isSuccess && tx.type === 'Credit') {
+        txPersonalSum += Number(tx.amount) || 0;
       }
     });
 
-    if (netTxBalance > 0) return Math.round(netTxBalance);
+    if (pSum === 0 && txPersonalSum > 0) {
+      pSum = txPersonalSum;
+    } else if (txPersonalSum > pSum) {
+      pSum = Math.max(pSum, txPersonalSum);
+    }
 
-    return 0;
-  }, [labWallets, summary, user, transactions]);
+    // Direct student fallback
+    if (isDirectStudent(user) && uSum === 0) {
+      if (pSum > 0) return { totalBalance: pSum, uniTokens: 0, personalTokens: pSum };
+      if (summary?.totalRemaining) return { totalBalance: summary.totalRemaining, uniTokens: 0, personalTokens: summary.totalRemaining };
+    }
+
+    const total = uSum + pSum;
+    return {
+      totalBalance: total > 0 ? total : (summary?.totalRemaining || 0),
+      uniTokens: uSum,
+      personalTokens: pSum,
+    };
+  }, [labs, labWallets, summary, transactions, user]);
   
   // Real Enrolled Programs Count
   const isDirect = isDirectStudent(user);
@@ -100,8 +114,12 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
     },
     {
       title: 'Available Tokens',
-      value: `${creditsBalance}`,
-      subtext: 'Wallet Balance',
+      value: `${totalBalance}`,
+      subtext: personalTokens > 0 && uniTokens > 0
+        ? `${uniTokens} Uni • ${personalTokens} Personal`
+        : personalTokens > 0
+        ? `${personalTokens} Personal Tokens`
+        : 'Wallet Balance',
       icon: Wallet,
       color: 'text-purple-500',
       bg: 'bg-purple-500/10',

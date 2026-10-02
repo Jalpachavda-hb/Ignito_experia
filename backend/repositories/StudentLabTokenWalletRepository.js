@@ -15,10 +15,14 @@ class StudentLabTokenWalletRepository {
                    ELSE 0 END AS RemainingTokens, 
               Version, CreatedAt, UpdatedAt
        FROM student_lab_token_wallets
-       WHERE (StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?)))
+       WHERE (
+         StudentId = ? 
+         OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?))
+         OR StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE (UserId = ? AND ? > 0) OR (LOWER(Email) = LOWER(?) AND ? IS NOT NULL))
+       )
          AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)
        ORDER BY (CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED)) DESC, Id DESC LIMIT 1`,
-      [sId, email, email, rawLabId, cleanLabId, cleanLabId]
+      [sId, email, email, /^\d+$/.test(sId) ? Number(sId) : -1, /^\d+$/.test(sId) ? Number(sId) : -1, email || sId, email || sId, rawLabId, cleanLabId, cleanLabId]
     );
     return rows[0] || null;
   }
@@ -55,9 +59,11 @@ class StudentLabTokenWalletRepository {
                    ELSE 0 END AS RemainingTokens, 
               Version, CreatedAt, UpdatedAt
        FROM student_lab_token_wallets
-       WHERE StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?))
+       WHERE StudentId = ? 
+          OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?))
+          OR StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE (UserId = ? AND ? > 0) OR (LOWER(Email) = LOWER(?) AND ? IS NOT NULL))
        ORDER BY LabId ASC`,
-      [sId, email, email]
+      [sId, email, email, /^\d+$/.test(sId) ? Number(sId) : -1, /^\d+$/.test(sId) ? Number(sId) : -1, email || sId, email || sId]
     );
     return rows;
   }

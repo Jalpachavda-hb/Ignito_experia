@@ -380,7 +380,8 @@ export default function MyLabs() {
                   const wId = String(wallet.labId || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
                   return wId === cleanTLabId;
                 });
-                const rem = w ? Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0))) : Number(tx.amount || 0);
+                const walletTokens = w ? Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0))) : 0;
+                const rem = Math.max(walletTokens, Number(tx.amount || 0));
                 result.push({
                   ...match,
                   remainingTokens: rem,
@@ -411,6 +412,45 @@ export default function MyLabs() {
           }
         }
       });
+
+      // Also include any personal labs in labWallets where student has purchased or remaining tokens
+      (labWallets || []).forEach((w) => {
+        const remaining = Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0)));
+        const purchased = Number(w.purchasedTokens || 0);
+        if (remaining > 0 || purchased > 0) {
+          const rawWId = String(w.labId || '').toLowerCase().trim();
+          const cleanWId = rawWId.replace(/^lab-/, '').replace(/-lab$/, '');
+
+          const match = labs.find((l) => {
+            const lId = String(l.id || l.labId || l.LabId || '').toLowerCase().trim();
+            const cleanLId = lId.replace(/^lab-/, '').replace(/-lab$/, '');
+            const lTitle = String(l.title || l.name || '').toLowerCase();
+            return (
+              lId === rawWId ||
+              cleanLId === cleanWId ||
+              lTitle.includes(cleanWId) ||
+              cleanWId.includes(lTitle)
+            );
+          });
+
+          if (match) {
+            const key = String(match.id || match.labId || match.title).toLowerCase();
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              const effectiveTokens = remaining > 0 ? remaining : purchased;
+              result.push({
+                ...match,
+                remainingTokens: effectiveTokens,
+                availableTokens: effectiveTokens,
+                tokens: effectiveTokens,
+                subtitle: 'Purchased Lab Access',
+                category: match.category || 'Purchased Lab',
+              });
+            }
+          }
+        }
+      });
+
       return result;
     }
 
@@ -599,9 +639,28 @@ export default function MyLabs() {
           )
         : 0;
 
+      // Specific credits purchased for this lab from transactions
+      const txCredits = (transactions || []).reduce((sum, tx) => {
+        const isSuccess = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
+        if (!isSuccess || tx.type !== 'Credit') return sum;
+        const isOwner = !currentStudentEmail || !tx.studentEmail || tx.studentEmail.toLowerCase() === currentStudentEmail;
+        if (!isOwner) return sum;
+
+        const tLabIds = String(tx.labId || '').toLowerCase().split(',').map(s => s.trim());
+        const tLabName = String(tx.labName || tx.description || '').toLowerCase();
+
+        const isMatch = (
+          tLabIds.some(id => id === cleanLId || id === lId || id.replace(/^lab-/, '').replace(/-lab$/, '') === cleanLId) ||
+          (tLabName && lTitle && (tLabName.includes(lTitle) || lTitle.includes(tLabName)))
+        );
+
+        return isMatch ? sum + (Number(tx.amount) || 0) : sum;
+      }, 0);
+
       // Only count as purchased if the student actually bought personal tokens or has wallet tokens
       const hasPurchasedTokens = Boolean(
         (walletMatch && (Number(walletMatch.purchasedTokens || 0) > 0 || walletRemainingTokens > 0)) ||
+        txCredits > 0 ||
         purchasedLabIds.has(lId) ||
         purchasedLabIds.has(cleanLId) ||
         Array.from(purchasedLabNames).some(name => (lTitle && name && (lTitle.includes(name) || name.includes(lTitle))))
@@ -629,12 +688,27 @@ export default function MyLabs() {
         accessLabel = 'Personal';
       }
 
-      const assignedUniTokens = coursePracticalTokens || Number(labItem.practicalCredit) || 60;
-      const effectiveRemainingTokens = walletRemainingTokens > 0
-        ? walletRemainingTokens
-        : (walletMatch && Number(walletMatch.usedTokens || 0) > 0
-            ? Math.max(0, assignedUniTokens - Number(walletMatch.usedTokens))
-            : (isUniversity ? assignedUniTokens : 0));
+      const assignedUniTokens = coursePracticalTokens || Number(labItem.practicalCredit) || (isUniversity ? 60 : 0);
+      const usedTokens = Number(walletMatch?.usedTokens || 0);
+
+      let effectiveRemainingTokens = 0;
+      if (walletRemainingTokens > 0) {
+        effectiveRemainingTokens = walletRemainingTokens;
+      } else if (isPurchased) {
+        // For purchased/personal lab: use tokens from transactions, wallet, or labItem
+        const purchasedAmount = Math.max(
+          txCredits,
+          Number(labItem.remainingTokens || 0),
+          Number(labItem.availableTokens || 0),
+          Number(labItem.tokens || 0),
+          Number(walletMatch?.purchasedTokens || 0)
+        );
+        effectiveRemainingTokens = Math.max(0, purchasedAmount - usedTokens);
+      } else if (isUniversity) {
+        effectiveRemainingTokens = usedTokens > 0
+          ? Math.max(0, assignedUniTokens - usedTokens)
+          : assignedUniTokens;
+      }
 
       return {
         ...labItem,
@@ -869,9 +943,14 @@ export default function MyLabs() {
       return wId === targetCleanId;
     });
     const walletRemainingTokens = labWallet ? Number(labWallet.remainingTokens || 0) : 0;
-    const isUniversityLab = isEnrolledInCurriculum || (lab as any)?.isUniversity || (lab as any)?.accessType === 'university' || !isDirectUser;
+    const isPersonalLab = (lab as any)?.accessType === 'personal' || (lab as any)?.isPurchased;
+    const isUniversityLab = !isPersonalLab && (
+      isEnrolledInCurriculum ||
+      (lab as any)?.isUniversity ||
+      (lab as any)?.accessType === 'university'
+    );
     const assignedTokens = isUniversityLab ? (Number((lab as any)?.practicalCredit || (lab as any)?.tokens || (lab as any)?.credits) || 60) : 0;
-    const remainingTokens = Math.max(walletRemainingTokens, specificLabCredits, assignedTokens);
+    const remainingTokens = Math.max(walletRemainingTokens, specificLabCredits, Number((lab as any)?.remainingTokens || 0), assignedTokens);
 
     const canStartLab = isAdmin || remainingTokens > 0;
 
