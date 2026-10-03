@@ -1,10 +1,10 @@
-import { 
-  Badge, 
-  SkillMastery, 
-  LabAchievement, 
+import {
+  Badge,
+  SkillMastery,
+  LabAchievement,
   CreditAchievement,
-  AcademicMilestone, 
-  LeaderboardPerf, 
+  AcademicMilestone,
+  LeaderboardPerf,
   RecentAchievement,
   SummaryStats
 } from './types';

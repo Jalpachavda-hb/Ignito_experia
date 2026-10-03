@@ -2,18 +2,18 @@ import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge as UIPropsBadge } from '@/components/ui/badge';
 import { Badge } from '../types';
-import { 
-  Code2, 
-  Database, 
-  Terminal, 
-  Cloud, 
-  BrainCircuit, 
-  Bug, 
-  Cpu, 
-  Award, 
-  Calendar, 
-  ShieldAlert, 
-  Briefcase 
+import {
+  Code2,
+  Database,
+  Terminal,
+  Cloud,
+  BrainCircuit,
+  Bug,
+  Cpu,
+  Award,
+  Calendar,
+  ShieldAlert,
+  Briefcase
 } from 'lucide-react';
 
 interface BadgeGridProps {
@@ -82,7 +82,7 @@ const getDifficultyBadge = (difficulty: string) => {
 
 export function BadgeGrid({ badges }: BadgeGridProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  
+
   const categories = React.useMemo(() => {
     const cats = new Set<string>();
     cats.add('All');
@@ -92,8 +92,8 @@ export function BadgeGrid({ badges }: BadgeGridProps) {
     return Array.from(cats);
   }, [badges]);
 
-  const filteredBadges = selectedCategory === 'All' 
-    ? badges 
+  const filteredBadges = selectedCategory === 'All'
+    ? badges
     : badges.filter(b => b.category === selectedCategory);
 
   return (
@@ -105,17 +105,16 @@ export function BadgeGrid({ badges }: BadgeGridProps) {
             <button
               key={category}
               onClick={() => setSelectedCategory(category)}
-              className={`whitespace-nowrap px-4 py-2 text-xs font-bold uppercase rounded-lg tracking-wider transition-all duration-200 cursor-pointer ${
-                selectedCategory === category 
-                  ? 'bg-rose-600 text-white shadow-sm' 
+              className={`whitespace-nowrap px-4 py-2 text-xs font-bold uppercase rounded-lg tracking-wider transition-all duration-200 cursor-pointer ${selectedCategory === category
+                  ? 'bg-rose-600 text-white shadow-sm'
                   : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
+                }`}
             >
               {category}
             </button>
           ))}
         </div>
-        
+
         <div className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest shrink-0">
           Showing {filteredBadges.length} Lab Badges
         </div>
@@ -127,9 +126,9 @@ export function BadgeGrid({ badges }: BadgeGridProps) {
           {filteredBadges.map((badge) => {
             const IconComponent = getCategoryIcon(badge.category);
             const themeColors = getCategoryColor(badge.category);
-            
+
             return (
-              <Card 
+              <Card
                 key={badge.id}
                 className="overflow-hidden border border-slate-200/60 dark:border-slate-800 rounded-[20px] bg-white dark:bg-slate-950 shadow-sm hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:hover:shadow-[0_8px_30px_rgb(0,0,0,0.3)] transition-all duration-300 group hover:-translate-y-1"
               >

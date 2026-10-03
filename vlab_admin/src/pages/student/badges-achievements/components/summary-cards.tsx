@@ -103,12 +103,12 @@ export function SummaryCards() {
       {cards.map((card, i) => {
         const IconComponent = card.icon;
         return (
-          <Card 
-            key={i} 
+          <Card
+            key={i}
             className="border-border/50 shadow-sm relative overflow-hidden transition-shadow hover:shadow-md rounded-[20px] bg-white dark:bg-slate-950"
           >
             <div className={`absolute top-0 right-0 w-20 h-20 rounded-bl-full -mr-3 -mt-3 ${card.bg}`}></div>
-            
+
             <CardContent className="p-5 flex items-center justify-between relative z-10 h-full">
               <div className="min-w-0 pr-2">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 truncate">
@@ -123,7 +123,7 @@ export function SummaryCards() {
                   </p>
                 ) : null}
               </div>
-              
+
               <div className={`h-11 w-11 rounded-xl flex items-center justify-center shadow-sm bg-white dark:bg-slate-900 border border-border/50 shrink-0 ${card.color}`}>
                 <IconComponent className="h-5.5 w-5.5" />
               </div>

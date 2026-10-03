@@ -1,14 +1,14 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { RecentAchievement } from '../types';
-import { 
-  Activity, 
-  Trophy, 
-  Coins, 
-  FlaskConical, 
-  GraduationCap, 
-  Sparkles, 
-  ArrowRight 
+import {
+  Activity,
+  Trophy,
+  Coins,
+  FlaskConical,
+  GraduationCap,
+  Sparkles,
+  ArrowRight
 } from 'lucide-react';
 
 interface RecentTimelineProps {
@@ -56,28 +56,27 @@ export function RecentAchievementTimeline({ timeline }: RecentTimelineProps) {
           Chronological activity logs of your learning victories
         </CardDescription>
       </CardHeader>
-      
+
       <CardContent className="pt-6 flex-1">
         <div className="space-y-5">
           {timeline.map((item, idx) => {
             const IconComponent = getCategoryIcon(item.category);
             const styleClasses = getCategoryColor(item.category);
-            
+
             return (
               <div key={item.id} className="relative pl-7 pb-4 last:pb-0">
                 {/* Vertical line connecting feed */}
                 {idx !== timeline.length - 1 && (
                   <div className="absolute left-[11px] top-6 bottom-[-20px] w-0.5 bg-slate-150 dark:bg-slate-800" />
                 )}
-                
+
                 {/* Connector Dot */}
                 <div className="absolute left-0 top-1 h-6 w-6 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-950 shadow-sm z-10 bg-white dark:bg-slate-950">
-                  <div className={`h-2.5 w-2.5 rounded-full ${
-                    item.category === 'badge' ? 'bg-amber-500' :
-                    item.category === 'credit' ? 'bg-blue-500' :
-                    item.category === 'lab' ? 'bg-rose-500' :
-                    'bg-emerald-500'
-                  }`} />
+                  <div className={`h-2.5 w-2.5 rounded-full ${item.category === 'badge' ? 'bg-amber-500' :
+                      item.category === 'credit' ? 'bg-blue-500' :
+                        item.category === 'lab' ? 'bg-rose-500' :
+                          'bg-emerald-500'
+                    }`} />
                 </div>
 
                 {/* Timeline Panel */}
@@ -96,7 +95,7 @@ export function RecentAchievementTimeline({ timeline }: RecentTimelineProps) {
                       </span>
                     </div>
                   </div>
-                  
+
                   <ArrowRight className="h-4 w-4 text-slate-350 dark:text-slate-700 shrink-0 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>

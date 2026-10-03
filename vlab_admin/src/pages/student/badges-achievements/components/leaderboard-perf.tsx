@@ -50,14 +50,14 @@ export function LeaderboardPerformance({ data }: LeaderboardPerfProps) {
           Real-time standing in program assessments and laboratory points
         </CardDescription>
       </CardHeader>
-      
+
       <CardContent className="pt-6 flex-1 flex flex-col justify-between space-y-6">
-        
+
         {/* Top Rank Percentile Showcase Hero */}
         <div className="bg-gradient-to-br from-rose-500 to-rose-600 dark:from-rose-950/50 dark:to-rose-900/40 text-white rounded-xl p-5 shadow-md flex items-center justify-between gap-4 select-none relative overflow-hidden group">
           {/* Decorative background glow */}
           <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-full blur-2xl transform translate-x-8 -translate-y-8" />
-          
+
           <div className="space-y-1 relative">
             <span className="text-[10px] font-black uppercase tracking-widest text-rose-200">
               Platform Percentile
@@ -69,7 +69,7 @@ export function LeaderboardPerformance({ data }: LeaderboardPerfProps) {
               Based on active attendance, credit score weight, and lab checkins.
             </p>
           </div>
-          
+
           <div className="shrink-0 h-16 w-16 bg-white/10 dark:bg-rose-500/20 rounded-full flex items-center justify-center border border-white/20 dark:border-rose-400/30 group-hover:scale-105 transition-transform duration-300">
             <Award className="h-8 w-8 text-rose-100" />
           </div>
@@ -80,8 +80,8 @@ export function LeaderboardPerformance({ data }: LeaderboardPerfProps) {
           {ranks.map((rank, i) => {
             const IconComponent = rank.icon;
             return (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 className={`p-4 rounded-xl flex items-center gap-3.5 transition-all duration-350 hover:shadow hover:-translate-y-0.5 ${rank.bgColor}`}
               >
                 <div className={`p-2 rounded-lg bg-white dark:bg-card shadow-sm border border-slate-200/40 dark:border-slate-800 shrink-0`}>

@@ -17,12 +17,12 @@ export function FeaturedBadge({ badge }: FeaturedBadgeProps) {
 
       <CardContent className="p-6 md:p-8 relative">
         <div className="flex flex-col md:flex-row items-center gap-6 md:gap-8">
-          
+
           {/* Badge Emblem Showcase */}
           <div className="relative shrink-0 flex items-center justify-center">
             {/* Pulsing ring */}
             <div className="absolute inset-0 rounded-full bg-rose-500/10 dark:bg-rose-500/20 animate-pulse scale-110" />
-            
+
             {/* Outer styled badge shield */}
             <div className="h-28 w-28 md:h-36 md:w-36 rounded-full bg-gradient-to-tr from-rose-600 via-rose-500 to-amber-500 p-1.5 shadow-lg flex items-center justify-center select-none transform hover:rotate-12 transition-transform duration-500">
               <div className="h-full w-full rounded-full bg-slate-900 flex flex-col items-center justify-center text-center p-2 border border-slate-800/80">
@@ -30,7 +30,7 @@ export function FeaturedBadge({ badge }: FeaturedBadgeProps) {
                 <span className="text-[10px] md:text-xs font-black text-rose-400 uppercase tracking-widest mt-1">EXPERT</span>
               </div>
             </div>
-            
+
             {/* Floating stars decoration */}
             <Sparkles className="absolute -top-1 -right-1 h-5 w-5 text-amber-500 animate-pulse" />
           </div>
@@ -66,7 +66,7 @@ export function FeaturedBadge({ badge }: FeaturedBadgeProps) {
               </div>
             </div>
           </div>
-          
+
         </div>
       </CardContent>
     </Card>
