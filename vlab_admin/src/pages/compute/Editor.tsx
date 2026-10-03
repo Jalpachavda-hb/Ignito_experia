@@ -709,7 +709,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     });
   };
   const [isSaving, setIsSaving] = useState(false);
-  const typingDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const typingDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [runningAction, setRunningAction] = useState<'build' | 'run' | null>(null);
   const [dotnetBuildReady, setDotnetBuildReady] = useState(false);
   const isRunning = runningAction !== null;
