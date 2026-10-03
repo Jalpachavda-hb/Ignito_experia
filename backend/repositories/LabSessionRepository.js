@@ -40,14 +40,15 @@ class LabSessionRepository {
     allocatedDurationMinutes,
     startedAt,
     expiresAt,
+    tokenExpiryAt = null,
     subtype = null,
     status = 'STARTING'
   }, db = pool) {
     await db.query(
       `INSERT INTO lab_sessions
-       (SessionId, TenantId, UserId, LabId, AllocatedCredits, AllocatedDurationMinutes, StartedAt, ExpiresAt, Subtype, Status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [sessionId, tenantId, userId, labId, allocatedCredits, allocatedDurationMinutes, startedAt, expiresAt, subtype, status]
+       (SessionId, TenantId, UserId, LabId, AllocatedCredits, AllocatedDurationMinutes, StartedAt, ExpiresAt, TokenExpiryAt, Subtype, Status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sessionId, tenantId, userId, labId, allocatedCredits, allocatedDurationMinutes, startedAt, expiresAt, tokenExpiryAt || expiresAt, subtype, status]
     );
     return await this.getSessionById(sessionId, db);
   }

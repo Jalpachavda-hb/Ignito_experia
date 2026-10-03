@@ -177,12 +177,13 @@ class Program
 `;
 
 const needsConsoleInput = (code: string) =>
-  /Console\.ReadLine\s*\(/.test(code) || /Console\.Read\s*\(/.test(code);
+  /Console\.ReadLine\s*\(/.test(code) || /Console\.Read\s*\(/.test(code) || /input\s*\(/.test(code);
 
 const countConsoleReads = (code: string) => {
   const readLine = (code.match(/Console\.ReadLine\s*\(/g) || []).length;
   const readChar = (code.match(/Console\.Read\s*\(/g) || []).length;
-  return readLine + readChar;
+  const pyInput = (code.match(/input\s*\(/g) || []).length;
+  return readLine + readChar + pyInput;
 };
 
 const extractConsoleOutput = (raw: string) => {
@@ -889,13 +890,22 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               }
               return newFile;
             });
+            // CRUCIAL: Preserve any newly created files in prev that may still be syncing to backend
+            prev.forEach((prevFile) => {
+              if (!mergedFiles.some((m: any) => m.path === prevFile.path)) {
+                mergedFiles.push(prevFile);
+              }
+            });
             return mergedFiles;
           });
         }
 
         setOpenFilePaths((prev) => {
-          const validPaths = response.files.map((f: any) => f.path);
-          return forceFresh ? (validPaths.length > 0 ? [validPaths[0]] : []) : prev.filter((p) => validPaths.includes(p));
+          const validPaths = new Set(response.files.map((f: any) => f.path));
+          filesRef.current.forEach((f) => validPaths.add(f.path));
+          return forceFresh
+            ? (response.files.length > 0 ? [response.files[0].path] : [])
+            : prev.filter((p) => p === 'chrome-preview' || validPaths.has(p));
         });
 
         setLoadedPaths((prev) => {
@@ -1350,9 +1360,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       const response = await runFile(
         {
           path: activeFile!.path,
-          language: 'csharp',
+          language: activeFile!.language || (isDotnet ? 'csharp' : 'python'),
           content: code,
-          labType: 'dotnet',
+          labType: isDotnet ? 'dotnet' : (isAndroid ? 'android' : 'python'),
           stdin,
         },
         sessionId,
@@ -1480,9 +1490,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       return;
     }
 
-    const code = activeFile?.content || '';
+    const code = editorRef.current ? editorRef.current.getValue() : (activeFile?.content || '');
     const isConsoleInteractive =
-      isDotnet && !isDotnetBuildMode && !dotnetAction && needsConsoleInput(code);
+      !isDotnetBuildMode && !dotnetAction && needsConsoleInput(code);
 
     if (isConsoleInteractive) {
       setConsoleSession({
@@ -1779,7 +1789,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     if (sessionId) {
       setFiles(prev => {
         if (prev.some(f => f.path === newFile.path)) return prev;
-        return [...prev, newFile];
+        const next = [...prev, newFile];
+        filesRef.current = next;
+        return next;
       });
       setOpenFilePaths(prev => {
         if (!prev.includes(newFile.path)) return [...prev, newFile.path];

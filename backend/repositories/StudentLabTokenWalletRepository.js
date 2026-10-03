@@ -28,6 +28,10 @@ class StudentLabTokenWalletRepository {
   }
 
   async getWalletForUpdate(tenantId, studentId, labId, userEmail = null, db = pool) {
+    if (userEmail && typeof userEmail === 'object' && userEmail.query) {
+      db = userEmail;
+      userEmail = null;
+    }
     if (!studentId || !labId) return null;
     const sId = String(studentId);
     const email = userEmail ? String(userEmail).toLowerCase() : null;
@@ -41,15 +45,23 @@ class StudentLabTokenWalletRepository {
                    ELSE 0 END AS RemainingTokens, 
               Version, CreatedAt, UpdatedAt
        FROM student_lab_token_wallets
-       WHERE (StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?)))
+       WHERE (
+         StudentId = ? 
+         OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?))
+         OR StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE (UserId = ? AND ? > 0) OR (LOWER(Email) = LOWER(?) AND ? IS NOT NULL))
+       )
          AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)
        ORDER BY (CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED)) DESC, Id DESC LIMIT 1 FOR UPDATE`,
-      [sId, email, email, rawLabId, cleanLabId, cleanLabId]
+      [sId, email, email, /^\d+$/.test(sId) ? Number(sId) : -1, /^\d+$/.test(sId) ? Number(sId) : -1, email || sId, email || sId, rawLabId, cleanLabId, cleanLabId]
     );
     return rows[0] || null;
   }
 
   async getAllWalletsForStudent(tenantId, studentId, userEmail = null, db = pool) {
+    if (userEmail && typeof userEmail === 'object' && userEmail.query) {
+      db = userEmail;
+      userEmail = null;
+    }
     const sId = String(studentId);
     const email = userEmail ? String(userEmail).toLowerCase() : null;
     const [rows] = await db.query(
@@ -91,6 +103,10 @@ class StudentLabTokenWalletRepository {
   }
 
   async consumeWalletTokens(tenantId, studentId, labId, tokensToDeduct, userEmail = null, db = pool) {
+    if (userEmail && typeof userEmail === 'object' && userEmail.query) {
+      db = userEmail;
+      userEmail = null;
+    }
     const sId = String(studentId);
     const email = userEmail ? String(userEmail).toLowerCase() : null;
     const rawLabId = String(labId).toLowerCase().trim();
@@ -105,9 +121,13 @@ class StudentLabTokenWalletRepository {
                                   ELSE 0 END,
            Version = Version + 1,
            UpdatedAt = CURRENT_TIMESTAMP
-       WHERE (StudentId = ? OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?)))
+       WHERE (
+         StudentId = ? 
+         OR (? IS NOT NULL AND LOWER(StudentId) = LOWER(?))
+         OR StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE (UserId = ? AND ? > 0) OR (LOWER(Email) = LOWER(?) AND ? IS NOT NULL))
+       )
          AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)`,
-      [tokens, tokens, tokens, sId, email, email, rawLabId, cleanLabId, cleanLabId]
+      [tokens, tokens, tokens, sId, email, email, /^\d+$/.test(sId) ? Number(sId) : -1, /^\d+$/.test(sId) ? Number(sId) : -1, email || sId, email || sId, rawLabId, cleanLabId, cleanLabId]
     );
 
     // ALSO deduct from credit_wallets to keep total balance in sync
@@ -117,8 +137,8 @@ class StudentLabTokenWalletRepository {
          SET Balance = CASE WHEN CAST(Balance AS SIGNED) >= CAST(? AS SIGNED) THEN Balance - ? ELSE 0.00 END,
              ConsumedCredits = ConsumedCredits + ?,
              UpdatedAt = CURRENT_TIMESTAMP
-         WHERE UserId = ?`,
-        [tokens, tokens, tokens, sId]
+         WHERE UserId = ? OR UserId IN (SELECT UserId FROM Users WHERE Email = ? AND ? IS NOT NULL)`,
+        [tokens, tokens, tokens, sId, email, email]
       );
     } catch (e) {}
 

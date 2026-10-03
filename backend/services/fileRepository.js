@@ -403,9 +403,9 @@ export const listFiles = async (sessionId) => {
   const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
   const isPython = labType === "python" || labId === "python-lab" || labId.includes("python");
 
-  // 1. If workspace is empty, check for persisted student files from previous sessions!
-  // (NOTE: For .NET and Python lab, all changes are discarded on stop; do not restore persisted files!)
-  if (!isDotnet && !isPython && finalTree.length === 0 && session?.userId && session?.labId) {
+  // 1. If workspace is empty, check for persisted student files from current session!
+  // (NOTE: For .NET lab, all changes are discarded on stop; starter files come from S3)
+  if (!isDotnet && finalTree.length === 0 && session?.userId && session?.labId) {
     try {
       const savedUserFiles = await userWorkspaceService.getUserWorkspaceFiles(session.userId, session.labId);
       if (savedUserFiles && savedUserFiles.length > 0) {
@@ -601,18 +601,30 @@ export const upsertFile = async (sessionId, fileData) => {
 
   const cacheKey = getCacheKey(sessionId, fileData.path);
   fileContentCache.set(cacheKey, record);
-  invalidateWorkspaceIndex(sessionId);
 
   const labId = (session?.labId || "").toLowerCase();
   const labType = (session?.labType || "").toLowerCase();
   const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
 
-  // Persist file into persistent database for non-dotnet labs only
+  // Persist file into persistent database for non-dotnet labs
   if (!isDotnet && session?.userId && session?.labId) {
     userWorkspaceService.saveUserWorkspaceFile(session.userId, session.labId, record).catch(err => {
       console.warn("[upsertFile] Failed to persist file to MySQL:", err.message);
     });
   }
+
+  // Update session.files synchronously so subsequent listFiles requests always include this file
+  const currentFiles = session?.files ? [...session.files] : [];
+  const index = currentFiles.findIndex((f) => f.path === fileData.path);
+  if (index >= 0) {
+    currentFiles[index] = { ...currentFiles[index], ...record };
+  } else {
+    currentFiles.push(record);
+  }
+
+  // Update in-memory workspace index cache and session repository
+  workspaceIndexCache.set(sessionId, currentFiles);
+  await updateSession(sessionId, { files: currentFiles }).catch(() => {});
 
   if (session?.status === "running") {
     try {
@@ -620,31 +632,14 @@ export const upsertFile = async (sessionId, fileData) => {
     } catch (err) {
       console.warn("[upsertFile] Failed to save to container:", err.message);
     }
-    const files = session.files ? [...session.files] : [];
-    const index = files.findIndex((f) => f.path === fileData.path);
-    if (index >= 0) {
-      files[index] = { ...files[index], ...record };
-    } else {
-      files.push(record);
-    }
-    await updateSession(sessionId, { files }).catch(() => {});
-    return record;
   }
 
-  const files = [...(await listFiles(sessionId))];
-  const index = files.findIndex((f) => f.path === fileData.path);
-
-  if (index >= 0) files[index] = { ...files[index], ...record };
-  else files.push(record);
-
-  await updateSession(sessionId, { files }).catch(() => {});
   return record;
 };
 
 export const deleteFile = async (sessionId, filePath) => {
   const cacheKey = getCacheKey(sessionId, filePath);
   fileContentCache.delete(cacheKey);
-  invalidateWorkspaceIndex(sessionId);
 
   const session = await getSession(sessionId);
   if (session?.userId && session?.labId) {
@@ -653,20 +648,17 @@ export const deleteFile = async (sessionId, filePath) => {
     });
   }
 
+  const currentFiles = session?.files ? session.files.filter((f) => f.path !== filePath) : [];
+  workspaceIndexCache.set(sessionId, currentFiles);
+  await updateSession(sessionId, { files: currentFiles }).catch(() => {});
+
   if (session?.status === "running") {
     try {
       await deleteFromContainer(session, filePath);
     } catch (err) {
       console.warn("[deleteFile] Failed to delete from container:", err.message);
     }
-    if (session.files) {
-      const files = session.files.filter((f) => f.path !== filePath);
-      await updateSession(sessionId, { files }).catch(() => {});
-    }
-    return;
   }
-  const files = (await listFiles(sessionId)).filter((f) => f.path !== filePath);
-  await updateSession(sessionId, { files }).catch(() => {});
 };
 
 export const clearDiskWorkspace = () => {

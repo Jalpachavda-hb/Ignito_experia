@@ -29,7 +29,13 @@ import userWorkspaceService from "../services/UserWorkspaceService.js";
 
 function calculateRemainingSeconds(expiresAt) {
   if (!expiresAt) return 0;
-  const expiresMs = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+  let expiresMs = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+  if (typeof expiresAt === 'string' && !expiresAt.endsWith('Z') && !expiresAt.includes('+')) {
+    const utcMs = new Date(expiresAt + 'Z').getTime();
+    if (!isNaN(utcMs)) {
+      expiresMs = Math.max(expiresMs, utcMs);
+    }
+  }
   const diffMs = expiresMs - Date.now();
   return Math.max(0, Math.floor(diffMs / 1000));
 }

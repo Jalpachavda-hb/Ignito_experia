@@ -19,9 +19,20 @@ export function SessionTimeoutModal({ session }: SessionTimeoutModalProps) {
     }
 
     const checkTimeout = async () => {
+      // If remainingSeconds is provided by the server and > 0, the session is definitely active
+      if (session.remainingSeconds !== undefined && session.remainingSeconds > 0) {
+        return;
+      }
+
       // 1. Client-side duration timer check
       if (session.expiresAt) {
-        const expiresMs = new Date(session.expiresAt).getTime();
+        let expiresMs = new Date(session.expiresAt).getTime();
+        if (typeof session.expiresAt === 'string' && !session.expiresAt.endsWith('Z') && !session.expiresAt.includes('+')) {
+          const parsedUtc = new Date(session.expiresAt + 'Z').getTime();
+          if (!isNaN(parsedUtc)) {
+            expiresMs = parsedUtc;
+          }
+        }
         if (Date.now() >= expiresMs) {
           setMessage('Your lab session has expired. You will now be redirected to the dashboard.');
           setIsTimeOut(true);
