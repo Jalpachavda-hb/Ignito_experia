@@ -213,9 +213,23 @@ export const RemoteDesktop = () => {
       if (session?.sessionId) {
         await stopLab(session.sessionId, session.labId);
         localStorage.removeItem(`lastGrade_${session.sessionId}`);
+        const labKey = session.labId || '';
+        Object.keys(localStorage).forEach(key => {
+          if (
+            key.includes(`vlab_backup_${labKey}`) ||
+            key.includes(`vlab_saved_${labKey}`) ||
+            key.includes(`vlab_files_${labKey}`)
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
       }
+      setSession(null);
+      setActiveSession(null);
       navigate({ to: '/student/my-labs' });
     } catch (err) {
+      setSession(null);
+      setActiveSession(null);
       navigate({ to: '/student/my-labs' });
     } finally {
       setIsStopping(false);
@@ -229,6 +243,8 @@ export const RemoteDesktop = () => {
       if (session?.sessionId) {
         await stopLab(session.sessionId, session.labId);
       }
+      setSession(null);
+      setActiveSession(null);
       window.location.reload();
     } catch (err) {
       window.location.reload();

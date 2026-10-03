@@ -1,6 +1,7 @@
 import pool from "../lib/mysql.js";
 import labSessionRepository from "../repositories/LabSessionRepository.js";
 import { stopEcsTask, isEcsEnabled } from "./ecsService.js";
+import { clearSessionFiles } from "./fileRepository.js";
 
 class RuntimeStopService {
   async processStop(sessionId) {
@@ -20,6 +21,8 @@ class RuntimeStopService {
         Status: 'STOPPED',
         EndedAt: new Date()
       });
+
+      clearSessionFiles(sessionId, session);
 
       console.log(`[RuntimeStopService] Container stopped successfully for session ${sessionId}`);
       return true;

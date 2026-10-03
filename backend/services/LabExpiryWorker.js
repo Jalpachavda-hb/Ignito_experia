@@ -47,8 +47,8 @@ export async function checkAndExpireSessions() {
       for (const session of runningSessions || []) {
         try {
           const task = await describeTask(session.TaskArn);
-          if (!task || task.lastStatus === 'STOPPED') {
-            console.log(`[LabExpiryWorker] Detected ECS task ${session.TaskArn} is STOPPED. Marking session ${session.SessionId} as STOPPED.`);
+          if (task && task.lastStatus === 'STOPPED') {
+            console.log(`[LabExpiryWorker] Confirmed ECS task ${session.TaskArn} is STOPPED. Marking session ${session.SessionId} as STOPPED.`);
             const endedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
             await labSessionRepository.updateSession(session.SessionId, {
               Status: 'STOPPED',

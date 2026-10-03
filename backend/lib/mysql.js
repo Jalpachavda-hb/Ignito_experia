@@ -671,6 +671,23 @@ export const verifyDbConnection = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Persistent student lab workspace files (survives container stops/restarts)
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`user_lab_workspaces\` (
+        \`id\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+        \`userId\` VARCHAR(128) NOT NULL,
+        \`labId\` VARCHAR(128) NOT NULL,
+        \`filePath\` VARCHAR(255) NOT NULL,
+        \`fileName\` VARCHAR(255) NOT NULL,
+        \`content\` LONGTEXT,
+        \`language\` VARCHAR(64) DEFAULT 'python',
+        \`createdAt\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        \`updatedAt\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY \`idx_user_lab_filepath\` (\`userId\`, \`labId\`, \`filePath\`),
+        INDEX \`idx_user_lab\` (\`userId\`, \`labId\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // Re-enable foreign key checks
     await connection.query("SET FOREIGN_KEY_CHECKS = 1;");
     console.log("[MySQL] Core database schema verified successfully.");

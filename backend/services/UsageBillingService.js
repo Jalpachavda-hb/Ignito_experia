@@ -28,6 +28,20 @@ class UsageBillingService {
 
       const studentId = session.StudentId || session.UserId;
 
+      // Check if user is Admin (Admins do not get token-killed during lab development/testing)
+      const [userRows] = await connection.query(
+        `SELECT Role, AuthType FROM Users WHERE UserId = ? OR Email = ? LIMIT 1`,
+        [studentId, studentId]
+      ).catch(() => [[]]);
+      const userRole = String(userRows?.[0]?.Role || '').toLowerCase();
+      const isAdmin = userRole.includes('admin') || userRows?.[0]?.AuthType === 'ADMIN';
+
+      if (isAdmin) {
+        await connection.commit();
+        connection.release();
+        return { billed: true, chargedTokens: 0, reason: "Admin user session bypass" };
+      }
+
       // 2. Lock Lab Wallet (StudentId + TenantId + LabId)
       const wallet = await studentLabTokenWalletRepository.getWalletForUpdate(
         session.TenantId,
@@ -54,8 +68,11 @@ class UsageBillingService {
       const availableTokens = Number(wallet?.RemainingTokens || 0);
       const actualTokensToCharge = wallet ? Math.min(tokensToCharge, availableTokens) : 0;
 
-      if (wallet && actualTokensToCharge <= 0 && availableTokens <= 0) {
-        // Zero balance - transition immediately to STOPPING
+      const expiresAt = session.ExpiresAt || session.TokenExpiryAt;
+      const isStillWithinAllocatedTime = expiresAt && new Date(expiresAt).getTime() > Date.now();
+
+      if (wallet && actualTokensToCharge <= 0 && availableTokens <= 0 && !isStillWithinAllocatedTime) {
+        // Zero balance and allocated duration ended - transition to STOPPING
         await connection.query(
           `UPDATE lab_sessions SET Status = 'STOPPING', EndedAt = CURRENT_TIMESTAMP, UpdatedAt = CURRENT_TIMESTAMP WHERE SessionId = ?`,
           [sessionId]

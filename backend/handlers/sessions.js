@@ -23,8 +23,9 @@ import {
   describeTask,
   resolveTaskNetworking,
 } from "../services/ecsService.js";
-import { clearSessionFiles } from "../services/fileRepository.js";
+import { clearSessionFiles, clearDiskWorkspace } from "../services/fileRepository.js";
 import { bootstrap as bootstrapSession } from "../services/workspaceBootstrapService.js";
+import userWorkspaceService from "../services/UserWorkspaceService.js";
 
 function calculateRemainingSeconds(expiresAt) {
   if (!expiresAt) return 0;
@@ -136,6 +137,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
         try {
           await usageBillingService.finalizeSessionBilling(activeSession.SessionId);
         } catch (e) {}
+        clearSessionFiles(activeSession.SessionId, activeSession);
         await deleteSession(activeSession.SessionId).catch(() => {});
         activeSession = null;
       }
@@ -264,6 +266,29 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       dotnetSubtype,
       starterAssetKey,
     });
+
+    const isDotnetLab = labId.toLowerCase().includes('dotnet') || dotnetSubtype !== null;
+    const isPythonLab = labId.toLowerCase() === 'python-lab' || labId.toLowerCase().includes('python');
+    if (isDotnetLab || isPythonLab) {
+      // For .NET and Python lab, all prior changes are discarded on stop/start; never restore prior files.
+      // Python lab starts 100% clean and fresh with 0 files (no default starter file).
+      sessionRecord.files = [];
+      userWorkspaceService.clearUserWorkspace(effectiveUserId, labId).catch(() => {});
+      if (isPythonLab) {
+        clearDiskWorkspace();
+      }
+    } else {
+      // Restore persistent student files if applicable
+      try {
+        let userFiles = await userWorkspaceService.getUserWorkspaceFiles(effectiveUserId, labId);
+        if (userFiles && userFiles.length > 0) {
+          sessionRecord.files = userFiles;
+        }
+      } catch (restoreErr) {
+        console.warn("[sessionsStartHandler] Persistent workspace restore error:", restoreErr.message);
+      }
+    }
+
     const sessionId = sessionRecord.sessionId;
 
     dbSession = await labSessionRepository.createSession({
@@ -633,7 +658,10 @@ export const sessionsStopHandler = async ({ pathParameters, body, auth }) => {
     EndedAt: new Date()
   }).catch(() => {});
 
-  clearSessionFiles(sessionId);
+  clearSessionFiles(sessionId, dbSession);
+  if (dbSession?.UserId && dbSession?.LabId) {
+    await userWorkspaceService.clearUserWorkspace(dbSession.UserId, dbSession.LabId).catch(() => {});
+  }
   await deleteSession(sessionId).catch(() => {});
 
   return ok({

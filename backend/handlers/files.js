@@ -12,6 +12,7 @@ import {
 import { saveToContainer, deleteFromContainer, readFromContainer, readBinaryFromContainer, renameInContainer } from "../services/containerClient.js";
 import { validateFile } from "../utils/validation.js";
 import { updateSession } from "../services/sessionRepository.js";
+import userWorkspaceService from "../services/UserWorkspaceService.js";
 
 const languageFromPath = (filePath) => {
   if (filePath.endsWith(".py")) return "python";
@@ -54,11 +55,18 @@ export const filesListHandler = async (event) => {
     console.log(`[filesListHandler] Session authorized successfully. sessionId: ${sessionId}`);
     const files = await listFiles(sessionId);
     console.log(`[filesListHandler] File list retrieved successfully for sessionId: ${sessionId}. Count: ${files?.length || 0}`);
-    // Omit bodies from the tree payload; content is served via /files/content (session-cached)
+    const NO_CACHE_HEADERS = {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    };
+
+    // Omit bodies from the tree payload; content is served via /files/content
     const tree = (files || []).map(({ content, ...rest }) => rest);
+
     return ok({
       files: tree,
-    });
+    }, 200, NO_CACHE_HEADERS);
   } catch (err) {
     console.error("[filesListHandler] FATAL ERROR:", err.message, err.stack);
     throw err;
@@ -71,7 +79,17 @@ export const filesContentHandler = async (event) => {
   if (!filePath) throw badRequest("path is required");
   const forceFresh = event.queryStringParameters?.fresh === "1" || event.queryStringParameters?.fresh === "true";
 
-  // Serve cached body immediately — container HTTP often fails in local/dev and SSM is slow
+  const NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
+  };
+
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+
+  // Serve cached body immediately only if fresh was not explicitly requested
   const cached = session?.files?.find((f) => f.path === filePath);
   const suspiciousEmptyXml =
     typeof cached?.content === "string" &&
@@ -82,7 +100,7 @@ export const filesContentHandler = async (event) => {
       path: filePath,
       content: cached.content,
       language: cached.language || languageFromPath(filePath),
-    });
+    }, 200, NO_CACHE_HEADERS);
   }
 
   if (session?.status === "running") {
@@ -99,7 +117,7 @@ export const filesContentHandler = async (event) => {
           path: filePath,
           content: containerContent,
           language,
-        });
+        }, 200, NO_CACHE_HEADERS);
       }
     } catch (err) {
       console.warn("[filesContentHandler] Failed to read container file content:", err.message);
@@ -114,7 +132,7 @@ export const filesContentHandler = async (event) => {
     path: file.path,
     content: file.content ?? "",
     language: file.language,
-  });
+  }, 200, NO_CACHE_HEADERS);
 };
 
 export const filesSaveHandler = async (event) => {
@@ -142,15 +160,6 @@ export const filesSaveHandler = async (event) => {
   }
 
   await upsertFile(sessionId, { path: filePath, content, name, language });
-
-  if (session?.status === "running") {
-    try {
-      await saveToContainer(session, { path: filePath, content });
-    } catch (err) {
-      console.warn("[filesSave] container proxy skipped:", err.message);
-    }
-  }
-
   return ok({ message: "File saved successfully" });
 };
 
@@ -203,6 +212,11 @@ export const filesRenameHandler = async (event) => {
     await renameInContainer(session, from, to);
   } else {
     throw badRequest("Session is not running");
+  }
+
+  // Update persistent storage for user
+  if (session?.userId && session?.labId) {
+    userWorkspaceService.renameUserWorkspaceFile(session.userId, session.labId, from, to).catch(() => {});
   }
 
   // Update cached file paths (files under renamed folder, or the file itself)

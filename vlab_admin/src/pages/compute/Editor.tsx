@@ -709,6 +709,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     });
   };
   const [isSaving, setIsSaving] = useState(false);
+  const typingDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [runningAction, setRunningAction] = useState<'build' | 'run' | null>(null);
   const [dotnetBuildReady, setDotnetBuildReady] = useState(false);
   const isRunning = runningAction !== null;
@@ -842,36 +843,63 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
 
-  const refreshFiles = async (showLoading = false) => {
+  const prevSessionIdRef = useRef<string>('');
+
+  const resetEditorState = () => {
+    setFiles([]);
+    filesRef.current = [];
+    setActiveFileIndex(-1);
+    activeFileIndexRef.current = -1;
+    setOpenFilePaths([]);
+    setLoadedPaths(new Set());
+    lastSavedContentRef.current.clear();
+    dirtyPathsRef.current.clear();
+    setConsoleSession(null);
+    setWebPreviewCode('');
+    setRunningAction(null);
+    setDotnetBuildReady(false);
+  };
+
+  const refreshFiles = async (showLoading = false, forceFresh = false) => {
     if (!sessionId) return;
     if (showLoading) setIsLoading(true);
     else setIsRefreshingFiles(true);
     try {
-      const response = await fetchFiles(sessionId);
+      const response = await fetchFiles(sessionId, true);
       if (response.success) {
         const activePath =
           activeFileIndexRef.current >= 0 && filesRef.current[activeFileIndexRef.current]
             ? filesRef.current[activeFileIndexRef.current].path
             : null;
 
-        // Always merge against the latest in-memory files so refreshes never wipe typing
-        setFiles((prev) => {
-          const mergedFiles = response.files.map((newFile: any) => {
-            const existing = prev.find((f) => f.path === newFile.path);
-            if (existing && existing.content !== undefined) {
-              return { ...newFile, content: existing.content, language: existing.language || newFile.language };
-            }
-            return newFile;
+        if (forceFresh) {
+          // Fresh session / explicit reload: completely discard previous in-memory caches
+          setFiles(response.files);
+          filesRef.current = response.files;
+          setLoadedPaths(new Set());
+          lastSavedContentRef.current.clear();
+          dirtyPathsRef.current.clear();
+        } else {
+          // Normal background polling: merge against latest in-memory files so active typing is preserved
+          setFiles((prev) => {
+            const mergedFiles = response.files.map((newFile: any) => {
+              const existing = prev.find((f) => f.path === newFile.path);
+              if (existing && existing.content !== undefined) {
+                return { ...newFile, content: existing.content, language: existing.language || newFile.language };
+              }
+              return newFile;
+            });
+            return mergedFiles;
           });
-          return mergedFiles;
-        });
+        }
 
         setOpenFilePaths((prev) => {
           const validPaths = response.files.map((f: any) => f.path);
-          return prev.filter((p) => validPaths.includes(p));
+          return forceFresh ? (validPaths.length > 0 ? [validPaths[0]] : []) : prev.filter((p) => validPaths.includes(p));
         });
 
         setLoadedPaths((prev) => {
+          if (forceFresh) return new Set();
           const next = new Set(prev);
           const newPaths = new Set(response.files.map((f: any) => f.path));
           prev.forEach((p) => {
@@ -880,13 +908,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           return next;
         });
 
-        if (activePath) {
+        if (activePath && !forceFresh) {
           const newIdx = response.files.findIndex((f: any) => f.path === activePath);
           if (newIdx >= 0) setActiveFileIndex(newIdx);
-        } else if (response.files.length > 0 && activeFileIndexRef.current < 0) {
+        } else if (response.files.length > 0) {
           // Auto-select starter file or first file so the editor and run button are immediately ready
           const preferredFileIdx = response.files.findIndex((f: any) =>
-            /main\.(py|java|cs|js)|program\.cs|index\.html|app\.(py|js)|script\.(py|sh)/i.test(f.name)
+            /program\.cs|main\.(py|java|cs|js)|index\.html|app\.(py|js)|script\.(py|sh)/i.test(f.name)
           );
           const targetIdx = preferredFileIdx >= 0 ? preferredFileIdx : 0;
           const targetFile = response.files[targetIdx];
@@ -917,20 +945,27 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     const lid = (searchParams.get('labId') || propSession?.labId || '').toLowerCase();
 
     if (finalSessionId) {
+      if (prevSessionIdRef.current && prevSessionIdRef.current !== finalSessionId) {
+        // Session changed: reset all in-memory editor and console cache
+        resetEditorState();
+      }
+      prevSessionIdRef.current = finalSessionId;
       setSessionId(finalSessionId);
       setLabId(lid);
     }
   }, [propSession, location.search]);
 
   useEffect(() => {
-    refreshFiles(true);
+    if (sessionId) {
+      refreshFiles(true, true);
+    }
   }, [sessionId, labId]);
 
   // Auto-refresh file explorer every 3 minutes
   useEffect(() => {
     if (!sessionId) return;
     const interval = setInterval(() => {
-      refreshFilesRef.current(false);
+      refreshFilesRef.current(false, false);
     }, 180000);
     return () => clearInterval(interval);
   }, [sessionId]);
@@ -944,7 +979,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     pendingFetchRef.current.add(targetPath);
     setContentLoadingPath(targetPath);
     try {
-      const res = await fetchFileContent(targetPath, sessionId);
+      const res = await fetchFileContent(targetPath, sessionId, true);
       if (res && res.success) {
         setFiles((prev) =>
           prev.map((f) =>
@@ -992,12 +1027,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     const targetFile = currentFiles[newIdx];
     const targetPath = targetFile.path;
 
-    // Already loaded in memory
-    if (loadedPaths.has(targetPath) || typeof targetFile.content === 'string') {
+    // Already loaded in memory with valid string content
+    if (loadedPaths.has(targetPath) && typeof targetFile.content === 'string') {
       markPathLoaded(targetPath);
-      if (typeof targetFile.content !== 'string') {
-        await loadFileContent(targetPath);
-      }
       return;
     }
 
@@ -1257,30 +1289,43 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     const idx = activeFileIndexRef.current;
     const file = filesRef.current[idx];
     if (!file || !sessionId) return;
-    if (typeof file.content !== 'string') {
+    const currentCode = editorRef.current ? editorRef.current.getValue() : file.content;
+    if (typeof currentCode !== 'string') {
       if (showFeedback) toast.error('File is still loading — wait before saving.');
       return;
     }
     const lastSaved = lastSavedContentRef.current.get(file.path);
-    if (!showFeedback && lastSaved === file.content) return;
-    setIsSaving(true);
+    if (!showFeedback && lastSaved === currentCode) return;
+
+    if (showFeedback) {
+      setIsSaving(true);
+    }
     try {
       const payload = {
         ...file,
-        content: file.content,
+        content: currentCode,
       };
       await saveFile(payload, sessionId);
-      lastSavedContentRef.current.set(file.path, payload.content);
+      lastSavedContentRef.current.set(file.path, currentCode);
       dirtyPathsRef.current.delete(file.path);
+
+      try {
+        localStorage.setItem(`vlab_backup_${labId}_${file.path}`, currentCode);
+      } catch (_) {}
+
       if (showFeedback) {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 2000);
       }
     } catch (err: any) {
       console.error('Save error:', err);
-      toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
+      if (showFeedback) {
+        toast.error(err.message || 'Unable to access container workspace. Please refresh or restart the session.');
+      }
     } finally {
-      setIsSaving(false);
+      if (showFeedback) {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -1462,17 +1507,25 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     try {
       showRunningPreview(previewMode);
 
+      const editorCode = editorRef.current ? editorRef.current.getValue() : (activeFile?.content || '');
+      // If dirty, immediately save to backend so container has latest code
+      if (activeFile?.path && dirtyPathsRef.current.has(activeFile.path)) {
+        saveFile({ ...activeFile, content: editorCode }, sessionId).catch(() => {});
+        lastSavedContentRef.current.set(activeFile.path, editorCode);
+        dirtyPathsRef.current.delete(activeFile.path);
+      }
+
       const runPayload = isAndroid
         ? { path: '/workspace/build.sh', language: 'shell', content: '', labType: 'android' }
         : isDotnet
           ? {
             path: activeFile.path,
             language: 'csharp',
-            content: activeFile.content,
+            content: editorCode,
             labType: 'dotnet',
             ...(dotnetAction ? { action: dotnetAction } : {}),
           }
-          : { path: activeFile.path, language: activeFile.language, content: activeFile.content };
+          : { path: activeFile.path, language: activeFile.language, content: editorCode };
 
       const response = await runFile(runPayload, sessionId);
       await refreshFiles(false);
@@ -1741,20 +1794,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       try {
         await saveFile(newFile, sessionId);
         toast.success(`Created ${fileName} in ${folderLabel}`);
+        await refreshFiles(false);
       } catch (err) {
         console.error('Failed to save newly added file on backend:', err);
         toast.error('Failed to create file');
       }
       selectFile(files.length, [...files, newFile]).catch(() => { });
-
-      (async () => {
-        try {
-          await saveFile(newFile, sessionId);
-          await refreshFiles(false);
-        } catch (err) {
-          console.error('Failed to save newly added file on backend:', err);
-        }
-      })();
     }
   };
 
@@ -1890,14 +1935,25 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     markPathLoaded(path);
     dirtyPathsRef.current.add(path);
 
-    setFiles((prev) => {
-      const currentIdx = prev[idx]?.path === path ? idx : prev.findIndex((f) => f.path === path);
-      if (currentIdx < 0) return prev;
-      if (prev[currentIdx].content === value) return prev;
-      const updated = [...prev];
-      updated[currentIdx] = { ...updated[currentIdx], content: value };
-      return updated;
-    });
+    // Immediately update ref so Run, Save, and tab switching always have the latest content with 0 latency
+    if (filesRef.current[idx]) {
+      filesRef.current[idx].content = value;
+    }
+
+    // Debounce the heavy React component tree re-render so Monaco typing stays 60fps smooth
+    if (typingDebounceTimerRef.current) {
+      clearTimeout(typingDebounceTimerRef.current);
+    }
+    typingDebounceTimerRef.current = setTimeout(() => {
+      setFiles((prev) => {
+        const currentIdx = prev[idx]?.path === path ? idx : prev.findIndex((f) => f.path === path);
+        if (currentIdx < 0) return prev;
+        if (prev[currentIdx].content === value) return prev;
+        const updated = [...prev];
+        updated[currentIdx] = { ...updated[currentIdx], content: value };
+        return updated;
+      });
+    }, 200);
   };
 
   if (isLoading && !sessionId) {
@@ -1987,6 +2043,18 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   </button>
                 </div>
               ))
+            )}
+            {files.length === 0 && !isLoading && (
+              <div className="px-4 py-8 flex flex-col items-center justify-center text-center">
+                <p className="text-[11px] text-slate-500 font-medium mb-3">No files in workspace</p>
+                <button
+                  onClick={() => handleAddFile()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 text-red-400 hover:text-red-300 text-[11px] font-semibold transition-colors"
+                >
+                  <Plus size={12} />
+                  <span>New File</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -2178,7 +2246,10 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               <span className="text-white">Back</span>
             </button>
             <button
-              onClick={onStopLab}
+              onClick={() => {
+                resetEditorState();
+                onStopLab?.();
+              }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 border border-red-500/40 text-white text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-red-900/30 active:scale-95"
               title="Stop Lab Session"
             >

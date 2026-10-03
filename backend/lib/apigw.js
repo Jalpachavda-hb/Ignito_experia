@@ -91,9 +91,9 @@ export const createHandler = (fn, { auth = false } = {}) => {
   };
 };
 
-export const ok = (data, statusCode = 200) => ({ statusCode, body: { success: true, ...data } });
-export const serverError = (data, statusCode = 500) => ({ statusCode, body: { success: false, ...data } });
-export const notFound = (message = "Not found") => ({ statusCode: 404, body: { success: false, message } });
+export const ok = (data, statusCode = 200, headers = {}) => ({ statusCode, headers, body: { success: true, ...data } });
+export const serverError = (data, statusCode = 500, headers = {}) => ({ statusCode, headers, body: { success: false, ...data } });
+export const notFound = (message = "Not found", headers = {}) => ({ statusCode: 404, headers, body: { success: false, message } });
 
 export const expressRoute = (app, route, apiPrefix) => {
   const fullPath = `${apiPrefix}${route.path}`;
@@ -122,9 +122,9 @@ export const expressRoute = (app, route, apiPrefix) => {
       const response =
         result?.statusCode && result?.body
           ? result
-          : jsonResponse(result?.statusCode ?? 200, result?.body ?? result);
+          : jsonResponse(result?.statusCode ?? 200, result?.body ?? result, result?.headers || {});
 
-      const headers = { ...response.headers };
+      const headers = { ...response.headers, ...(result?.headers || {}) };
       const reqOrigin = req.headers.origin;
       if (reqOrigin) {
         headers["Access-Control-Allow-Origin"] = reqOrigin;

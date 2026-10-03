@@ -5,7 +5,7 @@ import net from "net";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { getSession, updateSession } from "./sessionRepository.js";
-import { getPresignedUrl } from "./containerClient.js";
+import { getPresignedUrl, saveToContainer } from "./containerClient.js";
 import { getContainerPort, getContainerHost, isDirectContainerMode } from "../lib/labTools.js";
 import { getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
@@ -321,7 +321,19 @@ export const bootstrap = async (session, netInfo = null) => {
     const config = getTemplateConfig(freshSession, lab);
 
     if (!config) {
-      console.log(`[WorkspaceBootstrap] Lab ${freshSession.labId} does not require starter files.`);
+      console.log(`[WorkspaceBootstrap] Lab ${freshSession.labId} does not require template archive.`);
+      if (freshSession.files && freshSession.files.length > 0) {
+        console.log(`[WorkspaceBootstrap] Syncing ${freshSession.files.length} restored workspace file(s) into container...`);
+        for (const file of freshSession.files) {
+          if (file.path && typeof file.content === "string") {
+            try {
+              await saveToContainer(freshSession, { path: file.path, content: file.content });
+            } catch (syncErr) {
+              console.warn(`[WorkspaceBootstrap] Could not sync user file ${file.path} to container:`, syncErr.message);
+            }
+          }
+        }
+      }
       return;
     }
 

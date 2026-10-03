@@ -191,7 +191,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubty
     { name: "LAB_WORKSPACE", value: "/tmp/workspace" },
     { name: "EXECUTE_TIMEOUT_MS", value: "360000" },
     { name: "EXECUTION_TIMEOUT_MS", value: "360000" },
-    { name: "TIMEOUT", value: "360" },
+    { name: "TIMEOUT", value: "3600" },
   ];
 
   if (dotnetSubtype) {

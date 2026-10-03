@@ -197,17 +197,26 @@ export const fetchUserActiveSession = async (userId, labId) => {
   });
 };
 
-export const fetchFiles = async (sessionId) => {
+export const fetchFiles = async (sessionId, forceFresh = true) => {
   return executeRequest(API_PATHS.IDE.GET_FILES, {
-    headers: { 'x-session-id': sessionId },
+    params: forceFresh ? { t: Date.now() } : undefined,
+    headers: {
+      'x-session-id': sessionId,
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+    },
     auth: true,
   });
 };
 
-export const fetchFileContent = async (path, sessionId) => {
+export const fetchFileContent = async (path, sessionId, forceFresh = true) => {
   return executeRequest(API_PATHS.IDE.GET_FILE_CONTENT, {
-    params: { path },
-    headers: { 'x-session-id': sessionId },
+    params: { path, ...(forceFresh ? { fresh: '1', t: Date.now() } : {}) },
+    headers: {
+      'x-session-id': sessionId,
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+    },
     auth: true,
   });
 };

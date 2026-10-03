@@ -12,6 +12,7 @@ import {
 } from "./containerClient.js";
 import labSessionRepository from "../repositories/LabSessionRepository.js";
 import { ENV } from "../config/env.js";
+import userWorkspaceService from "./UserWorkspaceService.js";
 
 // Dynamically resolve the parent directory of backend as the local workspace root
 const getLocalWorkspaceRoot = () => {
@@ -214,6 +215,15 @@ const isBinaryExt = (name) => {
 // In-memory S3 starter files cache: key -> Array of { name, path, type, language, content, size }
 const s3StarterCache = new Map();
 
+const cloneFileRecord = (f) => ({
+  name: f.name,
+  path: f.path,
+  type: f.type,
+  language: f.language,
+  content: typeof f.content === "string" ? f.content : "",
+  size: f.size ?? (typeof f.content === "string" ? Buffer.byteLength(f.content) : 0),
+});
+
 export const fetchStarterFilesFromS3 = async (session) => {
   if (session && !session.dotnetSubtype && session.sessionId) {
     try {
@@ -227,7 +237,7 @@ export const fetchStarterFilesFromS3 = async (session) => {
   if (!key) return [];
 
   if (s3StarterCache.has(key)) {
-    return s3StarterCache.get(key);
+    return s3StarterCache.get(key).map(cloneFileRecord);
   }
 
   const bucket = ENV.testCasesBucket || "vlab-dev-lab-files-0kdrg0q8";
@@ -275,9 +285,9 @@ export const fetchStarterFilesFromS3 = async (session) => {
     }
 
     if (files.length > 0) {
-      s3StarterCache.set(key, files);
+      s3StarterCache.set(key, files.map(cloneFileRecord));
     }
-    return files;
+    return files.map(cloneFileRecord);
   } catch (err) {
     console.error(`[fileRepository] Failed to read starter files from S3:`, err.message);
     return [];
@@ -356,7 +366,11 @@ export const listFiles = async (sessionId) => {
       }
     }
 
-    if (!session?.taskArn) {
+    const labId = (session?.labId || "").toLowerCase();
+    const labType = (session?.labType || "").toLowerCase();
+    const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+
+    if (!session?.taskArn && !isDotnet) {
       const root = getLocalWorkspaceRoot();
       if (fs.existsSync(root)) {
         try {
@@ -384,8 +398,32 @@ export const listFiles = async (sessionId) => {
   
   let finalTree = filterDotnetFiles(result, session);
 
-  // If workspace is empty or container not ready yet, load starter files directly from S3!
-  if (finalTree.length === 0) {
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+  const isPython = labType === "python" || labId === "python-lab" || labId.includes("python");
+
+  // 1. If workspace is empty, check for persisted student files from previous sessions!
+  // (NOTE: For .NET and Python lab, all changes are discarded on stop; do not restore persisted files!)
+  if (!isDotnet && !isPython && finalTree.length === 0 && session?.userId && session?.labId) {
+    try {
+      const savedUserFiles = await userWorkspaceService.getUserWorkspaceFiles(session.userId, session.labId);
+      if (savedUserFiles && savedUserFiles.length > 0) {
+        console.log(`[listFiles] Restoring ${savedUserFiles.length} persistent workspace file(s) for user ${session.userId}, lab ${session.labId}`);
+        finalTree = filterDotnetFiles(savedUserFiles, session);
+        await updateSession(sessionId, { files: finalTree }).catch(e => {
+          console.warn(`[listFiles] Failed to cache restored user files in DB: ${e.message}`);
+        });
+      }
+    } catch (restoreErr) {
+      console.warn("[listFiles] Error restoring user files:", restoreErr.message);
+    }
+  }
+
+  // 2. If workspace is empty or container not ready yet, load starter files directly from S3!
+  // For .NET lab: always ensure fresh starter files from S3 if session is new or files not yet populated.
+  // Python lab starts 100% clean and fresh with 0 files (no starter files).
+  if (!isPython && (finalTree.length === 0 || (isDotnet && (!session?.files || session.files.length === 0)))) {
     const s3StarterFiles = await fetchStarterFilesFromS3(session);
     if (s3StarterFiles && s3StarterFiles.length > 0) {
       console.log(`[listFiles] Populating workspace from S3 starter template (${s3StarterFiles.length} files) for session ${sessionId}`);
@@ -402,10 +440,44 @@ export const listFiles = async (sessionId) => {
         session
       );
       if (filteredS3.length > 0) {
-        finalTree = filteredS3;
-        await updateSession(sessionId, { files: filteredS3 }).catch(e => {
+        finalTree = filteredS3.map(cloneFileRecord);
+        await updateSession(sessionId, { files: finalTree }).catch(e => {
           console.warn(`[listFiles] Failed to cache S3 starter files in DB: ${e.message}`);
         });
+
+        // Also sync fresh files to local workspace root on disk, overwriting any previous disk leftovers
+        if (!session?.taskArn) {
+          try {
+            const root = getLocalWorkspaceRoot();
+            if (fs.existsSync(root)) {
+              for (const f of finalTree) {
+                const cleanRel = f.path.replace(/^\/workspace\//, "").replace(/^\/+/, "");
+                const localFilePath = path.join(root, cleanRel);
+                fs.mkdirSync(path.dirname(localFilePath), { recursive: true });
+                if (typeof f.content === "string") {
+                  fs.writeFileSync(localFilePath, f.content, "utf8");
+                }
+              }
+            }
+          } catch (syncErr) {
+            console.warn("[listFiles] Failed to sync S3 starter files to local disk:", syncErr.message);
+          }
+        }
+      }
+    }
+  }
+
+  // 3. If still empty, load default starter files (not for Python lab)
+  if (!isPython && finalTree.length === 0 && session?.labId) {
+    const defaultStarters = userWorkspaceService.getDefaultStarterFiles(session.labId);
+    if (defaultStarters && defaultStarters.length > 0) {
+      console.log(`[listFiles] Providing default starter files (${defaultStarters.length}) for lab ${session.labId}`);
+      finalTree = defaultStarters;
+      await updateSession(sessionId, { files: defaultStarters }).catch(() => {});
+      if (session?.userId) {
+        for (const f of defaultStarters) {
+          userWorkspaceService.saveUserWorkspaceFile(session.userId, session.labId, f).catch(() => {});
+        }
       }
     }
   }
@@ -506,6 +578,14 @@ export const cacheFileContent = async (sessionId, fileData) => {
   if (index >= 0) files[index] = { ...files[index], ...record };
   else files.push(record);
   await updateSession(sessionId, { files });
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+
+  // Do not persist .NET lab files to long-term MySQL storage
+  if (!isDotnet && session?.userId && session?.labId) {
+    userWorkspaceService.saveUserWorkspaceFile(session.userId, session.labId, record).catch(() => {});
+  }
 };
 
 export const upsertFile = async (sessionId, fileData) => {
@@ -522,6 +602,17 @@ export const upsertFile = async (sessionId, fileData) => {
   const cacheKey = getCacheKey(sessionId, fileData.path);
   fileContentCache.set(cacheKey, record);
   invalidateWorkspaceIndex(sessionId);
+
+  const labId = (session?.labId || "").toLowerCase();
+  const labType = (session?.labType || "").toLowerCase();
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+
+  // Persist file into persistent database for non-dotnet labs only
+  if (!isDotnet && session?.userId && session?.labId) {
+    userWorkspaceService.saveUserWorkspaceFile(session.userId, session.labId, record).catch(err => {
+      console.warn("[upsertFile] Failed to persist file to MySQL:", err.message);
+    });
+  }
 
   if (session?.status === "running") {
     try {
@@ -546,6 +637,7 @@ export const upsertFile = async (sessionId, fileData) => {
   if (index >= 0) files[index] = { ...files[index], ...record };
   else files.push(record);
 
+  await updateSession(sessionId, { files }).catch(() => {});
   return record;
 };
 
@@ -555,6 +647,12 @@ export const deleteFile = async (sessionId, filePath) => {
   invalidateWorkspaceIndex(sessionId);
 
   const session = await getSession(sessionId);
+  if (session?.userId && session?.labId) {
+    userWorkspaceService.deleteUserWorkspaceFile(session.userId, session.labId, filePath).catch(err => {
+      console.warn("[deleteFile] Failed to delete from persistent storage:", err.message);
+    });
+  }
+
   if (session?.status === "running") {
     try {
       await deleteFromContainer(session, filePath);
@@ -571,7 +669,47 @@ export const deleteFile = async (sessionId, filePath) => {
   await updateSession(sessionId, { files }).catch(() => {});
 };
 
-export const clearSessionFiles = (sessionId) => {
-  // No-op as workspace is disk-bound
+export const clearDiskWorkspace = () => {
+  try {
+    const root = getLocalWorkspaceRoot();
+    if (fs.existsSync(root)) {
+      const items = fs.readdirSync(root);
+      for (const item of items) {
+        if ([".git", "node_modules", "backend", "vlab_admin", "ignito_Experia_Main_Dashboard"].includes(item)) {
+          continue;
+        }
+        const itemPath = path.join(root, item);
+        try {
+          fs.rmSync(itemPath, { recursive: true, force: true });
+        } catch (e) {
+          console.warn(`[clearDiskWorkspace] Failed to remove ${itemPath}:`, e.message);
+        }
+      }
+      console.log(`[clearDiskWorkspace] Workspace at ${root} cleared`);
+    }
+  } catch (err) {
+    console.warn(`[clearDiskWorkspace] Error clearing local workspace:`, err.message);
+  }
+};
+
+export const clearSessionFiles = (sessionId, session = null) => {
+  if (sessionId) {
+    workspaceIndexCache.delete(sessionId);
+    for (const key of fileContentCache.keys()) {
+      if (key.startsWith(`${sessionId}:`)) {
+        fileContentCache.delete(key);
+      }
+    }
+  }
+
+  // Clear disk workspace files so modified files do not persist between sessions
+  clearDiskWorkspace();
+
+  // Discard lab changes from persistent storage on lab stop so new session starts fresh
+  const labId = (session?.labId || session?.LabId || "").toLowerCase();
+  const userId = session?.userId || session?.UserId;
+  if (userId && labId) {
+    userWorkspaceService.clearUserWorkspace(userId, labId).catch(() => {});
+  }
 };
 
