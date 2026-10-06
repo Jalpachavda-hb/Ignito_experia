@@ -173,6 +173,15 @@ export async function verifyDbConnection() {
     await conn.query("DELETE FROM `runtime_types` WHERE `Value` = 'codeserver';");
     await conn.query("UPDATE `labs` SET `RuntimeType` = 'ide' WHERE `RuntimeType` = 'codeserver';");
 
+    // Ensure BaseTokenPrice column exists on labs table
+    try {
+      await conn.query("ALTER TABLE `labs` ADD COLUMN `BaseTokenPrice` DECIMAL(10,2) NOT NULL DEFAULT 100.00 AFTER `Credits`;");
+    } catch (err) {
+      if (err.code !== "ER_DUP_FIELDNAME") {
+        console.warn(`[DB] labs BaseTokenPrice column migration skipped: ${err.message}`);
+      }
+    }
+
     // Ensure owner_users table exists and is migrated to the new schema (has PhoneNumber column)
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`owner_users\` (

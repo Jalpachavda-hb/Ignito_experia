@@ -134,15 +134,22 @@ class CreditWalletRepository {
     const sId = userId != null ? String(userId).trim() : '';
     const email = userEmail != null ? String(userEmail).trim().toLowerCase() : '';
 
-    let query = `SELECT TransactionId, TenantId, UserId, Type, Source, Credits, Amount, Currency, PaymentReference, LabId, LabSessionId, IdempotencyKey, Status, MetadataJson, CreatedAt
+    const query = `SELECT TransactionId, TenantId, UserId, Type, Source, Credits, Amount, Currency, PaymentReference, LabId, LabSessionId, IdempotencyKey, Status, MetadataJson, CreatedAt
        FROM credit_transactions
        WHERE (UserId = ? 
-              OR (? != '' AND LOWER(CAST(UserId AS CHAR)) = ?) 
               OR (? != '' AND LOWER(CAST(UserId AS CHAR)) = ?)
+              OR (? != '' AND UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?))
               OR (? != '' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.userEmail'))) = ?)
               OR (? != '' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.studentEmail'))) = ?))
        ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`;
-    const params = [sId, sId, sId.toLowerCase(), email, email, email, email, email, email, Number(limit), Number(offset)];
+    const params = [
+      sId,
+      sId, sId.toLowerCase(),
+      email, email, email,
+      email, email,
+      email, email,
+      Number(limit), Number(offset)
+    ];
 
     const [rows] = await db.query(query, params);
     return rows;

@@ -17,6 +17,12 @@ import {
 
 // Map the DB response to the original frontend Lab schema
 const mapApiToFrontendLab = (apiLab: any): Lab => {
+  const dynamicPrice = apiLab.baseTokenPrice != null 
+    ? Number(apiLab.baseTokenPrice) 
+    : (apiLab.pricePer60Tokens != null 
+        ? Number(apiLab.pricePer60Tokens) 
+        : (apiLab.credits != null ? Number(apiLab.credits) : 100));
+
   return {
     id: apiLab.labCode || apiLab.id || String(apiLab.dbId),
     title: apiLab.title || 'Untitled Lab',
@@ -25,7 +31,7 @@ const mapApiToFrontendLab = (apiLab: any): Lab => {
     semester: apiLab.semester || '',
     logoUrl: apiLab.logoUrl || apiLab.logo || '',
     category: apiLab.category || 'Development',
-    credits: apiLab.credits || 0,
+    credits: dynamicPrice,
     durationMinutes: apiLab.durationMinutes || 60,
     complexity: apiLab.complexity || 'Intermediate',
     runtimeType: apiLab.runtimeType || apiLab.runtime?.type || 'IDE',
@@ -98,7 +104,12 @@ export function useUpdateLabMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ labId, payload }: { labId: string; payload: Partial<Lab> }) => {
-      return await updateAdminLab(labId, payload)
+      const price = (payload as any).baseTokenPrice ?? (payload as any).credits;
+      const fullPayload = {
+        ...payload,
+        baseTokenPrice: price != null ? Number(price) : undefined,
+      };
+      return await updateAdminLab(labId, fullPayload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })
@@ -130,7 +141,12 @@ export function useCreateLabMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (payload: Partial<Lab>) => {
-      return await createAdminLab(payload)
+      const price = (payload as any).baseTokenPrice ?? (payload as any).credits;
+      const fullPayload = {
+        ...payload,
+        baseTokenPrice: price != null ? Number(price) : undefined,
+      };
+      return await createAdminLab(fullPayload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['labs'] })

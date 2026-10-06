@@ -6,6 +6,7 @@ export interface LabTokenWallet {
   id: number;
   labId: string;
   purchasedTokens: number;
+  allocatedTokens?: number;
   usedTokens: number;
   remainingTokens: number;
   runtimeRemainingMinutes: number;

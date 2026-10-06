@@ -21,7 +21,9 @@ import {
   Clock,
   XCircle,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  GraduationCap,
+  Zap
 } from 'lucide-react';
 import { useTransactionStore, TransactionRecord } from '@/stores/transactionStore';
 import { useAuthStore } from '@/stores/auth-store';
@@ -84,7 +86,13 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
     let Icon = CreditCard;
     let colorClass = 'text-indigo-600 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900';
 
-    if (m.includes('qr')) {
+    if (m.includes('university') || m.includes('curriculum') || m.includes('quota') || m.includes('allocation')) {
+      Icon = GraduationCap;
+      colorClass = 'text-indigo-700 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900';
+    } else if (m.includes('runtime') || m.includes('usage') || m.includes('session')) {
+      Icon = Zap;
+      colorClass = 'text-rose-700 bg-rose-50 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900';
+    } else if (m.includes('qr')) {
       Icon = QrCode;
       colorClass = 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900';
     } else if (m.includes('paytm')) {
@@ -279,10 +287,10 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
                           <span className={`font-black text-sm ${isFailed ? 'text-rose-500 line-through opacity-80' : isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
-                            ₹{tx.amountRupees ?? tx.amount}
+                            {isFailed ? `₹${tx.amountRupees ?? tx.amount}` : isCredit ? (tx.amountRupees && Number(tx.amountRupees) > 0 ? `₹${tx.amountRupees}` : 'Curriculum Quota') : 'Runtime Usage'}
                           </span>
-                          <span className="text-[10px] font-bold text-slate-400">
-                            {isFailed ? '0 Tokens' : `+${tx.amount} Tokens`}
+                          <span className={`text-[10px] font-bold ${isFailed ? 'text-slate-400' : isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                            {isFailed ? '0 Tokens' : isCredit ? `+${tx.amount} Tokens` : `-${tx.amount} Tokens`}
                           </span>
                         </div>
                       </td>

@@ -56,11 +56,11 @@ export async function createLabHandler(req, res) {
       LabCode: body.labCode || body.id,
       Title: body.title,
       Subtitle: body.subtitle,
-      Logo: body.logoUrl || body.logo,
-      DurationMinutes: parseInt(body.durationMinutes, 10) || 0,
-      Credits: parseInt(body.credits, 10) || 0,
-      BaseTokenPrice: body.baseTokenPrice != null && body.baseTokenPrice !== "" ? parseFloat(body.baseTokenPrice) : 100,
-      Complexity: body.complexity,
+      BaseTokenPrice: body.baseTokenPrice != null && body.baseTokenPrice !== "" 
+        ? parseFloat(body.baseTokenPrice) 
+        : (body.credits != null && body.credits !== "" 
+            ? parseFloat(body.credits) 
+            : (body.tokenCost != null && body.tokenCost !== "" ? parseFloat(body.tokenCost) : 100)),
       Category: body.category,
       Description: body.description,
       TaskDefinition: body.taskDefinition,
@@ -99,9 +99,11 @@ export async function updateLabHandler(req, res) {
       Title: body.title,
       Subtitle: body.subtitle,
       Logo: body.logoUrl || body.logo,
-      DurationMinutes: parseInt(body.durationMinutes, 10) || 0,
-      Credits: parseInt(body.credits, 10) || 0,
-      BaseTokenPrice: body.baseTokenPrice != null && body.baseTokenPrice !== "" ? parseFloat(body.baseTokenPrice) : 100,
+      BaseTokenPrice: body.baseTokenPrice != null && body.baseTokenPrice !== "" 
+        ? parseFloat(body.baseTokenPrice) 
+        : (body.credits != null && body.credits !== "" 
+            ? parseFloat(body.credits) 
+            : (body.tokenCost != null && body.tokenCost !== "" ? parseFloat(body.tokenCost) : 100)),
       Complexity: body.complexity,
       Category: body.category,
       Description: body.description,

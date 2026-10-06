@@ -39,8 +39,6 @@ CREATE TABLE IF NOT EXISTS `labs` (
     `Subtitle`           VARCHAR(300),
     `Semester`           VARCHAR(100),
     `Logo`               TEXT,
-    `DurationMinutes`    INT          DEFAULT 0,
-    `Credits`            INT          DEFAULT 0,
     `BaseTokenPrice`     DECIMAL(10,2) NOT NULL DEFAULT 100.00,
     `Complexity`         VARCHAR(50),
     `Category`           VARCHAR(100),

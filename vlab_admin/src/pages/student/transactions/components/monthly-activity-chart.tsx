@@ -56,7 +56,35 @@ export function MonthlyActivityChart({}: MonthlyActivityChartProps) {
       });
     });
 
-    // Map labWallets to lab consumption
+    // Populate transactions (Tokens Added vs Debit credit cuts per lab)
+    successfulTransactions.forEach((tx) => {
+      if (!tx.date) return;
+      const txDate = new Date(tx.date);
+      const mName = txDate.toLocaleString('en-US', { month: 'short' });
+      if (!monthMap[mName]) return;
+
+      const tokenVal = Number(tx.tokens || tx.amount || 0);
+
+      if (tx.type === 'Credit' || (tx.type as string) === 'Token' || !tx.type) {
+        monthMap[mName]['Tokens Added'] += tokenVal;
+      } else if (tx.type === 'Debit') {
+        const desc = (tx.description || '').toLowerCase();
+        let matchedLab = dynamicLabList.find((l) => desc.includes(l.key) || desc.includes(l.name.toLowerCase()));
+        if (!matchedLab) {
+          const foundKey = ['python', 'java', 'linux', 'android', 'dotnet', 'sql', 'database', 'c', 'cpp'].find((k) => desc.includes(k));
+          if (foundKey) {
+            matchedLab = dynamicLabList.find((l) => l.key.includes(foundKey));
+          }
+        }
+        if (matchedLab) {
+          monthMap[mName][matchedLab.name] = (monthMap[mName][matchedLab.name] || 0) + tokenVal;
+        } else if (dynamicLabList.length > 0) {
+          monthMap[mName][dynamicLabList[0].name] = (monthMap[mName][dynamicLabList[0].name] || 0) + tokenVal;
+        }
+      }
+    });
+
+    // Also factor in current month's labWallets usage (taking max to avoid double-counting)
     (labWallets || []).forEach((w) => {
       const used = Number(w.usedTokens || 0);
       const rawId = String(w.labId || '').toLowerCase().trim();
@@ -72,17 +100,7 @@ export function MonthlyActivityChart({}: MonthlyActivityChartProps) {
       }
 
       if (used > 0) {
-        monthMap[currentMonthKey][matchedLab.name] = (monthMap[currentMonthKey][matchedLab.name] || 0) + used;
-      }
-    });
-
-    // Populate purchased credits from successful transactions
-    successfulTransactions.forEach((tx) => {
-      if (!tx.date) return;
-      const txDate = new Date(tx.date);
-      const mName = txDate.toLocaleString('en-US', { month: 'short' });
-      if (monthMap[mName] && (tx.type === 'Credit' || (tx.type as string) === 'Token' || !tx.type)) {
-        monthMap[mName]['Tokens Added'] += Number(tx.amount) || 0;
+        monthMap[currentMonthKey][matchedLab.name] = Math.max(monthMap[currentMonthKey][matchedLab.name] || 0, used);
       }
     });
 

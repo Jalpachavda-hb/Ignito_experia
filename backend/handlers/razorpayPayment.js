@@ -178,26 +178,6 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
     } catch (e) {
       console.warn("Wallet database credit warning for userId:", targetUserId, e.message);
     }
-
-    // Also credit student_lab_token_wallets for bodyUserEmail if distinct string
-    if (bodyUserEmail && String(bodyUserEmail) !== String(targetUserId)) {
-      try {
-        const rawLabId = String(labId || "python").toLowerCase().trim();
-        const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
-        await pool.query(
-          `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
-           VALUES (?, ?, ?, ?, 0, ?, 1)
-           ON DUPLICATE KEY UPDATE 
-             TotalPurchasedTokens = TotalPurchasedTokens + VALUES(TotalPurchasedTokens), 
-             RemainingTokens = RemainingTokens + VALUES(RemainingTokens),
-             Version = Version + 1, 
-             UpdatedAt = CURRENT_TIMESTAMP`,
-          [tenantId, String(bodyUserEmail).toLowerCase(), cleanLabId, creditsToAdd, creditsToAdd]
-        );
-      } catch (aliasErr) {
-        console.warn("Email alias wallet sync warning:", aliasErr.message);
-      }
-    }
   }
 
   return ok({

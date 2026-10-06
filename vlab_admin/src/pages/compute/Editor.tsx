@@ -347,8 +347,17 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const { labWallets, fetchStudentLabTokens } = useLabTokenStore();
   useEffect(() => {
     fetchStudentLabTokens();
+    const tokenSyncInterval = setInterval(() => {
+      fetchStudentLabTokens();
+    }, 20000);
+    return () => clearInterval(tokenSyncInterval);
   }, [fetchStudentLabTokens]);
-  const activeLabWallet = (labWallets || []).find(w => w.labId === labId);
+
+  const cleanEditorLabId = (labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+  const activeLabWallet = (labWallets || []).find(w => {
+    const wClean = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+    return wClean === cleanEditorLabId || String(w.labId || '').toLowerCase() === String(labId || '').toLowerCase();
+  });
 
   const labType = propSession?.labType || '';
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';

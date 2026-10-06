@@ -18,6 +18,7 @@ interface LabStore {
 
 function normalizeLab(lab: any): Lab {
   const labId = lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?.lab_code || (lab?.dbId ? String(lab.dbId) : "") || (lab?._id ? String(lab._id) : "") || "";
+  const dynamicPrice = Number(lab?.baseTokenPrice ?? lab?.BaseTokenPrice ?? lab?.pricePer60Tokens ?? lab?.tokenCost ?? lab?.tokenPrice ?? lab?.credits ?? lab?.Credits ?? 100);
   return {
     ...lab,
     id: labId,
@@ -25,7 +26,9 @@ function normalizeLab(lab: any): Lab {
     title: lab?.title || lab?.Title || lab?.name || lab?.Name || 'Unnamed Lab',
     category: lab?.category || lab?.Category || 'Other Specialties',
     durationMinutes: lab?.durationMinutes ?? lab?.DurationMinutes ?? lab?.duration ?? 60,
-    credits: lab?.credits ?? lab?.Credits ?? 0,
+    credits: lab?.credits ?? lab?.Credits ?? dynamicPrice,
+    baseTokenPrice: dynamicPrice,
+    pricePer60Tokens: dynamicPrice,
   };
 }
 

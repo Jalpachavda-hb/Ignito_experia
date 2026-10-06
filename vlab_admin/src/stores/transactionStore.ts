@@ -11,6 +11,7 @@ export interface TransactionRecord {
   labId?: string;
   type: 'Credit' | 'Debit';
   amount: number; // Amount in ₹ or Credits
+  tokens?: number;
   amountRupees?: number;
   paymentMethod: 'Credit/Debit Card' | 'UPI Payment' | 'Netbanking' | 'Wallet' | 'PayLater' | 'Razorpay' | 'System Allocation' | string;
   studentEmail: string;
@@ -103,18 +104,27 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       const currentUser = useAuthStore.getState()?.auth?.user;
       const formatted: TransactionRecord[] = expandLabPurchases(rawList.map((t: any) => {
         const labName = t.labName || t.LabName || prettyLabName(t.labId || t.LabId);
-        const isCredit = t.type === 'PURCHASE' || t.type === 'ALLOCATION' || t.type === 'Credit' || t.Type === 'PURCHASE';
+        const tType = String(t.type || t.Type || '').toUpperCase();
+        const isCredit = tType === 'PURCHASE' || tType === 'ALLOCATION' || tType === 'CREDIT';
+        const isAllocation = tType === 'ALLOCATION' || String(t.source || '').toUpperCase() === 'UNIVERSITY_ALLOCATION';
+        const isUsage = tType === 'USAGE' || tType === 'CONSUMPTION' || String(t.source || '').toUpperCase() === 'SESSION_USAGE';
+
         return {
           id: t.idempotencyKey || t.transactionId || t.id || `TXN-${t.TransactionId}`,
           razorpayPaymentId: t.paymentReference || t.PaymentReference,
           date: t.createdAt || t.CreatedAt || new Date().toISOString(),
-          description: t.description || labName || (isCredit ? 'Token purchase' : 'Lab session usage'),
+          description: t.description || (isAllocation ? `University Course Allocation: ${labName}` : isCredit ? `Token purchase: ${labName}` : `${labName} Session Runtime Usage`),
           labName: labName || 'Virtual Lab',
           labId: t.labId || t.LabId,
           type: isCredit ? 'Credit' as const : 'Debit' as const,
           amount: Number(t.credits || t.Credits || t.amount || 0),
-          amountRupees: Number(t.amount ?? t.Amount ?? t.credits ?? 0),
-          paymentMethod: t.source === 'STUDENT_PURCHASE' ? 'Razorpay' : (t.source || t.paymentMethod || 'Razorpay'),
+          tokens: Number(t.credits || t.Credits || t.amount || 0),
+          amountRupees: isCredit && !isAllocation ? Number(t.amount ?? t.Amount ?? t.credits ?? 0) : 0,
+          paymentMethod: isAllocation 
+            ? 'University Allocation' 
+            : isUsage 
+            ? 'Lab Runtime' 
+            : (t.source === 'STUDENT_PURCHASE' ? 'Razorpay' : (t.source || t.paymentMethod || 'Razorpay')),
           studentEmail: t.userEmail || t.studentEmail || currentUser?.email || '',
           studentPhone: t.userPhone || t.studentPhone || currentUser?.phoneNumber || currentUser?.mobile || '',
           studentName: t.userName || t.studentName || currentUser?.fullName || currentUser?.name || 'Student User',

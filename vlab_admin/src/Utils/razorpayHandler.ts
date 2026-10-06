@@ -206,6 +206,11 @@ export const initiateRazorpayPayment = async ({
       const orderId = response.razorpay_order_id || realBackendOrderId;
       const signature = response.razorpay_signature;
 
+      // Calculate exact tokens to credit
+      const calculatedTokens = Array.isArray(items) && items.length > 0
+        ? items.reduce((sum: number, it: any) => sum + Number(it.tokens || 0), 0)
+        : Number((options as any).tokens || amountInRupees);
+
       // Send to Backend for Verification and DB Wallet Crediting
       try {
         const authState = useAuthStore.getState()?.auth;
@@ -224,7 +229,7 @@ export const initiateRazorpayPayment = async ({
             razorpay_order_id: orderId || `order_${paymentId}`,
             razorpay_payment_id: paymentId,
             razorpay_signature: signature || 'verified_test',
-            credits: amountInRupees,
+            credits: calculatedTokens,
             amount: amountInRupees,
             labId,
             labName,

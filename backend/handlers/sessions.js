@@ -183,16 +183,6 @@ export const sessionsStartHandler = async ({ body, auth }) => {
                RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
             [tenantId || 'DEFAULT', String(userId), cleanLabId, practicalCredit, practicalCredit]
           );
-          if (auth?.email && String(auth.email).toLowerCase() !== String(userId).toLowerCase()) {
-            await connection.query(
-              `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
-               VALUES (?, ?, ?, ?, 0, ?, 1)
-               ON DUPLICATE KEY UPDATE
-                 TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
-                 RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
-              [tenantId || 'DEFAULT', String(auth.email).toLowerCase(), cleanLabId, practicalCredit, practicalCredit]
-            ).catch(() => {});
-          }
         } catch (e) {}
 
         labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, auth?.email, connection);
@@ -436,12 +426,12 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
         currentStatus = 'STOPPED';
         await labSessionRepository.updateSession(sessionId, { Status: 'STOPPED', EndedAt: new Date() }).catch(() => {});
         await deleteSession(sessionId).catch(() => {});
-      } else if (memorySess && (memorySess.status === 'starting' || currentStatus === 'STARTING')) {
+      } else if (currentStatus === 'STARTING' || memorySess?.status === 'starting') {
         const net = await resolveTaskNetworking(dbSession.TaskArn, dbSession.LabId);
         if (net.status === 'running' || net.publicIp) {
           currentStatus = 'RUNNING';
           await labSessionRepository.updateSession(sessionId, { Status: 'RUNNING' });
-          if (!memorySess.bootstrapState || memorySess.bootstrapState === 'NOT_STARTED') {
+          if (memorySess && (!memorySess.bootstrapState || memorySess.bootstrapState === 'NOT_STARTED')) {
             await updateSession(sessionId, net);
             bootstrapSession(memorySess, net).catch(e => console.error(e));
           }

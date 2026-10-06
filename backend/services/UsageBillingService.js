@@ -13,14 +13,36 @@ class UsageBillingService {
     try {
       // 1. Lock Lab Session
       const [sessionRows] = await connection.query(
-        `SELECT SessionId, TenantId, UserId, LabId, BilledSeconds, BilledTokens, StartedAt, LastBilledAt, Status, LowTokenWarningSent, ExpiresAt, TokenExpiryAt, AllocatedCredits, AllocatedDurationMinutes
+        `SELECT SessionId, TenantId, UserId, LabId, BilledSeconds, BilledTokens, StartedAt, CreatedAt, LastBilledAt, Status, LowTokenWarningSent, ExpiresAt, TokenExpiryAt, AllocatedCredits, AllocatedDurationMinutes
          FROM lab_sessions
          WHERE SessionId = ? FOR UPDATE`,
         [sessionId]
       );
 
       const session = sessionRows[0];
-      if (!session || !['RUNNING', 'EXPIRING_SOON'].includes(session.Status)) {
+      if (!session) {
+        await connection.rollback();
+        connection.release();
+        return { billed: false, reason: "Session not found" };
+      }
+
+      // If session is still STARTING, check if it has been active for >= 40 seconds and promote to RUNNING
+      if (session.Status === 'STARTING') {
+        const createdMs = session.CreatedAt ? new Date(session.CreatedAt).getTime() : 0;
+        const startedMs = session.StartedAt ? new Date(session.StartedAt).getTime() : 0;
+        const baseMs = Math.max(createdMs, startedMs);
+        if (baseMs > 0 && (Date.now() - baseMs) >= 40000) {
+          await connection.query(
+            `UPDATE lab_sessions SET Status = 'RUNNING', UpdatedAt = CURRENT_TIMESTAMP WHERE SessionId = ?`,
+            [sessionId]
+          );
+          session.Status = 'RUNNING';
+        } else {
+          await connection.rollback();
+          connection.release();
+          return { billed: false, reason: "Session is still starting" };
+        }
+      } else if (!['RUNNING', 'EXPIRING_SOON'].includes(session.Status)) {
         await connection.rollback();
         connection.release();
         return { billed: false, reason: "Session not active for billing" };
@@ -137,7 +159,15 @@ class UsageBillingService {
 
       // 3. Deduct from lab wallet
       if (actualTokensToCharge > 0) {
-        await studentLabTokenWalletRepository.consumeWalletTokens(session.TenantId, studentId, session.LabId, actualTokensToCharge, userEmail, connection);
+        await studentLabTokenWalletRepository.consumeWalletTokens(
+          session.TenantId,
+          studentId,
+          session.LabId,
+          actualTokensToCharge,
+          userEmail,
+          connection,
+          wallet.Id
+        );
 
         // 4. Insert Immutable Ledger Entry
         await studentLabTokenTransactionRepository.createTransaction(
@@ -145,8 +175,11 @@ class UsageBillingService {
             tenantId: session.TenantId,
             studentId,
             labId: session.LabId,
-            transactionType: 'CONSUMPTION',
+            transactionType: 'USAGE',
             tokens: actualTokensToCharge,
+            balanceBefore,
+            balanceAfter,
+            walletId: wallet.Id,
             referenceType: 'SESSION',
             referenceId: sessionId,
             description: `Consumed ${actualTokensToCharge} token(s) for runtime`,
@@ -267,7 +300,7 @@ class UsageBillingService {
       );
 
       const session = sessionRows[0];
-      if (!session || ['STOPPING', 'STOPPED', 'FAILED'].includes(session.Status)) {
+      if (!session || ['STOPPED', 'FAILED'].includes(session.Status)) {
         await connection.rollback();
         connection.release();
         return { finalized: true, chargedTokens: 0 };
@@ -279,7 +312,19 @@ class UsageBillingService {
         `SELECT Role, AuthType, Email FROM Users WHERE UserId = ? OR Email = ? LIMIT 1`,
         [studentId, studentId]
       ).catch(() => [[]]);
+      const userRole = String(userRows?.[0]?.Role || '').toLowerCase();
       const userEmail = userRows?.[0]?.Email || (String(studentId).includes('@') ? studentId : null);
+      const isAdmin = userRole.includes('admin') || userRows?.[0]?.AuthType === 'ADMIN';
+
+      if (isAdmin) {
+        await connection.query(
+          `UPDATE lab_sessions SET Status = 'STOPPING', EndedAt = CURRENT_TIMESTAMP, UpdatedAt = CURRENT_TIMESTAMP WHERE SessionId = ?`,
+          [sessionId]
+        );
+        await connection.commit();
+        connection.release();
+        return { finalized: true, chargedTokens: 0, reason: "Admin user session bypass" };
+      }
 
       const wallet = await studentLabTokenWalletRepository.getWalletForUpdate(
         session.TenantId,
@@ -295,7 +340,8 @@ class UsageBillingService {
       const billedSeconds = Number(session.BilledSeconds || 0);
       const unbilledSeconds = actualElapsedSeconds - billedSeconds;
 
-      const tokensToCharge = Math.floor(unbilledSeconds / 60);
+      // Charge partial minute if at least 15 seconds used
+      const tokensToCharge = unbilledSeconds >= 15 ? Math.ceil(unbilledSeconds / 60) : Math.floor(unbilledSeconds / 60);
 
       const availableTokens = Number(wallet?.RemainingTokens || 0);
       const actualTokensToCharge = wallet ? Math.min(tokensToCharge, availableTokens) : 0;
@@ -309,15 +355,26 @@ class UsageBillingService {
         const newBilledSeconds = billedSeconds + (actualTokensToCharge * 60);
         const idempotencyKey = `session_${sessionId}:token_${newBilledTokens}:final`;
 
-        await studentLabTokenWalletRepository.consumeWalletTokens(session.TenantId, studentId, session.LabId, actualTokensToCharge, userEmail, connection);
+        await studentLabTokenWalletRepository.consumeWalletTokens(
+          session.TenantId,
+          studentId,
+          session.LabId,
+          actualTokensToCharge,
+          userEmail,
+          connection,
+          wallet.Id
+        );
 
         await studentLabTokenTransactionRepository.createTransaction(
           {
             tenantId: session.TenantId,
             studentId,
             labId: session.LabId,
-            transactionType: 'CONSUMPTION',
+            transactionType: 'USAGE',
             tokens: actualTokensToCharge,
+            balanceBefore,
+            balanceAfter,
+            walletId: wallet.Id,
             referenceType: 'SESSION',
             referenceId: sessionId,
             description: `Finalized session billing (${actualTokensToCharge} token/s)`,
@@ -350,6 +407,15 @@ class UsageBillingService {
 
       await connection.commit();
       connection.release();
+
+      if (wallet && actualTokensToCharge > 0) {
+        notificationService.emitBalanceUpdated({
+          tenantId: session.TenantId,
+          studentId,
+          labId: session.LabId,
+          remainingTokens: balanceAfter
+        });
+      }
 
       return {
         finalized: true,

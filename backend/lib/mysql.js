@@ -688,6 +688,11 @@ export const verifyDbConnection = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Ensure BaseTokenPrice column exists on labs table if present
+    try {
+      await connection.query("ALTER TABLE `labs` ADD COLUMN `BaseTokenPrice` DECIMAL(10,2) NOT NULL DEFAULT 100.00 AFTER `Credits`;");
+    } catch (e) {}
+
     // Re-enable foreign key checks
     await connection.query("SET FOREIGN_KEY_CHECKS = 1;");
     console.log("[MySQL] Core database schema verified successfully.");

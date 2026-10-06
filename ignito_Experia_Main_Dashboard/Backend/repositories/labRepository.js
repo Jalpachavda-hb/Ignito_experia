@@ -34,7 +34,7 @@ class LabRepository {
   async insert(labData) {
     const {
       LabCode, Title, Subtitle, Logo,
-      DurationMinutes, Credits, BaseTokenPrice, Complexity, Category,
+      BaseTokenPrice, Complexity, Category,
       Description, TaskDefinition, RuntimeType, RuntimePort,
       RuntimePath, ContainerApiEnabled, ContainerApiPort,
       DisplayOrder, CreatedBy,
@@ -42,14 +42,14 @@ class LabRepository {
 
     const [res] = await pool.query(
       `INSERT INTO labs (
-        LabCode, Title, Subtitle, Logo, DurationMinutes, Credits, BaseTokenPrice,
+        LabCode, Title, Subtitle, Logo, BaseTokenPrice,
         Complexity, Category, Description, TaskDefinition, RuntimeType,
         RuntimePort, RuntimePath, ContainerApiEnabled, ContainerApiPort,
         DisplayOrder, Status, CreatedBy
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       [
         LabCode, Title, Subtitle || null, Logo || null,
-        DurationMinutes || 0, Credits || 0, BaseTokenPrice != null ? Number(BaseTokenPrice) : 100.0,
+        BaseTokenPrice != null ? Number(BaseTokenPrice) : 100.0,
         Complexity || null,
         Category || null, Description || null, TaskDefinition || null,
         RuntimeType || "ide", RuntimePort || null, RuntimePath || null,
@@ -63,7 +63,7 @@ class LabRepository {
   async update(labId, labData) {
     const {
       LabCode, Title, Subtitle, Logo,
-      DurationMinutes, Credits, BaseTokenPrice, Complexity, Category,
+      BaseTokenPrice, Complexity, Category,
       Description, TaskDefinition, RuntimeType, RuntimePort,
       RuntimePath, ContainerApiEnabled, ContainerApiPort,
       DisplayOrder, UpdatedBy,
@@ -78,14 +78,14 @@ class LabRepository {
     await pool.query(
       `UPDATE labs SET 
         LabCode = ?, Title = ?, Subtitle = ?, Logo = ?,
-        DurationMinutes = ?, Credits = ?, BaseTokenPrice = ?, Complexity = ?, Category = ?,
+        BaseTokenPrice = ?, Complexity = ?, Category = ?,
         Description = ?, TaskDefinition = ?, RuntimeType = ?,
         RuntimePort = ?, RuntimePath = ?, ContainerApiEnabled = ?,
         ContainerApiPort = ?, DisplayOrder = ?, UpdatedBy = ?, UpdatedDate = NOW()
        ${whereClause}`,
       [
         LabCode, Title, Subtitle || null, Logo || null,
-        DurationMinutes || 0, Credits || 0, BaseTokenPrice != null ? Number(BaseTokenPrice) : 100.0,
+        BaseTokenPrice != null ? Number(BaseTokenPrice) : 100.0,
         Complexity || null,
         Category || null, Description || null, TaskDefinition || null,
         RuntimeType || "ide", RuntimePort || null, RuntimePath || null,

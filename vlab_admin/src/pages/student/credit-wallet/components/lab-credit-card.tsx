@@ -83,7 +83,7 @@ export function LabCreditCard({
   const theme = getTheme(labId + name);
 
   const availableTokens = tokenInfo?.availableTokens ?? 0;
-  const pricePer60 = lab.baseTokenPrice ?? effectivePricePer60Tokens ?? 100;
+  const pricePer60 = Number(lab.baseTokenPrice ?? (lab as any).BaseTokenPrice ?? (lab as any).pricePer60Tokens ?? (lab as any).tokenCost ?? (lab as any).tokenPrice ?? effectivePricePer60Tokens ?? 100);
   const pricePerToken = pricePer60 / 60;
   const totalPaymentRupees = Math.round(selectedTokens * pricePerToken);
 

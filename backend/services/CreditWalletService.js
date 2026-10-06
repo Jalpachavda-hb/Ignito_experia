@@ -18,7 +18,15 @@ export function displayLabName(labId, labName) {
   if (clean.includes("java")) return "Java Development Lab";
   if (clean.includes("linux")) return "Linux Administration Lab";
   if (clean.includes("android")) return "Android Application Lab";
-  if (clean.includes("dotnet") || clean.includes(".net")) return ".NET Technologies Lab";
+  if (clean.includes("dotnet") || clean.includes(".net")) return "Web Technology Using .NET";
+  if (clean.includes("dbms") || clean.includes("sql")) return "DBMS & SQL Lab";
+  if (clean.includes("oracle")) return "Oracle Lab";
+  if (clean.includes("postgres")) return "PostgreSQL Lab";
+  if (clean.includes("data-science")) return "Data Science-I";
+  if (clean.includes("big-data")) return "Big Data Analytics-I";
+  if (clean.includes("testing")) return "Software Testing Automation";
+  if (clean.includes("agile")) return "Agile Methodology";
+  if (clean.includes("software-eng")) return "Software Engineering";
   if (!clean) return "Virtual Lab";
   return `${clean.toUpperCase()} Lab`;
 }
@@ -402,46 +410,53 @@ class CreditWalletService {
     const labRows = await studentLabTokenTransactionRepository.getByReferenceIds(refs);
     const expanded = this.expandPurchaseRows(rows, labRows);
 
-    // Also fetch direct student_lab_token_transactions to ensure 100% visibility of all token transactions
+    const sId = userId != null ? String(userId).trim() : '';
+    const email = userEmail != null ? String(userEmail).trim().toLowerCase() : '';
+    const seenKeys = new Set(expanded.map(r => String(r.PaymentReference || r.IdempotencyKey || r.TransactionId)));
+
+    // 1. Also fetch direct student_lab_token_transactions to ensure 100% visibility of all token transactions
     try {
-      const sId = userId != null ? String(userId).trim() : '';
-      const email = userEmail != null ? String(userEmail).trim().toLowerCase() : '';
       const [tokenTxns] = await pool.query(
         `SELECT Id, TenantId, StudentId, LabId, TransactionType, Tokens, ReferenceType, ReferenceId, Description, IdempotencyKey, CreatedAt
          FROM student_lab_token_transactions
-         WHERE (StudentId = ? OR (? != '' AND LOWER(StudentId) = ?))
+         WHERE (StudentId = ? 
+            OR (? != '' AND LOWER(StudentId) = ?)
+            OR (? != '' AND StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?)))
          ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`,
-        [sId, email, email, Number(limit), Number(offset)]
+        [sId, email, email, email, email, sId, Number(limit), Number(offset)]
       ).catch(() => [[]]);
 
-      const seenKeys = new Set(expanded.map(r => r.PaymentReference || r.IdempotencyKey || r.TransactionId));
       for (const t of (tokenTxns || [])) {
-        const key = t.ReferenceId || t.IdempotencyKey || t.Id;
+        const key = String(t.ReferenceId || t.IdempotencyKey || t.Id);
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
-          const isPurchase = t.TransactionType === 'PURCHASE';
+          const txnType = String(t.TransactionType || '').toUpperCase();
+          const isPurchase = txnType === 'PURCHASE';
+          const isAllocation = txnType === 'ALLOCATION';
           const cleanLab = String(t.LabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-          let labTitle = cleanLab ? `${cleanLab.toUpperCase()} Lab` : 'Virtual Lab';
-          if (cleanLab.includes('dbms')) labTitle = 'DBMS & SQL Lab';
-          else if (cleanLab.includes('dotnet')) labTitle = 'Web Technology Using .NET';
-          else if (cleanLab.includes('linux')) labTitle = 'Linux Administration Lab';
-          else if (cleanLab.includes('python')) labTitle = 'Python Programming Lab';
-          else if (cleanLab.includes('java')) labTitle = 'Java Development Lab';
+          const labTitle = displayLabName(cleanLab);
+
+          let friendlyDesc = t.Description;
+          if (!friendlyDesc) {
+            if (isAllocation) friendlyDesc = `University Course Allocation: ${labTitle}`;
+            else if (isPurchase) friendlyDesc = `Purchased ${t.Tokens} Tokens for ${labTitle}`;
+            else friendlyDesc = `${labTitle} Runtime Session Usage`;
+          }
 
           expanded.push({
             TransactionId: t.Id,
             TenantId: t.TenantId,
             UserId: t.StudentId,
-            Type: isPurchase ? 'PURCHASE' : 'USAGE',
-            Source: isPurchase ? 'STUDENT_PURCHASE' : 'SESSION_USAGE',
+            Type: isPurchase ? 'PURCHASE' : (isAllocation ? 'ALLOCATION' : 'USAGE'),
+            Source: isPurchase ? 'STUDENT_PURCHASE' : (isAllocation ? 'UNIVERSITY_ALLOCATION' : 'SESSION_USAGE'),
             Credits: Number(t.Tokens || 0),
-            Amount: Number(t.Tokens || 0),
+            Amount: isPurchase ? Number(t.Tokens || 0) : 0,
             Currency: 'INR',
             PaymentReference: t.ReferenceId,
             LabId: t.LabId,
             labId: cleanLab,
             labName: labTitle,
-            description: t.Description || labTitle,
+            description: friendlyDesc,
             IdempotencyKey: t.IdempotencyKey,
             Status: 'SUCCESS',
             CreatedAt: t.CreatedAt
@@ -450,6 +465,53 @@ class CreditWalletService {
       }
     } catch (e) {
       console.warn('[CreditWalletService] token transaction merge warning:', e.message);
+    }
+
+    // 2. Fetch completed/stopped sessions from lab_sessions to guarantee all runtime credit cuts appear
+    try {
+      const [billedSessions] = await pool.query(
+        `SELECT SessionId, UserId, LabId, Status, BilledTokens, BilledSeconds, StartedAt, CreatedAt
+         FROM lab_sessions
+         WHERE (UserId = ? 
+            OR (? != '' AND CAST(UserId AS CHAR) = ?) 
+            OR (? != '' AND UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?)))
+           AND BilledTokens > 0
+         ORDER BY CreatedAt DESC LIMIT ?`,
+        [sId, sId, sId, email, email, sId, Number(limit)]
+      ).catch(() => [[]]);
+
+      for (const sess of (billedSessions || [])) {
+        const sessKey = String(sess.SessionId);
+        // Check if there is already a ledger entry for this session
+        const alreadyLogged = Array.from(seenKeys).some(k => k.includes(sessKey));
+        if (!alreadyLogged) {
+          seenKeys.add(sessKey);
+          const cleanLab = String(sess.LabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+          const labTitle = displayLabName(cleanLab);
+          const minutes = Math.max(1, Math.round(Number(sess.BilledSeconds || 0) / 60));
+
+          expanded.push({
+            TransactionId: `SESS-${sess.SessionId}`,
+            TenantId: tenantId || 'DEFAULT',
+            UserId: String(sess.UserId),
+            Type: 'USAGE',
+            Source: 'SESSION_USAGE',
+            Credits: Number(sess.BilledTokens || 0),
+            Amount: 0,
+            Currency: 'INR',
+            PaymentReference: sess.SessionId,
+            LabId: sess.LabId,
+            labId: cleanLab,
+            labName: labTitle,
+            description: `${labTitle} Runtime Session (${sess.BilledTokens} Tokens / ${minutes} Mins)`,
+            IdempotencyKey: `SESSION-BILL-${sess.SessionId}`,
+            Status: 'SUCCESS',
+            CreatedAt: sess.StartedAt || sess.CreatedAt
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[CreditWalletService] session usage merge warning:', e.message);
     }
 
     return expanded.sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());

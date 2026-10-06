@@ -30,7 +30,11 @@ export function PurchaseCreditModal({
     if (onPurchase) {
       onPurchase();
     } else {
-      navigate({ to: '/student/credit-wallet' });
+      const labSearch = lab?.title || lab?.name || lab?.id || '';
+      navigate({
+        to: '/student/credit-wallet',
+        search: labSearch ? ({ search: labSearch } as any) : undefined,
+      });
     }
   };
 

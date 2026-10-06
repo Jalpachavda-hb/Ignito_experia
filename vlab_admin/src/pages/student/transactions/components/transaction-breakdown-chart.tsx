@@ -84,13 +84,31 @@ export function TransactionBreakdownChart({ mode = 'consumed' }: TransactionBrea
           breakdown[title].value += used;
         }
       });
+
+      // Complement with debit transactions if wallets are empty or not loaded
+      if (Object.keys(breakdown).length === 0) {
+        successfulTransactions.forEach((tx: any, tIdx: number) => {
+          if (tx.type === 'Debit') {
+            const rawName = tx.labName || tx.labId || 'Virtual Lab';
+            const labName = formatLabName(rawName);
+            const tokenCount = Number(tx.amount || 0);
+            if (tokenCount > 0) {
+              const color = getLabColor(labName, tIdx);
+              if (!breakdown[labName]) breakdown[labName] = { value: 0, color };
+              breakdown[labName].value += tokenCount;
+            }
+          }
+        });
+      }
     } else {
-      // 2. Purchased-mode: parse itemized labs from transaction orders
+      // 2. Purchased & Allocated mode: include university allocations and direct purchases
       successfulTransactions.forEach((tx: any, tIdx: number) => {
+        if (tx.type !== 'Credit') return;
+
         if (tx.items && Array.isArray(tx.items) && tx.items.length > 0) {
           tx.items.forEach((item: any, iIdx: number) => {
             const name = formatLabName(item.LabId || item.labId || item.labName || 'Virtual Lab');
-            const tokens = Number(item.TokenAmount || item.amount || 0);
+            const tokens = Number(item.TokenAmount || item.tokens || item.amount || 0);
             const color = getLabColor(name, tIdx + iIdx);
             if (!breakdown[name]) breakdown[name] = { value: 0, color };
             breakdown[name].value += tokens;
@@ -108,12 +126,22 @@ export function TransactionBreakdownChart({ mode = 'consumed' }: TransactionBrea
               breakdown[labName].value += tokenCount;
             }
           });
+        } else {
+          // Direct lab credit or university allocation
+          const rawName = tx.labName || tx.labId || 'Virtual Lab';
+          const labName = formatLabName(rawName);
+          const tokenCount = Number(tx.amount || 0);
+          if (tokenCount > 0) {
+            const color = getLabColor(labName, tIdx);
+            if (!breakdown[labName]) breakdown[labName] = { value: 0, color };
+            breakdown[labName].value += tokenCount;
+          }
         }
       });
 
       if (Object.keys(breakdown).length === 0 && labWallets && labWallets.length > 0) {
         labWallets.forEach((w, idx) => {
-          const tokens = Number(w.purchasedTokens || 0);
+          const tokens = Number(w.purchasedTokens || w.allocatedTokens || 0);
           if (tokens > 0) {
             const title = formatLabName(w.labId);
             const color = getLabColor(w.labId, idx);

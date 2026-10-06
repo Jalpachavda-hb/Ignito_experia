@@ -6,9 +6,9 @@ let billingWorkerIntervalHandle = null;
 export async function runBillingCycle() {
   try {
     const [activeSessions] = await pool.query(
-      `SELECT SessionId, UserId, LabId, Status, LastBilledAt, CreatedAt
+      `SELECT SessionId, UserId, LabId, Status, LastBilledAt, CreatedAt, StartedAt
        FROM lab_sessions
-       WHERE Status IN ('RUNNING', 'EXPIRING_SOON')`
+       WHERE UPPER(Status) IN ('RUNNING', 'EXPIRING_SOON', 'STARTING')`
     );
 
     if (!activeSessions || activeSessions.length === 0) {

@@ -149,11 +149,27 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
         const cleanLabId = ca.labId;
         const practicalCredit = Number(ca.allocatedTokens || 60);
 
+        // Fetch direct purchased tokens for this lab by the student
+        let directPurchased = 0;
+        try {
+          const [purchaseRows] = await pool.query(
+            `SELECT COALESCE(SUM(Credits), 0) AS DirectPurchased
+             FROM credit_transactions
+             WHERE (UserId = ? OR (? != '' AND LOWER(CAST(UserId AS CHAR)) = ?) OR UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?))
+               AND Status = 'SUCCESS' AND Type = 'PURCHASE'
+               AND (LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)`,
+            [String(studentId), auth?.email || '', auth?.email || '', auth?.email || '', String(studentId), cleanLabId, cleanLabId]
+          );
+          directPurchased = Number(purchaseRows?.[0]?.DirectPurchased || 0);
+        } catch (e) {}
+
+        const totalLabTokens = practicalCredit + directPurchased;
+
         if (groupedWallets.has(cleanLabId)) {
           const existing = groupedWallets.get(cleanLabId);
           existing.allocatedTokens = practicalCredit;
-          existing.purchasedTokens = Math.max(existing.purchasedTokens || 0, practicalCredit);
-          existing.remainingTokens = Math.max(0, existing.purchasedTokens - existing.usedTokens);
+          existing.purchasedTokens = totalLabTokens;
+          existing.remainingTokens = Math.max(0, totalLabTokens - existing.usedTokens);
           existing.runtimeRemainingMinutes = existing.remainingTokens;
           if (!existing.labTitle || existing.labTitle === `${cleanLabId.toUpperCase()} Lab`) {
             existing.labTitle = ca.labTitle;
@@ -163,11 +179,11 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
             id: `uni-${cleanLabId}`,
             labId: cleanLabId,
             labTitle: ca.labTitle,
-            purchasedTokens: practicalCredit,
+            purchasedTokens: totalLabTokens,
             allocatedTokens: practicalCredit,
             usedTokens: 0,
-            remainingTokens: practicalCredit,
-            runtimeRemainingMinutes: practicalCredit,
+            remainingTokens: totalLabTokens,
+            runtimeRemainingMinutes: totalLabTokens,
             updatedAt: new Date().toISOString()
           });
         }
@@ -179,9 +195,48 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
              VALUES (?, ?, ?, ?, 0, ?, 1)
              ON DUPLICATE KEY UPDATE
                TotalPurchasedTokens = IF(TotalPurchasedTokens < VALUES(TotalPurchasedTokens), VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
-               RemainingTokens = IF(TotalPurchasedTokens < VALUES(TotalPurchasedTokens), VALUES(RemainingTokens), RemainingTokens)`,
-            [tenantId || 'DEFAULT', String(studentId), cleanLabId, practicalCredit, practicalCredit]
+               RemainingTokens = CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) THEN CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED) ELSE 0 END`,
+            [tenantId || 'DEFAULT', String(studentId), cleanLabId, totalLabTokens, totalLabTokens]
           );
+
+          // Record ALLOCATION ledger entry idempotently
+          const allocKey = `ALLOC-SSO-${studentId}-${cleanLabId}`;
+          await pool.query(
+            `INSERT INTO student_lab_token_transactions
+              (TenantId, StudentId, LabId, WalletId, TransactionType, Tokens, TokenChange, BalanceBefore, BalanceAfter, ReferenceType, ReferenceId, Description, IdempotencyKey)
+             VALUES (?, ?, ?, 0, 'ALLOCATION', ?, ?, 0, ?, 'CURRICULUM_QUOTA', ?, ?, ?)
+             ON DUPLICATE KEY UPDATE Id=Id`,
+            [
+              tenantId || 'DEFAULT',
+              String(studentId),
+              cleanLabId,
+              practicalCredit,
+              practicalCredit,
+              practicalCredit,
+              ca.courseCode || 'CURRICULUM_QUOTA',
+              `University Course Allocation: ${ca.labTitle || cleanLabId} (${practicalCredit} Tokens)`,
+              allocKey
+            ]
+          ).catch(() => {});
+
+          const creditAllocKey = `ALLOC-CREDIT-${studentId}-${cleanLabId}`;
+          const [uRows] = await pool.query("SELECT UserId FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ? LIMIT 1", [auth?.email || '', String(studentId)]).catch(() => [[]]);
+          const effectiveUserId = uRows?.[0]?.UserId || Number(studentId) || 1;
+          await pool.query(
+            `INSERT INTO credit_transactions
+              (TenantId, UserId, Type, Source, Credits, Amount, Currency, PaymentReference, LabId, IdempotencyKey, Status, MetadataJson)
+             VALUES (?, ?, 'ALLOCATION', 'UNIVERSITY_ALLOCATION', ?, 0.00, 'INR', ?, ?, ?, 'SUCCESS', ?)
+             ON DUPLICATE KEY UPDATE TransactionId=TransactionId`,
+            [
+              tenantId || 'DEFAULT',
+              effectiveUserId,
+              practicalCredit,
+              ca.courseCode || 'CURRICULUM_QUOTA',
+              cleanLabId,
+              creditAllocKey,
+              JSON.stringify({ labTitle: ca.labTitle, courseCode: ca.courseCode, allocationType: 'UNIVERSITY' })
+            ]
+          ).catch(() => {});
         } catch (e) {}
       }
 
@@ -239,6 +294,23 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
     totalUsed += Number(w.usedTokens || 0);
     totalRemaining += Number(w.remainingTokens || 0);
   });
+
+  // Synchronize credit_wallets total balance for the student
+  try {
+    const [uRows] = await pool.query("SELECT UserId FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ? LIMIT 1", [auth?.email || '', String(studentId)]).catch(() => [[]]);
+    const effUserId = uRows?.[0]?.UserId || Number(studentId);
+    if (effUserId && !isNaN(effUserId)) {
+      await pool.query(
+        `INSERT INTO credit_wallets (TenantId, UserId, Balance, TotalPurchasedCredits, ConsumedCredits, Status)
+         VALUES (?, ?, ?, ?, ?, 'ACTIVE')
+         ON DUPLICATE KEY UPDATE
+           Balance = VALUES(Balance),
+           TotalPurchasedCredits = VALUES(TotalPurchasedCredits),
+           ConsumedCredits = VALUES(ConsumedCredits)`,
+        [tenantId || 'DEFAULT', effUserId, totalRemaining, totalPurchased, totalUsed]
+      );
+    }
+  } catch (e) {}
 
   return ok({
     isUniversityStudent,

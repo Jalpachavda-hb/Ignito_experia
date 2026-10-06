@@ -100,7 +100,7 @@ export default function CreditWallet() {
       if (copy[labId]) {
         delete copy[labId];
       } else {
-        const pricePer60 = lab.baseTokenPrice ?? 100;
+        const pricePer60 = Number(lab.baseTokenPrice ?? lab.BaseTokenPrice ?? lab.pricePer60Tokens ?? lab.tokenCost ?? lab.tokenPrice ?? lab.credits ?? 100);
         const amount = Math.round(currentTokens * (pricePer60 / 60));
         copy[labId] = {
           lab,
@@ -117,7 +117,7 @@ export default function CreditWallet() {
     const labId = lab.id || lab.labId;
     setCartItems((prev) => {
       if (!prev[labId]) return prev;
-      const pricePer60 = lab.baseTokenPrice ?? 100;
+      const pricePer60 = Number(lab.baseTokenPrice ?? lab.BaseTokenPrice ?? lab.pricePer60Tokens ?? lab.tokenCost ?? lab.tokenPrice ?? lab.credits ?? 100);
       const amount = Math.round(newTokens * (pricePer60 / 60));
       return {
         ...prev,
