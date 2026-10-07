@@ -198,6 +198,14 @@ export class ExecuteCommand {
         }
       }
 
+      if (result.output && !result.plotHtml && result.output.includes("<!-- VLAB_PLOT_START -->")) {
+        const plotMatch = result.output.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
+        if (plotMatch) {
+          result.plotHtml = plotMatch[1].trim();
+          result.output = result.output.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, "").replace(/^\n+/, "").trimEnd();
+        }
+      }
+
       if (result.output) {
         const lines = result.output.split("\n");
         for (const line of lines) {

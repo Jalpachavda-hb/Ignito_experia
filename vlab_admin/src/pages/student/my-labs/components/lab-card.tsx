@@ -13,6 +13,7 @@ interface LabCardProps {
   onResume?: (labId: string) => void;
   onDetails?: (labId: string) => void;
   onStop?: (labId: string) => void;
+  onPurchase?: (labId: string) => void;
   activeSession?: any;
   elapsedTime?: string;
   isStarting?: boolean;
@@ -36,7 +37,7 @@ const getTheme = (idOrName: string) => {
   return colorThemes[Math.abs(hash) % colorThemes.length];
 };
 
-export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onDetails, activeSession, elapsedTime, isStarting, isStopping, userCredits }: LabCardProps) {
+export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onDetails, onPurchase, activeSession, elapsedTime, isStarting, isStopping, userCredits }: LabCardProps) {
   const labId = lab.id || lab.labId || lab.LabId || lab.labCode || lab.LabCode || lab._id || '';
   const hasActiveSession = !!activeSession;
   const isRunning = activeSession?.status === 'running';
@@ -60,7 +61,9 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
     ? Number(lab.remainingTokens)
     : ((lab.tokens !== undefined && Number(lab.tokens) > 0)
       ? Number(lab.tokens)
-      : 0);
+      : ((lab.availableTokens !== undefined && Number(lab.availableTokens) > 0)
+        ? Number(lab.availableTokens)
+        : 0));
   const hasTokens = displayTokens > 0;
 
   // List View Layout
@@ -183,6 +186,14 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
               </>
             ) : labStatus === 'Completed' ? (
               <Button onClick={() => onDetails?.(lab.id)} variant="outline" className="w-full border-slate-300">View History</Button>
+            ) : !hasTokens ? (
+              <Button
+                onClick={() => (onPurchase ? onPurchase(lab.id) : onStart?.(lab.id))}
+                className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-all duration-200"
+              >
+                <Coins className="w-4 h-4" />
+                Purchase Tokens
+              </Button>
             ) : (
               <Button
                 onClick={() => onStart?.(lab.id)}
@@ -363,6 +374,14 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             <Button onClick={() => onStart?.(labId)} variant="outline" className="flex-1 h-11 rounded-[10px] bg-transparent border-slate-200 dark:border-slate-700" disabled={isStarting}>Restart</Button>
             <Button onClick={() => onDetails?.(labId)} className="flex-1 h-11 rounded-[10px] bg-slate-900 dark:bg-white dark:text-slate-900 hover:bg-slate-800">History</Button>
           </div>
+        ) : !hasTokens ? (
+          <Button
+            onClick={() => (onPurchase ? onPurchase(labId) : onStart?.(labId))}
+            className="w-full h-11 rounded-[10px] font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow-sm flex items-center justify-center gap-2 transition-all duration-200"
+          >
+            <Coins className="w-4 h-4" />
+            Purchase Tokens
+          </Button>
         ) : (
           <Button
             onClick={() => onStart?.(labId)}

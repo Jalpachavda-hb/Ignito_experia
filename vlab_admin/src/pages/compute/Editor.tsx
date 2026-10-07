@@ -5,8 +5,8 @@ import { toast } from 'sonner';
 import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath, startAndroidBuild, fetchAndroidBuildStatus } from '../../services/ideService';
 import {
   File, Code2, Plus, Upload, Play, Save,
-  Trash2, X, FileJson, FileText, ChevronRight, Menu, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
-  Folder, FolderOpen, RotateCw, Globe, Pencil, Copy, Check, Coins, Clock, Sparkles, ExternalLink
+  Trash2, X, FileJson, FileText, ChevronRight, ChevronDown, ChevronUp, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
+  Folder, FolderOpen, RotateCw, RotateCcw, Globe, Pencil, Copy, Check, CheckCircle2, XCircle, Coins, Clock, Sparkles, ExternalLink, MoreVertical, LineChart, Maximize2, Minimize2
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
@@ -15,18 +15,32 @@ import { resolveApiRelativeUrl } from '@/config/env';
 import { TestingWorkspace } from './TestingWorkspace';
 import { SeleniumExecutionDialog } from '@/components/SeleniumExecutionDialog';
 
+export const PythonIcon = ({ className = "w-4 h-4 shrink-0" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 110 110" fill="none">
+    <path d="M54.5 5C27.2 5 28.9 16.8 28.9 16.8L28.9 29.1L55.5 29.1L55.5 32.8L18.3 32.8C18.3 32.8 5 31.3 5 58.6C5 85.9 16.7 84.4 16.7 84.4L23.7 84.4L23.7 74.2C23.7 74.2 23.3 62 35.8 62L62.4 62C62.4 62 74.2 62.4 74.2 50.8L74.2 16.8C74.2 16.8 75.4 5 54.5 5ZM40.1 13.9C43.2 13.9 45.7 16.4 45.7 19.5C45.7 22.6 43.2 25.1 40.1 25.1C37 25.1 34.5 22.6 34.5 19.5C34.5 16.4 37 13.9 40.1 13.9Z" fill="#387EB8"/>
+    <path d="M55.5 105C82.8 105 81.1 93.2 81.1 93.2L81.1 80.9L54.5 80.9L54.5 77.2L91.7 77.2C91.7 77.2 105 78.7 105 51.4C105 24.1 93.3 25.6 93.3 25.6L86.3 25.6L86.3 35.8C86.3 35.8 86.7 48 74.2 48L47.6 48C47.6 48 35.8 47.6 35.8 59.2L35.8 93.2C35.8 93.2 34.6 105 55.5 105ZM69.9 96.1C66.8 96.1 64.3 93.6 64.3 90.5C64.3 87.4 66.8 84.9 69.9 84.9C73 84.9 75.5 87.4 75.5 90.5C75.5 93.6 73 96.1 69.9 96.1Z" fill="#FFE052"/>
+  </svg>
+);
+
+export const CsvIcon = ({ className = "w-4 h-4 shrink-0" }: { className?: string }) => (
+  <div className={`${className} rounded bg-emerald-600 flex items-center justify-center text-[10px] font-black text-white`}>
+    #
+  </div>
+);
+
 const getFileIcon = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
   switch (ext) {
-    case 'py': case 'ipynb': return <Code2 className="text-[#3776AB] w-4 h-4 shrink-0" />;
+    case 'py': case 'ipynb': return <PythonIcon className="w-4 h-4 shrink-0" />;
+    case 'csv': return <CsvIcon className="w-4 h-4 shrink-0" />;
+    case 'txt': case 'md': case 'log': return <FileText className="text-slate-400 w-4 h-4 shrink-0" />;
     case 'js': case 'jsx': return <Code2 className="text-[#F7DF1E] w-4 h-4 shrink-0" />;
     case 'html': return <Code2 className="text-orange-500 w-4 h-4 shrink-0" />;
-    case 'css': return <Code2 className="text-blue-300 w-4 h-4 shrink-0" />;
+    case 'css': return <Code2 className="text-blue-400 w-4 h-4 shrink-0" />;
     case 'java': return <Code2 className="text-[#007396] w-4 h-4 shrink-0" />;
     case 'cs': return <Code2 className="text-[#68217A] w-4 h-4 shrink-0" />;
     case 'cshtml': return <Code2 className="text-[#512BD4] w-4 h-4 shrink-0" />;
     case 'json': return <FileJson className="text-amber-500 w-4 h-4 shrink-0" />;
-    case 'md': case 'csv': case 'txt': case 'log': return <FileText className="text-emerald-500 w-4 h-4 shrink-0" />;
     case 'xml': return <Code2 className="text-orange-400 w-4 h-4 shrink-0" />;
     case 'gradle': return <Code2 className="text-[#8F56E3] w-4 h-4 shrink-0" />;
     case 'properties': return <FileText className="text-sky-500 w-4 h-4 shrink-0" />;
@@ -129,8 +143,6 @@ const buildFileTree = (filesList: any[]) => {
 
     let current = root;
     parts.forEach((part: string, partIdx: number) => {
-      if (partIdx === 0 && part === 'workspace') return;
-
       const isLast = partIdx === parts.length - 1;
       let child = current.children?.find(c => c.name === part);
 
@@ -165,6 +177,19 @@ const buildFileTree = (filesList: any[]) => {
   return root.children || [];
 };
 
+const PYTHON_STARTER = `# Welcome to Python Lab
+# Write your Python code here
+
+def greet(name):
+    print(f"Hello, {name}!")
+
+# Take user input
+name = input("Enter your name: ")
+greet(name)
+
+print("Program completed!")
+`;
+
 const DOTNET_CONSOLE_STARTER = `using System;
 
 class Program
@@ -190,11 +215,11 @@ const extractConsoleOutput = (raw: string) => {
   const marker = '--- PROGRAM OUTPUT ---';
   const idx = raw.indexOf(marker);
   if (idx === -1) {
-    return raw.replace(/\r?\nRUN_EXIT:\d+\s*$/i, '').trim();
+    return raw.replace(/\r?\nRUN_EXIT:\d+\s*$/i, '').replace(/^[\r\n]+/, '').trimEnd();
   }
   const body = raw.slice(idx + marker.length);
   const end = body.search(/\r?\nRUN_EXIT:/i);
-  return (end === -1 ? body : body.slice(0, end)).replace(/^\r?\n/, '').trimEnd();
+  return (end === -1 ? body : body.slice(0, end)).replace(/^[\r\n]+/, '').trimEnd();
 };
 
 const isDotnetMvcPath = (filePath: string, content?: string) => {
@@ -386,13 +411,87 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const [isSeleniumDialogOpen, setIsSeleniumDialogOpen] = useState(false);
   const [seleniumResolve, setSeleniumResolve] = useState<((mode: 'gui' | 'headless') => void) | null>(null);
 
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/workspace', 'workspace', '/workspace/data', 'data']));
   const [selectedFolderPath, setSelectedFolderPath] = useState<string>('/workspace');
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [restrictionMsg, setRestrictionMsg] = useState('');
   const [showRestrictionModal, setShowRestrictionModal] = useState(false);
+
+  const [terminalOutput, setTerminalOutput] = useState<{
+    command: string;
+    output: string;
+    plotHtml?: string | null;
+    error?: string | null;
+    status: 'idle' | 'running' | 'success' | 'error';
+  }>({
+    command: '',
+    output: '',
+    plotHtml: null,
+    status: 'idle'
+  });
+  const [outputTab, setOutputTab] = useState<'output' | 'plot' | 'preview' | 'logs'>('output');
+  const [consoleInputValue, setConsoleInputValue] = useState('');
+  const [outputHeight, setOutputHeight] = useState<number>(270);
+  const [isOutputCollapsed, setIsOutputCollapsed] = useState<boolean>(false);
+  const [isOutputMaximized, setIsOutputMaximized] = useState<boolean>(false);
+  const isDraggingOutputRef = useRef<boolean>(false);
+  const dragStartYRef = useRef<number>(0);
+  const dragStartHeightRef = useRef<number>(270);
+
+  const handleSplitterMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingOutputRef.current = true;
+    dragStartYRef.current = e.clientY;
+    dragStartHeightRef.current = isOutputCollapsed ? 42 : outputHeight;
+    setIsOutputCollapsed(false);
+    setIsOutputMaximized(false);
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingOutputRef.current) return;
+      const deltaY = dragStartYRef.current - moveEvent.clientY;
+      const newHeight = Math.max(100, Math.min(window.innerHeight - 160, dragStartHeightRef.current + deltaY));
+      setOutputHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      isDraggingOutputRef.current = false;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleSplitterTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    isDraggingOutputRef.current = true;
+    dragStartYRef.current = touch.clientY;
+    dragStartHeightRef.current = isOutputCollapsed ? 42 : outputHeight;
+    setIsOutputCollapsed(false);
+    setIsOutputMaximized(false);
+
+    const onTouchMove = (moveEvent: TouchEvent) => {
+      if (!isDraggingOutputRef.current) return;
+      const t = moveEvent.touches[0];
+      if (!t) return;
+      const deltaY = dragStartYRef.current - t.clientY;
+      const newHeight = Math.max(100, Math.min(window.innerHeight - 160, dragStartHeightRef.current + deltaY));
+      setOutputHeight(newHeight);
+    };
+
+    const onTouchEnd = () => {
+      isDraggingOutputRef.current = false;
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+
+    window.addEventListener('touchmove', onTouchMove);
+    window.addEventListener('touchend', onTouchEnd);
+  };
 
   useEffect(() => {
     mountedRef.current = true;
@@ -538,7 +637,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           cancelRename();
         }
       }}
-      className="flex-1 min-w-0 bg-[#1e1e1e] border border-amber-500/50 rounded px-1.5 py-0.5 text-[12px] text-white outline-none"
+      className="flex-1 min-w-0 bg-white border border-rose-300 rounded px-1.5 py-0.5 text-xs text-slate-800 outline-none shadow-xs"
     />
   );
 
@@ -556,25 +655,27 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               toggleFolder(node.path);
               setSelectedFolderPath(node.path);
             }}
-            className={`group relative flex items-center gap-1.5 py-1 pr-2 hover:bg-[#2a2d2e] cursor-pointer transition-colors border-l-2 ${isFolderSelected ? 'bg-[#37373d] border-red-500 text-white' : 'border-transparent text-slate-300'
-              }`}
-            style={{ paddingLeft: `${depth * 12 + 12}px` }}
+            className={`group relative flex items-center gap-1.5 py-1 px-2 rounded-lg hover:bg-slate-100/80 cursor-pointer transition-colors ${
+              isFolderSelected ? 'bg-slate-100 font-semibold' : ''
+            }`}
+            style={{ paddingLeft: `${depth * 14 + 6}px` }}
           >
-            <ChevronRight
-              size={14}
-              className={`text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-            />
             {isExpanded ? (
-              <FolderOpen size={14} className="text-amber-400 shrink-0" />
+              <ChevronDown size={14} className="text-slate-400 shrink-0" />
             ) : (
-              <Folder size={14} className="text-amber-500 shrink-0" />
+              <ChevronRight size={14} className="text-slate-400 shrink-0" />
+            )}
+            {isExpanded ? (
+              <FolderOpen size={16} className="text-amber-500 fill-amber-400 shrink-0" />
+            ) : (
+              <Folder size={16} className="text-amber-500 fill-amber-400 shrink-0" />
             )}
             {isEditing ? (
               renderRenameInput()
             ) : (
               <>
                 <span
-                  className="text-slate-300 text-[12px] font-medium truncate min-w-0 flex-1 pr-1"
+                  className="text-slate-700 text-xs font-semibold truncate min-w-0 flex-1 pr-1"
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     startRename(node.path, node.name);
@@ -583,7 +684,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                 >
                   {node.name}
                 </span>
-                <div className="hidden group-hover:flex absolute right-1 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-[#2a2d2e] pl-1 rounded">
+                <div className="hidden group-hover:flex absolute right-1.5 top-1/2 -translate-y-1/2 items-center gap-1 bg-white shadow-xs px-1 py-0.5 rounded border border-slate-200">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -595,7 +696,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                       });
                       handleAddFile(node.path);
                     }}
-                    className="text-slate-400 hover:text-emerald-400 transition-colors p-1 rounded hover:bg-white/10"
+                    className="text-slate-500 hover:text-emerald-600 transition-colors p-0.5 rounded"
                     title={`New file in ${node.name}`}
                   >
                     <Plus size={12} />
@@ -606,7 +707,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                         e.stopPropagation();
                         startRename(node.path, node.name);
                       }}
-                      className="text-slate-400 hover:text-amber-400 transition-colors p-1 rounded hover:bg-white/10"
+                      className="text-slate-500 hover:text-amber-600 transition-colors p-0.5 rounded"
                       title="Rename folder"
                     >
                       <Pencil size={12} />
@@ -640,9 +741,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             const parentDir = file.path.substring(0, file.path.lastIndexOf('/'));
             setSelectedFolderPath(parentDir);
           }}
-          className={`group relative flex items-center gap-2 py-1 pr-2 cursor-pointer border-l-2 transition-all ${isActive ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
-            }`}
-          style={{ paddingLeft: `${depth * 12 + 26}px` }}
+          className={`group relative flex items-center gap-2 py-1.5 px-2.5 my-0.5 rounded-lg cursor-pointer transition-all ${
+            isActive
+              ? 'bg-[#fee2e2]/80 text-[#e11d48] font-semibold'
+              : 'text-slate-700 hover:bg-slate-100/80 font-normal'
+          }`}
+          style={{ paddingLeft: `${depth * 14 + 18}px` }}
         >
           {getFileIcon(file.name)}
           {isEditing ? (
@@ -650,7 +754,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           ) : (
             <>
               <span
-                className={`text-[12px] truncate min-w-0 flex-1 pr-1 ${isActive ? 'text-white font-medium' : 'text-slate-400'}`}
+                className={`text-xs truncate min-w-0 flex-1 pr-1 ${isActive ? 'text-[#e11d48] font-semibold' : 'text-slate-700'}`}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   startRename(file.path, file.name);
@@ -659,13 +763,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               >
                 {file.name}
               </span>
-              <div className="hidden group-hover:flex absolute right-1 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-[#2a2d2e] pl-1 rounded">
+              <div className="hidden group-hover:flex absolute right-1.5 top-1/2 -translate-y-1/2 items-center gap-1 bg-white shadow-xs px-1 py-0.5 rounded border border-slate-200">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     startRename(file.path, file.name);
                   }}
-                  className="text-slate-400 hover:text-amber-400 transition-colors p-1 rounded hover:bg-white/10"
+                  className="text-slate-400 hover:text-amber-600 transition-colors p-0.5 rounded"
                   title="Rename file"
                 >
                   <Pencil size={12} />
@@ -683,7 +787,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                       toast.error(`Failed to delete file: ${err.message || 'Unknown error'}`);
                     }
                   }}
-                  className="text-slate-400 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
+                  className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 rounded"
                   title="Delete file"
                 >
                   <Trash2 size={12} />
@@ -1377,10 +1481,22 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         sessionId,
       );
 
-      const rawOutput = response?.output || '';
+      const rawOutput = response?.output != null ? String(response.output) : '';
       const rawError = response?.error || response?.runtimeError || response?.syntaxError || '';
       const runSuccess = response?.success || response?.status === 'COMPLETED';
-      const output = extractConsoleOutput(rawOutput);
+
+      let plotHtml: string | null = response?.plotHtml || null;
+      let textOnly = rawOutput;
+      if (!plotHtml && rawOutput.includes('<!-- VLAB_PLOT_START -->')) {
+        const plotMatch = rawOutput.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
+        if (plotMatch) {
+          plotHtml = plotMatch[1].trim();
+        }
+      }
+      textOnly = textOnly.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, '').replace(/^[\r\n]+/, '').trimEnd();
+
+      const output = extractConsoleOutput(textOnly);
+      const cmdName = isDotnet ? 'dotnet run' : isAndroid ? './build.sh' : `python ${activeFile?.name || 'main.py'}`;
 
       setConsoleSession((prev) =>
         prev
@@ -1394,7 +1510,20 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           }
           : prev,
       );
+
+      setTerminalOutput({
+        command: cmdName,
+        output: output || textOnly,
+        plotHtml,
+        error: runSuccess ? null : (rawError || 'Program exited with an error'),
+        status: runSuccess ? 'success' : 'error',
+      });
+
+      if (plotHtml) {
+        setOutputTab('plot');
+      }
     } catch (err: any) {
+      const cmdName = isDotnet ? 'dotnet run' : isAndroid ? './build.sh' : `python ${activeFile?.name || 'main.py'}`;
       setConsoleSession((prev) =>
         prev
           ? {
@@ -1405,6 +1534,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           }
           : prev,
       );
+      setTerminalOutput({
+        command: cmdName,
+        output: '',
+        error: err.message || 'Failed to run program',
+        status: 'error',
+      });
     }
   };
 
@@ -1523,6 +1658,23 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
     setConsoleSession(null);
 
+    const fileName = activeFile?.name || 'main.py';
+    const commandText = isAndroid
+      ? './build.sh'
+      : isDotnet
+        ? (dotnetAction === 'build' ? 'dotnet build' : 'dotnet run')
+        : activeFile?.language === 'java'
+          ? `java ${fileName}`
+          : `python ${fileName}`;
+
+    setTerminalOutput({
+      command: commandText,
+      output: '',
+      error: null,
+      status: 'running',
+    });
+    setOutputTab('output');
+
     try {
       showRunningPreview(previewMode);
 
@@ -1544,15 +1696,46 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             labType: 'dotnet',
             ...(dotnetAction ? { action: dotnetAction } : {}),
           }
-          : { path: activeFile.path, language: activeFile.language, content: editorCode };
+          : {
+            path: activeFile.path,
+            language: activeFile.language || 'python',
+            content: editorCode,
+            labType: isSelenium ? 'testing' : 'python',
+          };
 
       const response = await runFile(runPayload, sessionId);
-      await refreshFiles(false);
 
       if (response) {
-        const runSuccess = response.success || response.status === 'COMPLETED';
-        const rawOutput = response.output || '';
+        const runSuccess = Boolean(response.success || response.status === 'COMPLETED');
+        const rawOutput = response.output != null ? String(response.output) : '';
         const rawError = response.error || response.runtimeError || response.syntaxError || '';
+
+        // Extract plot HTML if present in response or output
+        let plotHtml: string | null = response.plotHtml || null;
+        let textOnly = rawOutput;
+        if (!plotHtml && rawOutput.includes('<!-- VLAB_PLOT_START -->')) {
+          const plotMatch = rawOutput.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
+          if (plotMatch) {
+            plotHtml = plotMatch[1].trim();
+          }
+        }
+        textOnly = textOnly.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, '').replace(/^[\r\n]+/, '').trimEnd();
+
+        const cleanOutput = extractConsoleOutput(textOnly);
+        const finalOutput = cleanOutput !== undefined && cleanOutput !== '' ? cleanOutput : textOnly;
+
+        setTerminalOutput({
+          command: commandText,
+          output: finalOutput,
+          plotHtml: plotHtml,
+          error: runSuccess ? null : (rawError || 'Execution failed'),
+          status: runSuccess ? 'success' : 'error',
+        });
+
+        // Automatically switch to the Graph / Plot tab when an interactive plot is generated
+        if (plotHtml) {
+          setOutputTab('plot');
+        }
 
         if (runSuccess && previewMode === 'build' && isDotnetBuildMode) {
           setDotnetBuildReady(true);
@@ -1561,8 +1744,14 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           setDotnetBuildReady(true);
         }
 
-        setWebPreviewCode(renderExecutionPreview(runSuccess, rawOutput, rawError, previewMode));
+        setWebPreviewCode(renderExecutionPreview(runSuccess, textOnly, rawError, previewMode));
       } else {
+        setTerminalOutput({
+          command: commandText,
+          output: '',
+          error: 'No output received from the runtime engine.',
+          status: 'error',
+        });
         setWebPreviewCode(`
           <html>
             <body style="background-color: #1e1e1e; color: #ff5555; font-family: monospace; padding: 16px;">
@@ -1572,7 +1761,16 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           </html>
         `);
       }
+
+      // Background file sync non-blockingly so terminal output is displayed immediately
+      refreshFiles(false).catch((err) => console.warn('Background file refresh error:', err));
     } catch (err: any) {
+      setTerminalOutput({
+        command: commandText,
+        output: '',
+        error: err.message || 'Failed to call the code execution service.',
+        status: 'error',
+      });
       setWebPreviewCode(`
         <html>
           <body style="background-color: #1e1e1e; color: #ff5555; font-family: monospace; padding: 16px;">
@@ -1979,142 +2177,193 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
   if (isLoading && !sessionId) {
     return (
-      <div className="h-full w-full bg-[#1e1e1e] flex flex-col items-center justify-center gap-4">
-        <div className="w-10 h-10 border-4 border-white/10 border-t-red-600 rounded-full animate-spin" />
-        <p className="text-white/40 text-xs uppercase tracking-widest font-black">Connecting to IDE...</p>
+      <div className="h-full w-full bg-[#f4f6f8] flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 border-4 border-slate-200 border-t-red-600 rounded-full animate-spin" />
+        <p className="text-slate-500 text-xs uppercase tracking-widest font-bold">Connecting to Lab Environment...</p>
       </div>
     );
   }
 
-  return (
-    <div className="ide-root-container h-full w-full flex bg-[#1e1e1e] overflow-hidden select-none font-sans relative">
-      {/* Resizing overlay to prevent iframe or editor pointer interception */}
-      {isResizing && (
-        <div className="fixed inset-0 z-50 cursor-col-resize select-none bg-transparent" />
-      )}
+  const currentLab = labs.find(l => l.id === labId || l.name?.toLowerCase() === labId || l.title?.toLowerCase() === labId);
+  const currentLabName = currentLab?.name || currentLab?.title || propSession?.labName || '';
+  const labRules = getLabExtensionRules(currentLabName, labId);
+  const isPythonLab = (labRules.courseName || '').toLowerCase().includes('python') || labId.toLowerCase().includes('python') || labType === 'python';
+  const labTitle = isPythonLab ? 'Python Lab' : (labRules.courseName || 'Virtual Lab');
+  const labSubtitle = isPythonLab ? 'Write, Run and Explore Python Programs' : `Write, Run and Explore ${labTitle} Programs`;
 
-      {/* Sidebar Explorer */}
-      {isSidebarOpen && (
-        <div
-          className="bg-[#252526] border-r border-[#1f1f1f] flex flex-col shrink-0 relative"
-          style={{ width: sidebarWidth }}
-        >
-          <div className="h-12 px-4 flex items-center justify-between border-b border-[#1f1f1f]">
-            <span className="text-[11px] text-white uppercase font-bold tracking-widest">Explorer</span>
+  const readCount = consoleSession ? Math.max(countConsoleReads(consoleSession.code), needsConsoleInput(consoleSession.code) ? 1 : 0) : 0;
+  const needsInput = !!consoleSession && readCount > 0 && consoleSession.stdinLines.length < readCount && !consoleSession.isRunning;
+
+  const handleTerminalConsoleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!consoleInputValue.trim() || !consoleSession || consoleSession.isRunning) return;
+    const val = consoleInputValue;
+    setConsoleInputValue('');
+    const newLines = [...consoleSession.stdinLines, val];
+    runConsoleInteractive(consoleSession.code, newLines);
+  };
+
+  return (
+    <div className="h-full w-full bg-[#f4f6f8] flex flex-col p-3 sm:p-4 gap-3.5 select-none font-sans overflow-hidden relative">
+      {/* Soft ambient corner accents matching the reference design */}
+      <div className="absolute -bottom-24 -right-24 w-96 h-96 bg-red-200/25 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-24 -left-24 w-96 h-96 bg-rose-100/30 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Top Header Card */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 px-4 py-3 flex items-center justify-between shrink-0 gap-3 z-10">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-sm shadow-red-500/20 active:scale-95 transition-all cursor-pointer shrink-0"
+            title="Back to Dashboard"
+          >
+            <ArrowLeft size={16} />
+            <span>Back</span>
+          </button>
+
+          <div className="flex items-center gap-3 min-w-0">
+            {isPythonLab ? (
+              <PythonIcon className="w-8 h-8 sm:w-9 sm:h-9 shrink-0" />
+            ) : (
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0">
+                <Code2 size={20} />
+              </div>
+            )}
+            <div className="flex flex-col min-w-0">
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 leading-tight truncate">
+                {labTitle}
+              </h1>
+              <span className="text-[11px] text-slate-500 font-normal truncate">
+                {labSubtitle}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 shrink-0">
+          {remainingTime && (
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-mono font-bold shadow-xs">
+              <Clock size={14} className="text-red-500 shrink-0" />
+              <span>{remainingTime}</span>
+            </div>
+          )}
+
+          {activeLabWallet && (
+            <div className="hidden lg:flex items-center gap-1.5 text-emerald-700 font-mono text-xs font-bold bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl shadow-xs">
+              <Coins size={14} className="text-emerald-600 shrink-0" />
+              <span>{activeLabWallet.remainingTokens} TOKENS</span>
+            </div>
+          )}
+
+          {isAndroid && (
             <div className="flex items-center gap-2">
-              <button onClick={handleSync} className="text-white hover:text-white/80 transition-colors mr-1" title="Sync Workspace">
-                <RotateCw size={14} className={isLoading ? 'animate-spin text-red-500' : 'text-white'} />
+              <button
+                onClick={handleAndroidBuild}
+                disabled={isAndroidBuilding}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-xs transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              >
+                <Play size={13} className="fill-white" />
+                <span>{isAndroidBuilding ? 'Building...' : 'Build'}</span>
               </button>
-              <button onClick={() => handleAddFile()} className="text-white hover:text-white/80 transition-colors" title="Add File">
-                <Plus size={16} />
+              {androidApkUrl && (
+                <button
+                  onClick={handleDownloadApk}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors shadow-sm"
+                >
+                  <Download size={13} />
+                  <span>APK</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={handleRun}
+            disabled={isRunning}
+            className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-sm shadow-red-500/20 active:scale-95 transition-all cursor-pointer"
+            title="Run Code (Ctrl+Enter)"
+          >
+            {isRunning ? (
+              <RotateCw size={14} className="animate-spin text-white" />
+            ) : (
+              <Play size={14} className="fill-white text-white" />
+            )}
+            <span>{isRunning ? 'Running...' : 'Run'}</span>
+          </button>
+
+          <button
+            onClick={() => {
+              resetEditorState();
+              onStopLab?.();
+            }}
+            className="flex items-center gap-2 px-5 py-2 bg-[#fff1f2] hover:bg-[#ffe4e6] text-rose-600 border border-rose-200 font-semibold text-xs sm:text-sm rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer"
+            title="Stop Lab Session"
+          >
+            <div className="w-3 h-3 bg-rose-600 rounded-xs" />
+            <span>Stop</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Workspace: Files on Left, Editor + Output on Right */}
+      <div className="flex-1 flex gap-3.5 min-h-0 min-w-0 z-10">
+        {/* Left Files Sidebar */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between shrink-0 w-60 sm:w-64 md:w-72 h-full overflow-hidden">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+            <span className="text-sm font-bold text-slate-800 tracking-tight">Files</span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleSync}
+                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                title="Sync Workspace"
+              >
+                <RotateCw size={15} className={isLoading || isRefreshingFiles ? 'animate-spin text-red-500' : ''} />
               </button>
-              <button onClick={() => fileInputRef.current?.click()} className="text-white hover:text-white/80 transition-colors" title="Upload File">
-                <Upload size={14} />
+              <button
+                onClick={() => handleAddFile()}
+                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                title="Options"
+              >
+                <MoreVertical size={15} />
               </button>
-              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
             </div>
           </div>
 
-          <div className="px-4 py-3 border-b border-[#1f1f1f]">
-            <span className="text-[11px] text-white uppercase font-bold tracking-widest">Workspace</span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto overflow-x-auto py-2">
-            {isAndroid ? (
-              buildFileTree(files).map(node => renderTreeNode(node, 0))
-            ) : (
-              files.map((file, i) => (
-                <div
-                  key={file.path}
-                  onClick={() => {
-                    if (!openFilePaths.includes(file.path)) {
-                      if (openFilePaths.length >= 8) {
-                        toast.error('Maximum of 8 files can be open in the tabs at the same time.');
-                        return;
-                      }
-                      setOpenFilePaths(prev => [...prev, file.path]);
-                    }
-                    selectFile(i);
-                  }}
-                  className={`group flex items-center gap-2 px-4 py-1.5 cursor-pointer border-l-2 transition-all ${activeFileIndex === i ? 'bg-[#37373d] border-red-500' : 'border-transparent hover:bg-[#2a2d2e]'
-                    }`}
-                >
-                  {getFileIcon(file.name)}
-                  <span className={`text-[12px] truncate flex-1 ${activeFileIndex === i ? 'text-white font-medium' : 'text-slate-400'}`}>
-                    {file.name}
-                  </span>
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (!window.confirm(`Are you sure you want to delete ${file.name}?`)) return;
-                      if (!sessionId) return;
-                      try {
-                        await deleteFile(file.path, sessionId);
-                        await handleSync();
-                      } catch (err: any) {
-                        console.error('Delete error:', err);
-                        setRestrictionMsg(`Failed to delete file: ${err.message || 'Unknown error'}`);
-                        setShowRestrictionModal(true);
-                      }
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-500 transition-colors p-1 rounded hover:bg-white/10"
-                    title="Delete file"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))
-            )}
+          <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-0.5">
+            {buildFileTree(files).map((node) => renderTreeNode(node, 0))}
             {files.length === 0 && !isLoading && (
-              <div className="px-4 py-8 flex flex-col items-center justify-center text-center">
-                <p className="text-[11px] text-slate-500 font-medium mb-3">No files in workspace</p>
-                <button
-                  onClick={() => handleAddFile()}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 text-red-400 hover:text-red-300 text-[11px] font-semibold transition-colors"
-                >
-                  <Plus size={12} />
-                  <span>New File</span>
-                </button>
+              <div className="py-8 text-center text-xs text-slate-400">
+                No files in workspace
               </div>
             )}
           </div>
 
-          <div
-            onPointerDown={(e) => startPanelResize(e, 'sidebar')}
-            onDoubleClick={() => {
-              setSidebarWidth(250);
-              sidebarWidthRef.current = 250;
-              localStorage.setItem('vlab.ide.sidebarWidth', '250');
-            }}
-            className={`absolute top-0 -right-2.5 h-full w-5 cursor-col-resize z-30 group flex items-center justify-center touch-none select-none transition-colors ${
-              isResizing === 'sidebar' ? 'bg-red-500/30' : 'hover:bg-red-500/20 active:bg-red-500/40'
-            }`}
-            title="Drag to resize explorer (double click to reset)"
-          >
-            <div
-              className={`w-[3px] h-full transition-colors ${
-                isResizing === 'sidebar'
-                  ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'
-                  : 'bg-white/10 group-hover:bg-red-500 group-active:bg-red-600'
-              }`}
-            />
+          <div className="pt-3 border-t border-slate-100 flex flex-col gap-2 shrink-0">
+            <button
+              onClick={() => handleAddFile()}
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-semibold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm shadow-red-500/20 active:scale-98 transition-all cursor-pointer"
+            >
+              <Plus size={15} />
+              <span>New File</span>
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-2.5 px-4 bg-white hover:bg-rose-50/50 text-rose-600 border border-rose-300 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer"
+            >
+              <Upload size={14} />
+              <span>Upload File</span>
+            </button>
+            <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
           </div>
         </div>
-      )}
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e]">
-
-        {/* Top Header Bar */}
-        <div className="h-12 bg-[#252526] border-b border-[#1f1f1f] flex items-center justify-between pl-2 pr-4 shrink-0 gap-4">
-          <div className="flex-1 flex items-center min-w-0 h-full">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-white hover:text-white/80 rounded transition-colors shrink-0">
-              <Menu size={18} className="text-white" />
-            </button>
-
-            {/* File Tabs with Horizontal Scroll */}
-            <div className="flex-1 flex items-center ml-2 overflow-x-auto scrollbar-none h-full min-w-0">
-              <div className="flex items-center space-x-1 h-full py-1">
+        {/* Right Area: Top Editor Card & Bottom Output Card */}
+        <div className="flex-1 flex flex-col gap-3.5 min-w-0 h-full overflow-hidden">
+          {/* Top: Code Editor Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col overflow-hidden flex-1 min-h-[220px]">
+            {/* Tab Bar */}
+            <div className="bg-slate-50/70 border-b border-slate-200/80 px-3 pt-2.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto min-w-0">
                 {openFilePaths.map((path) => {
                   if (path === 'chrome-preview') {
                     const isActive = isPreviewTabActive;
@@ -2122,14 +2371,17 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                       <div
                         key={path}
                         onClick={() => setIsPreviewTabActive(true)}
-                        className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[120px] max-w-[180px] transition-colors shrink-0 ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
-                          }`}
+                        className={`group flex items-center gap-2 px-3 py-1.5 rounded-t-lg cursor-pointer transition-colors shrink-0 text-xs font-semibold ${
+                          isActive
+                            ? 'bg-white border-t-2 border-t-rose-600 border-x border-slate-200/90 text-slate-900 shadow-xs -mb-[1px]'
+                            : 'bg-slate-100/70 hover:bg-slate-200/60 text-slate-600'
+                        }`}
                       >
-                        <Globe size={12} className="text-emerald-400 shrink-0" />
-                        <span className="text-[11px] truncate flex-1 font-medium">{browserTitle}</span>
+                        <Globe size={13} className="text-emerald-500" />
+                        <span className="truncate max-w-[120px]">{browserTitle}</span>
                         <button
                           onClick={(e) => handleCloseFile(e, 'chrome-preview')}
-                          className={`p-0.5 rounded-full hover:bg-white/10 ${isActive ? 'text-white/60 hover:text-white' : 'text-transparent group-hover:text-white/40'}`}
+                          className="p-0.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700"
                         >
                           <X size={12} />
                         </button>
@@ -2137,153 +2389,64 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                     );
                   }
 
-                  const file = files.find(f => f.path === path);
+                  const file = files.find((f) => f.path === path);
                   if (!file) return null;
-                  const idx = files.findIndex(f => f.path === path);
+                  const idx = files.findIndex((f) => f.path === path);
                   const isActive = activeFileIndex === idx && !isPreviewTabActive;
                   return (
                     <div
                       key={path}
                       onClick={() => selectFile(idx)}
-                      className={`group flex items-center gap-2 px-3 py-1.5 border border-[#1f1f1f] rounded-t-lg cursor-pointer min-w-[100px] max-w-[180px] transition-colors shrink-0 ${isActive ? 'bg-[#1e1e1e] border-b-transparent text-white' : 'bg-[#2d2d2d] border-b-[#1f1f1f] text-slate-400 hover:bg-[#333]'
-                        }`}
+                      className={`group flex items-center gap-2 px-3.5 py-1.5 rounded-t-lg cursor-pointer transition-colors shrink-0 text-xs font-semibold ${
+                        isActive
+                          ? 'bg-white border-t-2 border-t-rose-600 border-x border-slate-200/90 text-slate-900 shadow-xs -mb-[1px]'
+                          : 'bg-slate-100/70 hover:bg-slate-200/60 text-slate-600'
+                      }`}
                     >
                       {getFileIcon(file.name)}
-                      <span className="text-[11px] truncate flex-1 font-medium">{file.name}</span>
+                      <span className="truncate max-w-[130px]">{file.name}</span>
                       <button
                         onClick={(e) => handleCloseFile(e, path)}
-                        className={`p-0.5 rounded-full hover:bg-white/10 ${isActive ? 'text-white/60 hover:text-white' : 'text-transparent group-hover:text-white/40'}`}
+                        className="p-0.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-700"
                       >
                         <X size={12} />
                       </button>
                     </div>
                   );
                 })}
+
+                <button
+                  onClick={() => handleAddFile()}
+                  className="p-1 hover:bg-slate-200/70 rounded-md text-slate-500 hover:text-slate-800 transition-colors ml-1"
+                  title="New File"
+                >
+                  <Plus size={15} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 pb-1">
+                <button
+                  onClick={() => handleSave(true)}
+                  disabled={isSaving || !isContentReady}
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 transition-colors disabled:opacity-50"
+                  title="Save File (Ctrl+S)"
+                >
+                  <Save size={13} />
+                  <span>{isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save'}</span>
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition-colors"
+                  title="Download File"
+                >
+                  <Download size={14} />
+                </button>
               </div>
             </div>
-          </div>
 
-          {/* Right Toolbar */}
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              onClick={handleDownload}
-              className="flex items-center justify-center p-2 rounded-lg bg-[#2a2d2e] hover:bg-[#383a3d] border border-white/10 hover:border-white/20 text-[#38bdf8] hover:text-white transition-all shadow-sm active:scale-95"
-              title="Download Current File"
-            >
-              <Download size={15} />
-            </button>
-            {isAndroid ? (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleAndroidBuild}
-                  disabled={isAndroidBuilding}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
-                    isAndroidBuilding
-                      ? 'bg-amber-800 text-white/80 cursor-wait'
-                      : 'bg-amber-500 hover:bg-amber-400 border border-amber-400 shadow-amber-500/30'
-                  }`}
-                >
-                  {isAndroidBuilding ? <RotateCw size={13} className="animate-spin text-white" /> : <Play size={13} className="fill-white text-white" />}
-                  <span className="text-white font-extrabold">{isAndroidBuilding ? 'BUILDING...' : 'BUILD'}</span>
-                </button>
-                {androidApkUrl && (
-                  <button
-                    onClick={handleDownloadApk}
-                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-colors bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20 animate-pulse"
-                  >
-                    <Download size={13} />
-                    <span>DOWNLOAD APK</span>
-                  </button>
-                )}
-              </div>
-            ) : isDotnetBuildMode ? (
-              <>
-                <button
-                  onClick={handleBuild}
-                  disabled={isRunning}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
-                    runningAction === 'build'
-                      ? 'bg-red-800 text-white/80 cursor-wait'
-                      : 'bg-red-600 hover:bg-red-500 border border-red-500 shadow-red-600/30'
-                  }`}
-                >
-                  {runningAction === 'build' ? <RotateCw size={13} className="animate-spin text-white" /> : <Play size={13} className="fill-white text-white" />}
-                  <span className="text-white font-extrabold">{runningAction === 'build' ? 'BUILDING...' : 'BUILD'}</span>
-                </button>
-                <button
-                  onClick={handleDotnetRun}
-                  disabled={isRunning}
-                  title={dotnetBuildReady ? 'Run the web app and show preview' : 'Build the project first'}
-                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
-                    runningAction === 'run'
-                      ? 'bg-emerald-800 text-white/80 cursor-wait'
-                      : 'bg-emerald-600 hover:bg-emerald-500 border border-emerald-400 shadow-emerald-600/30'
-                  }`}
-                >
-                  {runningAction === 'run' ? <RotateCw size={13} className="animate-spin text-white" /> : <Play size={13} className="fill-white text-white" />}
-                  <span className="text-white font-extrabold">{runningAction === 'run' ? 'RUNNING...' : 'RUN'}</span>
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={handleRun}
-                disabled={isRunning}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-white text-xs font-black uppercase tracking-wider transition-all shadow-md active:scale-95 ${
-                  isRunning
-                    ? 'bg-red-800 text-white/80 cursor-wait'
-                    : 'bg-red-600 hover:bg-red-500 border border-red-500 shadow-red-600/30 hover:shadow-red-600/50'
-                }`}
-                title="Run Program (Ctrl+Enter)"
-              >
-                {isRunning ? (
-                  <RotateCw size={13} className="animate-spin text-white" />
-                ) : (
-                  <Play size={13} className="fill-white text-white" />
-                )}
-                <span className="text-white font-extrabold">{isRunning ? 'RUNNING...' : 'RUN'}</span>
-              </button>
-            )}
-            {remainingTime && (
-              <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-500/20 border border-red-500/60 text-white font-mono text-xs font-bold shrink-0 ml-2 shadow-sm">
-                <Clock size={14} className="text-white shrink-0" />
-                <span className="text-white font-bold tracking-wider text-[11px]">TIME REMAINING:</span>
-                <span className="text-white font-extrabold tracking-wider bg-red-600 px-2 py-0.5 rounded border border-red-400/50 text-xs">
-                  {remainingTime}
-                </span>
-              </div>
-            )}
-            {activeLabWallet && (
-              <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[10px] font-black bg-emerald-950/40 border border-emerald-500/20 px-2.5 py-1 rounded shrink-0 ml-2">
-                <Coins size={12} className="text-emerald-400" />
-                <span>{activeLabWallet.remainingTokens} TOKENS ({activeLabWallet.remainingTokens} MINS)</span>
-              </div>
-            )}
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2a2d2e] hover:bg-[#383a3d] border border-white/20 hover:border-white/40 text-white text-xs font-bold transition-all shadow-sm active:scale-95 ml-1"
-              title="Back to Dashboard"
-            >
-              <ArrowLeft size={14} className="text-white" />
-              <span className="text-white">Back</span>
-            </button>
-            <button
-              onClick={() => {
-                resetEditorState();
-                onStopLab?.();
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 border border-red-500/40 text-white text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-red-900/30 active:scale-95"
-              title="Stop Lab Session"
-            >
-              <Power size={13} className="text-white" />
-              <span className="text-white">Stop Lab</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <div className="ide-workspace-row flex-1 flex overflow-hidden min-w-0">
-            {isPreviewTabActive ? (
-              <div className="flex-1 flex flex-col relative bg-[#0c0c0c] min-h-0 min-w-0">
+            {/* Monaco Editor Canvas */}
+            <div className="bg-[#131722] flex-1 overflow-hidden relative rounded-b-2xl">
+              {isPreviewTabActive ? (
                 <TestingWorkspace
                   ref={testingWorkspaceRef}
                   session={propSession}
@@ -2294,23 +2457,11 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   onClose={() => handleCloseFile(new MouseEvent('click') as any, 'chrome-preview')}
                   initialAddressUrl={extractedUrl}
                 />
-              </div>
-            ) : activeFileIndex !== -1 && activeFile ? (
-              <div className={`flex-1 flex flex-col relative border-r border-[#1f1f1f] select-text min-w-0 ${isResizing ? 'pointer-events-none select-none' : ''}`}>
-                <div className="absolute top-4 right-6 z-10 flex gap-2">
-                  <button
-                    onClick={() => handleSave(true)}
-                    disabled={isSaving || !isContentReady}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2d2d2d] hover:bg-[#3d3d3d] text-white/80 hover:text-white text-[10px] uppercase tracking-wider font-bold rounded border border-white/10 shadow-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Save size={12} /> {isSaving ? 'Saving...' : (saveSuccess ? 'Saved!' : 'Save')}
-                  </button>
-                </div>
-
-                {isContentLoading ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-3 bg-[#1e1e1e] text-white/50">
-                    <div className="w-8 h-8 border-2 border-white/10 border-t-amber-500 rounded-full animate-spin" />
-                    <p className="text-[11px] uppercase tracking-widest font-bold">Loading {activeFile.name}...</p>
+              ) : activeFileIndex !== -1 && activeFile ? (
+                isContentLoading ? (
+                  <div className="flex-1 h-full flex flex-col items-center justify-center gap-3 text-slate-400">
+                    <div className="w-8 h-8 border-2 border-white/10 border-t-rose-500 rounded-full animate-spin" />
+                    <p className="text-xs uppercase tracking-widest font-semibold">Loading {activeFile.name}...</p>
                   </div>
                 ) : (
                   <Editor
@@ -2321,8 +2472,22 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                     onChange={handleEditorChange}
                     theme="vs-dark"
                     keepCurrentModel
-                    onMount={(editor) => {
+                    onMount={(editor, monaco) => {
                       editorRef.current = editor;
+                      try {
+                        monaco.editor.defineTheme('lab-dark-theme', {
+                          base: 'vs-dark',
+                          inherit: true,
+                          rules: [],
+                          colors: {
+                            'editor.background': '#131722',
+                            'editorGutter.background': '#131722',
+                            'editorLineNumber.foreground': '#4b5563',
+                            'editorLineNumber.activeForeground': '#9ca3af',
+                          }
+                        });
+                        monaco.editor.setTheme('lab-dark-theme');
+                      } catch (_) {}
                       editor.focus();
                     }}
                     options={{
@@ -2330,232 +2495,317 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                       fontSize: 14,
                       wordWrap: 'on',
                       scrollBeyondLastLine: false,
-                      padding: { top: 16 },
+                      padding: { top: 16, bottom: 16 },
                       automaticLayout: true,
                       readOnly: !isContentReady,
+                      fontFamily: "'Fira Code', 'Cascadia Code', Consolas, Monaco, monospace",
+                      lineNumbers: 'on',
+                      renderLineHighlight: 'all',
                     }}
                   />
+                )
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-400">
+                  <Code2 className="w-12 h-12 text-slate-600 mb-3" />
+                  <p className="text-sm font-semibold text-slate-300">No file open</p>
+                  <p className="text-xs text-slate-500 mt-1">Select a file from the left sidebar or create a new file to get started.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Draggable Vertical Splitter Bar */}
+          <div
+            onMouseDown={handleSplitterMouseDown}
+            onTouchStart={handleSplitterTouchStart}
+            onDoubleClick={() => {
+              setIsOutputCollapsed(false);
+              setIsOutputMaximized(false);
+              setOutputHeight(270);
+            }}
+            className="group relative flex items-center justify-center h-3 -my-1 cursor-row-resize z-20 select-none transition-colors"
+            title="Drag up or down to stretch/resize Output panel (Double-click to reset)"
+          >
+            <div className="w-full h-[2px] rounded-full bg-slate-200/90 group-hover:bg-rose-400 group-active:bg-rose-600 transition-colors flex items-center justify-center">
+              <div className="px-3 py-0.5 bg-white group-hover:bg-rose-50 border border-slate-300 group-hover:border-rose-400 rounded-full shadow-xs flex items-center gap-1 transition-all">
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom: Output Card */}
+          <div
+            style={{
+              height: isOutputCollapsed
+                ? '42px'
+                : isOutputMaximized
+                  ? '75vh'
+                  : `${outputTab === 'plot' && outputHeight === 270 ? 420 : outputHeight}px`
+            }}
+            className="bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col overflow-hidden transition-[height] duration-150 shrink-0"
+          >
+            {/* Output Header */}
+            <div className="bg-slate-50/70 border-b border-slate-200/80 px-4 flex items-center justify-between shrink-0 h-10">
+              <div className="flex items-center gap-4 h-full">
+                <button
+                  onClick={() => {
+                    setOutputTab('output');
+                    if (isOutputCollapsed) setIsOutputCollapsed(false);
+                  }}
+                  className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
+                    outputTab === 'output' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <FileText size={14} className={outputTab === 'output' ? 'text-rose-600' : 'text-slate-400'} />
+                  <span>Output</span>
+                </button>
+
+                {terminalOutput.plotHtml && (
+                  <button
+                    onClick={() => {
+                      setOutputTab('plot');
+                      if (isOutputCollapsed) setIsOutputCollapsed(false);
+                    }}
+                    className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
+                      outputTab === 'plot' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <LineChart size={14} className={outputTab === 'plot' ? 'text-rose-600' : 'text-slate-400'} />
+                    <span>Graph / Plot</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  </button>
+                )}
+
+                {(webPreviewCode || activeFile?.language === 'html') && (
+                  <button
+                    onClick={() => {
+                      setOutputTab('preview');
+                      if (isOutputCollapsed) setIsOutputCollapsed(false);
+                    }}
+                    className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
+                      outputTab === 'preview' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <Globe size={14} className={outputTab === 'preview' ? 'text-rose-600' : 'text-slate-400'} />
+                    <span>Web Preview</span>
+                  </button>
+                )}
+
+                {isAndroid && (
+                  <button
+                    onClick={() => {
+                      setOutputTab('logs');
+                      if (isOutputCollapsed) setIsOutputCollapsed(false);
+                    }}
+                    className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
+                      outputTab === 'logs' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    <TerminalIcon size={14} className={outputTab === 'logs' ? 'text-rose-600' : 'text-slate-400'} />
+                    <span>Build Logs</span>
+                  </button>
                 )}
               </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-10 bg-[#18181b] relative overflow-y-auto select-none min-w-0">
-                {/* Background ambient pattern */}
-                <div className="absolute inset-0 bg-[radial-gradient(#ffffff0a_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
 
-                <div className="relative z-10 max-w-xl w-full flex flex-col items-center text-center">
-                  {/* Hero Icon */}
-                  <div className="relative mb-5">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-br from-red-500/20 via-rose-500/10 to-amber-500/10 border border-white/10 flex items-center justify-center shadow-2xl shadow-red-500/10">
-                      <Code2 className="w-8 h-8 sm:w-10 sm:h-10 text-red-500" />
-                    </div>
-                    <div className="absolute -bottom-1 -right-1 p-1.5 rounded-xl bg-[#27272a] border border-white/10 text-amber-400 shadow-md">
-                      <Sparkles size={13} />
-                    </div>
-                  </div>
-
-                  <h1 className="text-lg sm:text-2xl font-black text-white tracking-tight mb-2">
-                    {labId ? `${labId.replace(/[-_]/g, ' ').toUpperCase()}` : 'Virtual Cloud IDE'}
-                  </h1>
-                  <p className="text-xs sm:text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
-                    Select an existing file from the explorer on the left, or launch an action below to begin programming.
-                  </p>
-
-                  {/* Interactive Action Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mb-6">
-                    <button
-                      onClick={() => handleAddFile()}
-                      className="group flex items-center gap-3.5 p-3.5 rounded-xl bg-[#222226] hover:bg-[#2a2a2f] border border-white/5 hover:border-red-500/30 text-left transition-all duration-200 hover:-translate-y-0.5 shadow-lg active:scale-98"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center shrink-0 group-hover:bg-red-500 group-hover:text-white transition-colors">
-                        <Plus size={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <span className="block text-xs sm:text-sm font-bold text-white group-hover:text-red-300 transition-colors">
-                          Create New File
-                        </span>
-                        <span className="block text-[11px] text-slate-400 truncate">
-                          Add a code script or template
-                        </span>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="group flex items-center gap-3.5 p-3.5 rounded-xl bg-[#222226] hover:bg-[#2a2a2f] border border-white/5 hover:border-blue-500/30 text-left transition-all duration-200 hover:-translate-y-0.5 shadow-lg active:scale-98"
-                    >
-                      <div className="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0 group-hover:bg-blue-500 group-hover:text-white transition-colors">
-                        <Upload size={18} />
-                      </div>
-                      <div className="min-w-0">
-                        <span className="block text-xs sm:text-sm font-bold text-white group-hover:text-blue-300 transition-colors">
-                          Upload Files
-                        </span>
-                        <span className="block text-[11px] text-slate-400 truncate">
-                          Import files from your device
-                        </span>
-                      </div>
-                    </button>
-                  </div>
-
-                  {/* Quick Files List if Files Exist in Workspace */}
-                  {files.length > 0 && (
-                    <div className="w-full mb-6 text-left">
-                      <div className="flex items-center justify-between mb-2.5 px-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                          Workspace Files ({files.length})
-                        </span>
-                        <span className="text-[10px] text-slate-500">Click to open</span>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {files.slice(0, 6).map((file, i) => (
-                          <button
-                            key={file.path}
-                            onClick={() => {
-                              if (!openFilePaths.includes(file.path)) {
-                                setOpenFilePaths((prev) => [...prev, file.path]);
-                              }
-                              selectFile(i);
-                            }}
-                            className="flex items-center gap-2 p-2 rounded-lg bg-[#222226] hover:bg-[#2e2e34] border border-white/5 hover:border-white/20 transition-all text-left group"
-                          >
-                            {getFileIcon(file.name)}
-                            <span className="text-xs font-medium text-slate-300 group-hover:text-white truncate">
-                              {file.name}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Keyboard Shortcuts Hint Bar */}
-                  <div className="flex flex-wrap items-center justify-center gap-3 text-[11px] text-slate-400 bg-white/5 px-4 py-2 rounded-full border border-white/10">
-                    <span className="flex items-center gap-1.5">
-                      <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Enter</kbd> Run
-                    </span>
-                    <span className="w-1 h-1 rounded-full bg-slate-600" />
-                    <span className="flex items-center gap-1.5">
-                      <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">S</kbd> Save
-                    </span>
-                    <span className="w-1 h-1 rounded-full bg-slate-600" />
-                    <span className="flex items-center gap-1.5">
-                      <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">Ctrl</kbd> + <kbd className="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10px] text-white">B</kbd> Sidebar
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Right Preview Panel */}
-            {isAndroid ? (
-              <div
-                className="bg-[#0c0c0c] border-l border-[#1f1f1f] flex flex-col shrink-0 min-w-0 relative"
-                style={{ width: rightPanelWidth }}
-              >
-                <div
-                  onPointerDown={(e) => startPanelResize(e, 'right')}
-                  onDoubleClick={() => {
-                    setRightPanelWidth(420);
-                    rightPanelWidthRef.current = 420;
-                    localStorage.setItem('vlab.ide.rightPanelWidth', '420');
-                  }}
-                  className={`absolute top-0 -left-2.5 h-full w-5 cursor-col-resize z-30 group flex items-center justify-center touch-none select-none transition-colors ${
-                    isResizing === 'right' ? 'bg-amber-500/30' : 'hover:bg-amber-500/20 active:bg-amber-500/40'
-                  }`}
-                  title="Drag left/right to resize build logs (double click to reset)"
-                >
-                  <div
-                    className={`w-[3px] h-full transition-colors ${
-                      isResizing === 'right'
-                        ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]'
-                        : 'bg-amber-500/40 group-hover:bg-amber-500 group-active:bg-amber-500'
-                    }`}
-                  />
-                </div>
-                <div className="h-10 bg-[#1e1e1e] flex justify-between items-center px-4 border-b border-amber-500/20 relative">
-                  <span className="text-[#f59e0b] text-[13px] font-extrabold uppercase tracking-wider">Build Logs</span>
+              <div className="flex items-center gap-1 sm:gap-2">
+                {outputTab === 'plot' && terminalOutput.plotHtml && (
                   <button
-                    type="button"
-                    onClick={handleCopyLogs}
-                    title="Copy Build Logs"
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#2a2d2e] hover:bg-[#37373d] text-slate-300 hover:text-white text-[11px] font-medium transition-all cursor-pointer"
+                    onClick={() => {
+                      const blob = new Blob([terminalOutput.plotHtml!], { type: 'text/html' });
+                      const url = URL.createObjectURL(blob);
+                      window.open(url, '_blank');
+                    }}
+                    className="text-slate-500 hover:text-slate-800 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Open graph in full new window"
                   >
-                    {copiedLogs ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-                    <span>{copiedLogs ? 'Copied!' : 'Copy'}</span>
+                    <ExternalLink size={12} />
+                    <span>Full Window</span>
                   </button>
-                  <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#f59e0b]" />
-                </div>
-                <div className="flex-1 w-full min-w-0 p-4 bg-[#111] font-mono text-[12px] text-slate-300 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words select-text selection:bg-amber-500/30">
-                  {androidBuildLogs}
-                </div>
-              </div>
-            ) : isSelenium ? (
-              null // Selenium preview is now opened in the Editor Tab bar instead of a split layout
-            ) : (
-              <div
-                className="bg-[#141416] border-l border-white/5 flex flex-col shrink-0 min-w-0 relative"
-                style={{ width: rightPanelWidth }}
-              >
-                <div
-                  onPointerDown={(e) => startPanelResize(e, 'right')}
-                  onDoubleClick={() => {
-                    setRightPanelWidth(420);
-                    rightPanelWidthRef.current = 420;
-                    localStorage.setItem('vlab.ide.rightPanelWidth', '420');
+                )}
+                {outputTab === 'logs' && (
+                  <button
+                    onClick={handleCopyLogs}
+                    className="text-slate-500 hover:text-slate-800 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors"
+                  >
+                    {copiedLogs ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                    <span>{copiedLogs ? 'Copied' : 'Copy'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setTerminalOutput({
+                      command: isAndroid ? './build.sh' : isDotnet ? 'dotnet run' : `python ${activeFile?.name || 'main.py'}`,
+                      output: '',
+                      plotHtml: null,
+                      status: 'idle'
+                    });
+                    setOutputTab('output');
+                    setConsoleSession(null);
                   }}
-                  className={`absolute top-0 -left-2.5 h-full w-5 cursor-col-resize z-30 group flex items-center justify-center touch-none select-none transition-colors ${
-                    isResizing === 'right' ? 'bg-red-500/30' : 'hover:bg-red-500/20 active:bg-red-500/40'
-                  }`}
-                  title="Drag left/right to resize preview (double click to reset)"
+                  className="text-slate-400 hover:text-slate-700 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                  title="Clear Terminal Output"
                 >
-                  <div
-                    className={`w-[3px] h-full transition-colors ${
-                      isResizing === 'right'
-                        ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]'
-                        : 'bg-red-600/40 group-hover:bg-red-500 group-active:bg-red-600'
-                    }`}
-                  />
-                </div>
+                  <RotateCcw size={12} />
+                  <span>Clear</span>
+                </button>
 
-                {/* Preview Header */}
-                <div className="h-10 bg-[#18181b] border-b border-white/10 flex items-center justify-between px-4 relative">
-                  <span className="text-white text-xs font-black uppercase tracking-wider">Preview</span>
-                </div>
+                <div className="h-4 w-[1px] bg-slate-300 mx-0.5" />
 
-                {/* Preview Body */}
-                <div className={`flex-1 w-full bg-white relative overflow-hidden ${isResizing ? 'pointer-events-none select-none' : ''}`}>
-                  {consoleSession?.active ? (
-                    <ConsoleInteractivePreview
-                      session={consoleSession}
-                      onSubmit={handleConsoleInputSubmit}
-                    />
-                  ) : webPreviewCode ? (
+                {/* Stretch Maximize / Restore Toggle */}
+                <button
+                  onClick={() => {
+                    setIsOutputCollapsed(false);
+                    setIsOutputMaximized((prev) => !prev);
+                  }}
+                  className="text-slate-500 hover:text-slate-800 text-xs p-1.5 rounded hover:bg-slate-200/70 transition-colors cursor-pointer"
+                  title={isOutputMaximized ? "Restore height (Stretch down)" : "Maximize height (Stretch up)"}
+                >
+                  {isOutputMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                </button>
+
+                {/* Collapse / Expand Toggle */}
+                <button
+                  onClick={() => {
+                    setIsOutputMaximized(false);
+                    setIsOutputCollapsed((prev) => !prev);
+                  }}
+                  className="text-slate-500 hover:text-slate-800 text-xs p-1.5 rounded hover:bg-slate-200/70 transition-colors cursor-pointer"
+                  title={isOutputCollapsed ? "Expand output" : "Collapse output"}
+                >
+                  {isOutputCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Output Screen */}
+            {!isOutputCollapsed && (
+              <div className={`bg-[#131722] flex-1 ${outputTab === 'plot' ? 'p-2' : 'p-4'} font-mono text-xs sm:text-sm text-slate-100 overflow-y-auto flex flex-col justify-between rounded-b-2xl select-text`}>
+                {outputTab === 'plot' && terminalOutput.plotHtml ? (
+                  <div className="relative w-full h-full min-h-[300px] flex flex-col bg-white rounded-xl overflow-hidden shadow-inner">
                     <iframe
-                      srcDoc={webPreviewCode}
-                      className={`absolute inset-0 w-full h-full border-0 bg-white ${isResizing ? 'pointer-events-none' : ''}`}
-                      title="Preview"
-                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                      srcDoc={terminalOutput.plotHtml}
+                      className="w-full h-full border-0 bg-white"
+                      title="Interactive Plot"
+                      sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
                     />
-                  ) : (
-                    <div className="absolute inset-0 bg-[#121214] flex flex-col items-center justify-center p-6 text-center select-none">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-500/10 to-amber-500/10 border border-white/10 flex items-center justify-center mb-4 text-red-500 shadow-xl">
-                        <MonitorPlay className="w-7 h-7 text-red-500" />
+                  </div>
+                ) : outputTab === 'preview' && webPreviewCode ? (
+                  <iframe
+                    srcDoc={webPreviewCode}
+                    className="w-full h-full border-0 bg-white rounded-lg"
+                    title="Web Preview"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  />
+                ) : outputTab === 'logs' ? (
+                  <pre className="font-mono text-xs sm:text-sm whitespace-pre-wrap leading-relaxed select-text text-slate-300 m-0 font-normal">
+                    {androidBuildLogs}
+                  </pre>
+                ) : (
+                  <div className="flex flex-col h-full justify-between">
+                    <div className="flex-1 overflow-y-auto">
+                      {/* Command Prompt line */}
+                      <div className="text-sky-400 font-semibold mb-2 select-text font-mono">
+                        $ {terminalOutput.command || (isAndroid ? './build.sh' : isDotnet ? 'dotnet run' : activeFile?.language === 'java' ? `java ${activeFile?.name || 'Main.java'}` : `python ${activeFile?.name || 'main.py'}`)}
                       </div>
-                      <h3 className="text-white font-bold text-sm mb-1.5">Interactive Output Standby</h3>
-                      <p className="text-xs text-slate-400 max-w-xs mb-5 leading-relaxed">
-                        Execute your program to render live web preview, interactive console, or runtime output here.
-                      </p>
-                      <button
-                        onClick={handleRun}
-                        disabled={isRunning}
-                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-lg shadow-red-600/25 transition-all hover:scale-105 active:scale-95"
-                      >
-                        <Play size={13} className="fill-current" />
-                        {isRunning ? 'Running...' : 'Run Preview'}
-                      </button>
+
+                      {/* Interactive graph notification banner */}
+                      {terminalOutput.plotHtml && (
+                        <div className="my-2.5 p-2.5 bg-slate-800/90 border border-slate-700/80 rounded-xl flex items-center justify-between gap-3 shadow-xs font-sans">
+                          <div className="flex items-center gap-2.5 text-xs text-slate-200">
+                            <LineChart size={16} className="text-emerald-400 shrink-0" />
+                            <span>Interactive graph generated successfully</span>
+                          </div>
+                          <button
+                            onClick={() => setOutputTab('plot')}
+                            className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                          >
+                            <span>View Graph</span>
+                            <ExternalLink size={12} />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Console / Terminal output content */}
+                      {consoleSession?.active ? (
+                        <div>
+                          {consoleSession.output && (
+                            <pre className="font-mono text-xs sm:text-sm whitespace-pre overflow-x-auto leading-relaxed select-text text-slate-100 m-0 font-normal">
+                              {consoleSession.output}
+                            </pre>
+                          )}
+
+                          {needsInput && (
+                            <form onSubmit={handleTerminalConsoleSubmit} className="flex items-center gap-2 mt-2">
+                              <span className="text-yellow-400 font-mono text-sm">&gt;</span>
+                              <input
+                                type="text"
+                                value={consoleInputValue}
+                                onChange={(e) => setConsoleInputValue(e.target.value)}
+                                className="flex-1 bg-transparent border-b border-rose-500/60 focus:border-rose-500 outline-none text-yellow-300 font-mono text-xs sm:text-sm py-0.5"
+                                placeholder="Type input and press Enter"
+                                autoFocus
+                              />
+                              <button
+                                type="submit"
+                                className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold uppercase tracking-wider cursor-pointer"
+                              >
+                                Send
+                              </button>
+                            </form>
+                          )}
+                        </div>
+                      ) : (
+                        <div>
+                          {terminalOutput.output ? (
+                            <pre className="font-mono text-xs sm:text-sm whitespace-pre overflow-x-auto leading-relaxed select-text text-slate-100 m-0 font-normal">
+                              {terminalOutput.output}
+                            </pre>
+                          ) : terminalOutput.status === 'success' ? (
+                            <div className="text-slate-500 text-xs italic select-text">
+                              (Program finished with no output)
+                            </div>
+                          ) : null}
+                          {terminalOutput.error && (
+                            <pre className="font-mono text-xs sm:text-sm whitespace-pre-wrap overflow-x-auto leading-relaxed select-text text-rose-400 mt-2 m-0 font-normal">
+                              {terminalOutput.error}
+                            </pre>
+                          )}
+                          {terminalOutput.status === 'idle' && !terminalOutput.output && !terminalOutput.error && !isRunning && (
+                            <div className="text-slate-500 text-xs italic mt-1">
+                              Click &quot;Run&quot; to execute your program.
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+
+                    {/* Completion Badges at the bottom */}
+                    <div className="shrink-0 pt-2 border-t border-slate-800/80 mt-2">
+                      {isRunning || (consoleSession?.active && consoleSession.isRunning) ? (
+                        <div className="flex items-center gap-2 text-amber-400 font-medium text-xs">
+                          <RotateCw size={13} className="animate-spin text-amber-400" />
+                          <span>Running program...</span>
+                        </div>
+                      ) : (consoleSession?.active && consoleSession.success) || terminalOutput.status === 'success' ? (
+                        <div className="flex items-center gap-2 text-emerald-400 font-medium text-xs">
+                          <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                            <Check size={11} className="stroke-[3]" />
+                          </div>
+                          <span>Process completed successfully</span>
+                        </div>
+                      ) : (consoleSession?.active && consoleSession.error) || terminalOutput.status === 'error' ? (
+                        <div className="flex items-center gap-2 text-rose-400 font-medium text-xs">
+                          <div className="w-4 h-4 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                            <X size={11} className="stroke-[3]" />
+                          </div>
+                          <span>Process exited with error</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

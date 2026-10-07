@@ -371,21 +371,23 @@ export default function MyLabs() {
             if (match) {
               const key = String(match.id || match.labId || match.title).toLowerCase();
               if (!seenKeys.has(key)) {
-                seenKeys.add(key);
                 const w = (labWallets || []).find((wallet) => {
                   const wId = String(wallet.labId || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
                   return wId === cleanTLabId;
                 });
-                const walletTokens = w ? Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0))) : 0;
-                const rem = Math.max(walletTokens, Number(tx.amount || 0));
-                result.push({
-                  ...match,
-                  remainingTokens: rem,
-                  availableTokens: rem,
-                  tokens: rem,
-                  subtitle: 'Purchased Lab Access',
-                  category: match.category || 'Purchased Lab',
-                });
+                const walletTokens = w ? Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0))) : Number(tx.amount || 0);
+                const rem = walletTokens;
+                if (rem > 0) {
+                  seenKeys.add(key);
+                  result.push({
+                    ...match,
+                    remainingTokens: rem,
+                    availableTokens: rem,
+                    tokens: rem,
+                    subtitle: 'Purchased Lab Access',
+                    category: match.category || 'Purchased Lab',
+                  });
+                }
               }
             } else if (tx.labName) {
               const key = cleanTLabId || String(tx.labName).toLowerCase();
@@ -409,11 +411,10 @@ export default function MyLabs() {
         }
       });
 
-      // Also include any personal labs in labWallets where student has purchased or remaining tokens
+      // Also include any personal labs in labWallets where student has remaining tokens > 0
       (labWallets || []).forEach((w) => {
         const remaining = Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0)));
-        const purchased = Number(w.purchasedTokens || 0);
-        if (remaining > 0 || purchased > 0) {
+        if (remaining > 0) {
           const rawWId = String(w.labId || '').toLowerCase().trim();
           const cleanWId = rawWId.replace(/^lab-/, '').replace(/-lab$/, '');
 
@@ -433,12 +434,11 @@ export default function MyLabs() {
             const key = String(match.id || match.labId || match.title).toLowerCase();
             if (!seenKeys.has(key)) {
               seenKeys.add(key);
-              const effectiveTokens = remaining > 0 ? remaining : purchased;
               result.push({
                 ...match,
-                remainingTokens: effectiveTokens,
-                availableTokens: effectiveTokens,
-                tokens: effectiveTokens,
+                remainingTokens: remaining,
+                availableTokens: remaining,
+                tokens: remaining,
                 subtitle: 'Purchased Lab Access',
                 category: match.category || 'Purchased Lab',
               });
@@ -453,8 +453,7 @@ export default function MyLabs() {
     // Direct student logic: include labs with tokens in student labWallets
     (labWallets || []).forEach((w) => {
       const remaining = Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0)));
-      const purchased = Number(w.purchasedTokens || 0);
-      if (remaining > 0 || purchased > 0) {
+      if (remaining > 0) {
         const rawWId = String(w.labId || '').toLowerCase().trim();
         const cleanWId = rawWId.replace(/^lab-/, '').replace(/-lab$/, '');
 
@@ -564,8 +563,7 @@ export default function MyLabs() {
     // 1. Add all lab IDs from active student labWallets
     (labWallets || []).forEach(w => {
       const remaining = Number(w.remainingTokens ?? (Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0)));
-      const purchased = Number(w.purchasedTokens || 0);
-      if (remaining > 0 || purchased > 0) {
+      if (remaining > 0) {
         const rawWId = String(w.labId || '').toLowerCase().trim();
         const cleanWId = rawWId.replace(/^lab-/, '').replace(/-lab$/, '');
         purchasedLabIds.add(rawWId);
@@ -653,17 +651,6 @@ export default function MyLabs() {
         return isMatch ? sum + (Number(tx.amount) || 0) : sum;
       }, 0);
 
-      // Only count as purchased if the student actually bought personal tokens or has wallet tokens
-      const hasPurchasedTokens = Boolean(
-        (walletMatch && (Number(walletMatch.purchasedTokens || 0) > 0 || walletRemainingTokens > 0)) ||
-        txCredits > 0 ||
-        purchasedLabIds.has(lId) ||
-        purchasedLabIds.has(cleanLId) ||
-        Array.from(purchasedLabNames).some(name => (lTitle && name && (lTitle.includes(name) || name.includes(lTitle))))
-      );
-
-      const isPurchased = hasPurchasedTokens;
-
       const isUniversity = !isDirectUser && (
         hasCourseFilter ||
         Boolean(labItem.courseCode) ||
@@ -672,6 +659,34 @@ export default function MyLabs() {
         enrolledUniversityLabIds.has(cleanLId) ||
         enrolledUniversityLabIds.has(lTitle)
       );
+
+      const assignedUniTokens = coursePracticalTokens || Number(labItem.practicalCredit) || (isUniversity ? 60 : 0);
+      const usedTokens = Number(walletMatch?.usedTokens || 0);
+
+      let effectiveRemainingTokens = 0;
+      if (walletMatch) {
+        effectiveRemainingTokens = walletRemainingTokens;
+      } else if (txCredits > 0) {
+        effectiveRemainingTokens = Math.max(0, txCredits - usedTokens);
+      } else if (isUniversity) {
+        effectiveRemainingTokens = usedTokens > 0
+          ? Math.max(0, assignedUniTokens - usedTokens)
+          : assignedUniTokens;
+      } else {
+        const itemTokens = Number(labItem.remainingTokens ?? labItem.availableTokens ?? labItem.tokens ?? 0);
+        effectiveRemainingTokens = Math.max(0, itemTokens - usedTokens);
+      }
+
+      // Only count as purchased if the student actually has remaining tokens > 0
+      const hasPurchasedTokens = effectiveRemainingTokens > 0 && Boolean(
+        (walletMatch && walletRemainingTokens > 0) ||
+        txCredits > 0 ||
+        purchasedLabIds.has(lId) ||
+        purchasedLabIds.has(cleanLId) ||
+        Array.from(purchasedLabNames).some(name => (lTitle && name && (lTitle.includes(name) || name.includes(lTitle))))
+      );
+
+      const isPurchased = hasPurchasedTokens;
 
       let accessType: 'personal' | 'university' | 'catalogue' = 'catalogue';
       let accessLabel = '';
@@ -682,28 +697,6 @@ export default function MyLabs() {
       } else if (isPurchased) {
         accessType = 'personal';
         accessLabel = 'Personal';
-      }
-
-      const assignedUniTokens = coursePracticalTokens || Number(labItem.practicalCredit) || (isUniversity ? 60 : 0);
-      const usedTokens = Number(walletMatch?.usedTokens || 0);
-
-      let effectiveRemainingTokens = 0;
-      if (walletRemainingTokens > 0) {
-        effectiveRemainingTokens = walletRemainingTokens;
-      } else if (isPurchased) {
-        // For purchased/personal lab: use tokens from transactions, wallet, or labItem
-        const purchasedAmount = Math.max(
-          txCredits,
-          Number(labItem.remainingTokens || 0),
-          Number(labItem.availableTokens || 0),
-          Number(labItem.tokens || 0),
-          Number(walletMatch?.purchasedTokens || 0)
-        );
-        effectiveRemainingTokens = Math.max(0, purchasedAmount - usedTokens);
-      } else if (isUniversity) {
-        effectiveRemainingTokens = usedTokens > 0
-          ? Math.max(0, assignedUniTokens - usedTokens)
-          : assignedUniTokens;
       }
 
       return {
@@ -866,7 +859,19 @@ export default function MyLabs() {
     const other: any[] = [];
 
     (displayLabs || []).forEach((lab: any) => {
-      if (lab.isPurchased || lab.accessType === 'personal' || lab.isUniversity || lab.accessType === 'university') {
+      const remainingToks = Number(lab.remainingTokens ?? lab.availableTokens ?? lab.tokens ?? 0);
+      const isRunningSession = isLabActive(lab);
+      const hasTokensAvailable = remainingToks > 0;
+      const isEligiblePurchased = Boolean(
+        lab.isPurchased ||
+        lab.accessType === 'personal' ||
+        lab.isUniversity ||
+        lab.accessType === 'university'
+      );
+
+      // Lab appears in "Purchased Labs" ONLY if it actually has tokens available (> 0) OR an active running session!
+      // If 0 tokens are available, automatically remove it from Purchased Labs so it appears in Available Catalogue.
+      if (isEligiblePurchased && (hasTokensAvailable || isRunningSession)) {
         purchased.push(lab);
       } else {
         other.push(lab);
@@ -874,9 +879,17 @@ export default function MyLabs() {
     });
 
     return { purchasedLabs: purchased, otherLabs: other };
-  }, [displayLabs]);
+  }, [displayLabs, activeSession]);
 
   const getLabId = (lab: any) => lab?.id || lab?.labId || lab?.LabId || lab?.labCode || lab?.LabCode || lab?._id || '';
+
+  const handlePurchaseTokens = (labId: string) => {
+    const lab = displayLabs.find(l => getLabId(l) === labId) || labs.find(l => getLabId(l) === labId);
+    const targetLabId = lab ? getLabId(lab) : labId;
+    setSelectedTokenLabId(targetLabId);
+    setSelectedTokenLabTitle(lab?.title || lab?.name || targetLabId);
+    setTokenPackagesModalOpen(true);
+  };
 
   const handleStartLab = async (labId: string) => {
     if (!labId) {
@@ -890,71 +903,28 @@ export default function MyLabs() {
       return;
     }
 
-    const lab = labs.find(l => getLabId(l) === labId) || displayLabs.find(l => getLabId(l) === labId);
+    const lab = displayLabs.find(l => getLabId(l) === labId) || labs.find(l => getLabId(l) === labId);
     if (!lab) return;
 
     clearStartError();
 
     const isAdmin = user.role?.includes('Super Admin') || user.role?.includes('Tenant Admin');
-    const labCost = Number(lab.credits || lab.creditCost || 30);
-    const currentStudentEmail = user?.email?.toLowerCase();
-
-    // Calculate credits specifically purchased for THIS lab
-    const specificLabCredits = (transactions || []).reduce((sum, tx) => {
-      const isSuccess = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
-      if (!isSuccess || tx.type !== 'Credit') return sum;
-      const isOwner = !currentStudentEmail || !tx.studentEmail || tx.studentEmail.toLowerCase() === currentStudentEmail;
-      if (!isOwner) return sum;
-
-      const tLabIds = String(tx.labId || '').toLowerCase().split(',').map(s => s.trim());
-      const tLabName = String(tx.labName || tx.description || '').toLowerCase();
-      const currLabId = String(getLabId(lab)).toLowerCase();
-      const currLabTitle = String(lab.title || lab.name || '').toLowerCase();
-
-      const isMatch = (
-        tLabIds.some(id => id === currLabId || id.replace('lab-', '') === currLabId.replace('lab-', '')) ||
-        (tLabName && currLabTitle && (tLabName.includes(currLabTitle) || currLabTitle.includes(tLabName)))
-      );
-
-      return isMatch ? sum + (Number(tx.amount) || 0) : sum;
-    }, 0);
-
-    // Also check if assigned via enrolled LMS curriculum (for university/institution students)
-    const isEnrolledInCurriculum = !isDirectUser && (
-      allEnrolledMappedLabs.some((l: any) => (l.id || l.labId || l.LabId) === labId || (l.id || l.labId || l.LabId) === getLabId(lab)) ||
-      (semesterCourses && semesterCourses.some((c: any) =>
-        c.labId === labId ||
-        c.labCode === labId ||
-        c.mappedLab?.labId === labId ||
-        c.courseCode === (lab as any)?.courseCode ||
-        c.courseName === (lab as any)?.courseName
-      )) ||
-      (hasCourseFilter && Boolean((lab as any)?.courseCode))
-    );
-
-    // Check lab-specific token wallet balance & transactions
-    const targetCleanId = String(getLabId(lab) || labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-    const labWallet = (labWallets || []).find((w) => {
-      const wId = String(w.labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-      return wId === targetCleanId;
-    });
-    const walletRemainingTokens = labWallet ? Number(labWallet.remainingTokens || 0) : 0;
     const isPersonalLab = (lab as any)?.accessType === 'personal' || (lab as any)?.isPurchased;
-    const isUniversityLab = !isPersonalLab && (
-      isEnrolledInCurriculum ||
-      (lab as any)?.isUniversity ||
-      (lab as any)?.accessType === 'university'
-    );
-    const assignedTokens = isUniversityLab ? (Number((lab as any)?.practicalCredit || (lab as any)?.tokens || (lab as any)?.credits) || 60) : 0;
-    const remainingTokens = Math.max(walletRemainingTokens, specificLabCredits, Number((lab as any)?.remainingTokens || 0), assignedTokens);
+    const isUniversityLab = (lab as any)?.isUniversity || (lab as any)?.accessType === 'university';
+
+    const remainingTokens = Number((lab as any)?.remainingTokens ?? (lab as any)?.availableTokens ?? (lab as any)?.tokens ?? 0);
 
     const canStartLab = isAdmin || remainingTokens > 0;
 
     if (!canStartLab) {
+      setSelectedTokenLabId(labId);
+      setSelectedTokenLabTitle(lab.title || lab.name || labId);
+      setTokenPackagesModalOpen(true);
       setShowDirectPurchaseModal({
         ...lab,
         userLabCredits: remainingTokens,
       });
+      toast.error('No tokens available for this lab. Please purchase tokens to start.');
       return;
     }
 
@@ -975,12 +945,12 @@ export default function MyLabs() {
 
     const effectiveTokens = remainingTokens > 0 ? remainingTokens : 60;
 
-    const academicCtx = {
+    const academicCtx = isUniversityLab ? {
       programId: programIdQuery,
       semesterId: semesterFilterQuery,
       courseCode: (lab as any).courseCode,
       practicalCredit: effectiveTokens,
-    };
+    } : undefined;
 
     const session = await startLab(labId, 1, undefined, academicCtx, effectiveTokens);
     if (session?.sessionId) {
@@ -994,21 +964,25 @@ export default function MyLabs() {
     if (!labId) return;
     setSelectedDotnetLabId(null);
 
-    const lab = labs.find(l => getLabId(l) === labId) || displayLabs.find(l => getLabId(l) === labId);
-    const targetCleanId = String(getLabId(lab) || labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-    const labWallet = (labWallets || []).find((w) => {
-      const wId = String(w.labId).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-      return wId === targetCleanId;
-    });
-    const walletRemainingTokens = labWallet ? Number(labWallet.remainingTokens || 0) : 0;
-    const effectiveTokens = walletRemainingTokens > 0 ? walletRemainingTokens : 60;
+    const lab = displayLabs.find(l => getLabId(l) === labId) || labs.find(l => getLabId(l) === labId);
+    const isAdmin = user.role?.includes('Super Admin') || user.role?.includes('Tenant Admin');
+    const remainingTokens = Number((lab as any)?.remainingTokens ?? (lab as any)?.availableTokens ?? (lab as any)?.tokens ?? 0);
 
-    const academicCtx = {
+    if (!isAdmin && remainingTokens <= 0) {
+      toast.error('No tokens available for this lab. Please purchase tokens to start.');
+      handlePurchaseTokens(labId);
+      return;
+    }
+
+    const isUniversityLab = (lab as any)?.isUniversity || (lab as any)?.accessType === 'university';
+    const effectiveTokens = remainingTokens > 0 ? remainingTokens : 60;
+
+    const academicCtx = isUniversityLab ? {
       programId: programIdQuery,
       semesterId: semesterFilterQuery,
       courseCode: (lab as any)?.courseCode,
       practicalCredit: effectiveTokens,
-    };
+    } : undefined;
 
     const session = await startLab(labId, 1, subtype, academicCtx, effectiveTokens);
     if (session?.sessionId) {
@@ -1186,6 +1160,7 @@ export default function MyLabs() {
                               onResume={handleResumeLab}
                               onStop={handleStopLabClick}
                               onDetails={handleViewDetails}
+                              onPurchase={handlePurchaseTokens}
                               activeSession={isLabActive(lab) ? activeSession : undefined}
                               elapsedTime={isLabActive(lab) ? elapsedTime || undefined : undefined}
                               isStarting={startingLabId === lab.id}
@@ -1230,6 +1205,7 @@ export default function MyLabs() {
                               onResume={handleResumeLab}
                               onStop={handleStopLabClick}
                               onDetails={handleViewDetails}
+                              onPurchase={handlePurchaseTokens}
                               activeSession={isLabActive(lab) ? activeSession : undefined}
                               elapsedTime={isLabActive(lab) ? elapsedTime || undefined : undefined}
                               isStarting={startingLabId === lab.id}
@@ -1261,6 +1237,7 @@ export default function MyLabs() {
                           onResume={handleResumeLab}
                           onStop={handleStopLabClick}
                           onDetails={handleViewDetails}
+                          onPurchase={handlePurchaseTokens}
                           activeSession={isLabActive(lab) ? activeSession : undefined}
                           elapsedTime={isLabActive(lab) ? elapsedTime || undefined : undefined}
                           isStarting={startingLabId === lab.id}

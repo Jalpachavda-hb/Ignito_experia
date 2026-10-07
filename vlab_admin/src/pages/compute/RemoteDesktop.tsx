@@ -277,14 +277,26 @@ export const RemoteDesktop = () => {
     const isAndroid = labId === 'mobile-app-lab' || labId === 'android';
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0c0c0c] text-white px-6 text-center">
-        <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-lg font-bold tracking-widest uppercase text-slate-300">Initializing Workspace</p>
-        {isAndroid && (
+        {!error && <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4" />}
+        <p className="text-lg font-bold tracking-widest uppercase text-slate-300">
+          {error ? 'Unable to Start Lab' : 'Initializing Workspace'}
+        </p>
+        {isAndroid && !error && (
           <p className="text-xs text-slate-400 mt-2 max-w-md leading-relaxed">
             Note: The first launch of the Mobile Application Development Lab can take 3–8 minutes as the large Android SDK & Gradle runtime container image is downloaded. Please keep this tab open.
           </p>
         )}
-        {error && <p className="text-red-500 mt-4">{error}</p>}
+        {error && (
+          <div className="mt-4 flex flex-col items-center gap-4">
+            <p className="text-red-400 max-w-md text-sm">{error}</p>
+            <button
+              onClick={() => navigate({ to: '/student/my-labs' })}
+              className="bg-red-600 hover:bg-red-700 text-white font-semibold text-xs px-5 py-2.5 rounded-lg shadow-md transition-colors"
+            >
+              Back to My Labs
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -303,7 +315,7 @@ export const RemoteDesktop = () => {
 
   if (session && isBuiltInEditorSession) {
     return (
-      <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
+      <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#f4f6f8]">
         <CloudEditor session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}

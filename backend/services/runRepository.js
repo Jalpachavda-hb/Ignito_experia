@@ -37,6 +37,7 @@ export const completeRun = async (runId, result) => {
     status: result.success ? "COMPLETED" : "FAILED",
     success: result.success,
     output: result.output || "",
+    plotHtml: result.plotHtml || null,
     error: result.error || result.runtimeError || "",
     syntaxError: result.syntaxError || "",
     runtimeError: result.runtimeError || "",

@@ -165,9 +165,8 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       const isLmsCandidate = auth?.authType === 'LMS' ||
         auth?.authType === 'LMS_AND_DIRECT' ||
         auth?.isLmsStudent ||
-        Boolean(auth?.externalStudentId || auth?.studentDegreeAdmissionId || auth?.studentId) ||
-        (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT') ||
-        Boolean(body?.academicCtx);
+        (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT' && Boolean(body?.academicCtx)) ||
+        Boolean(body?.academicCtx && (body.academicCtx.programId || body.academicCtx.semesterId || body.academicCtx.courseCode));
 
       if (isLmsCandidate) {
         const rawLabId = String(labId).toLowerCase().trim();
