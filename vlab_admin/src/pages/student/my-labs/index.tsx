@@ -18,6 +18,7 @@ import { PaymentGateway } from './components/payment-gateway';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DotnetSelectionModal } from './components/dotnet-selection-modal';
 import { PurchaseCreditModal } from './components/purchase-credit-modal';
+import { TokenPackagesModal } from './components/token-packages-modal';
 import { useLabTokenStore } from '@/stores/labTokenStore';
 import { getSemesterCourseListByProgrammeId, getSemesterLabs, getStudentPurchasedProgrammes } from '@/Utils/lmsApi_paths';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +48,9 @@ export default function MyLabs() {
   const [showDotnetModal, setShowDotnetModal] = useState(false);
   const [selectedDotnetLabId, setSelectedDotnetLabId] = useState<string | null>(null);
   const { labWallets, fetchStudentLabTokens } = useLabTokenStore();
+  const [tokenPackagesModalOpen, setTokenPackagesModalOpen] = useState(false);
+  const [selectedTokenLabId, setSelectedTokenLabId] = useState<string | undefined>(undefined);
+  const [selectedTokenLabTitle, setSelectedTokenLabTitle] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     fetchStudentLabTokens();
@@ -965,7 +969,7 @@ export default function MyLabs() {
     setSelectedDotnetLabId(null);
 
     const lab = displayLabs.find(l => getLabId(l) === labId) || labs.find(l => getLabId(l) === labId);
-    const isAdmin = user.role?.includes('Super Admin') || user.role?.includes('Tenant Admin');
+    const isAdmin = Boolean(user?.role?.includes('Super Admin') || user?.role?.includes('Tenant Admin'));
     const remainingTokens = Number((lab as any)?.remainingTokens ?? (lab as any)?.availableTokens ?? (lab as any)?.tokens ?? 0);
 
     if (!isAdmin && remainingTokens <= 0) {
@@ -1297,11 +1301,12 @@ export default function MyLabs() {
         onPurchase={() => {
           const target = showDirectPurchaseModal;
           setShowDirectPurchaseModal(null);
-          const targetSearch = target?.title || target?.name || (target ? getLabId(target) : '');
-          navigate({
-            to: '/student/credit-wallet',
-            search: targetSearch ? ({ search: targetSearch } as any) : undefined,
-          });
+          if (target) {
+            const targetLabId = getLabId(target);
+            setSelectedTokenLabId(targetLabId);
+            setSelectedTokenLabTitle(target.title || target.name || targetLabId);
+            setTokenPackagesModalOpen(true);
+          }
         }}
       />
 
@@ -1309,6 +1314,13 @@ export default function MyLabs() {
       <ExtendSessionModal
         walletBalance={user?.credits ?? 0}
         onPurchaseCredits={() => navigate({ to: '/student/credit-wallet' })}
+      />
+
+      <TokenPackagesModal
+        open={tokenPackagesModalOpen}
+        onOpenChange={setTokenPackagesModalOpen}
+        targetLabId={selectedTokenLabId}
+        labTitle={selectedTokenLabTitle}
       />
     </>
   );
