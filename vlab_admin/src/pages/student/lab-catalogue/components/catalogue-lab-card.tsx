@@ -76,10 +76,10 @@ export function CatalogueLabCard({
             e.stopPropagation();
             onPurchaseCredit?.(lab);
           }}
-          className="w-full border-2 border-red-500/80 text-red-600 bg-red-50/20 hover:bg-red-600 hover:text-white font-bold text-[11px] sm:text-[12px] h-10 rounded-[12px] transition-all duration-300 flex items-center justify-center gap-2 shadow-none"
+          className="w-full border-2 border-red-500/80 text-red-600 bg-red-50/20 hover:bg-red-600 hover:text-white font-bold text-xs sm:text-[13px] h-10 rounded-[12px] transition-all duration-300 flex items-center justify-center gap-2 shadow-none px-3"
         >
           <CreditCard className="w-4 h-4 shrink-0" />
-          <span>Purchase Tokens to perform your tasks</span>
+          <span className="truncate">Purchase Tokens</span>
         </Button>
       </div>
     </Card>

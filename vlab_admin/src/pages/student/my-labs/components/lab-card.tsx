@@ -236,54 +236,57 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         <div className="absolute -top-12 -left-12 w-32 h-32 bg-red-100/40 dark:bg-red-900/20 rounded-full blur-3xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
         <div className="absolute top-10 -right-10 w-24 h-24 bg-blue-100/40 dark:bg-blue-900/20 rounded-full blur-2xl opacity-50 transition-opacity duration-500 group-hover:opacity-80" />
 
-        {/* Access Type Badge (University / Personal) in Top Left */}
-        {accessLabel && (
-          <div className="absolute top-3.5 left-3.5 z-10">
-            <div className={`px-2.5 py-1 rounded-full shadow-xs border flex items-center gap-1.5 text-[10px] font-extrabold tracking-wider ${
-              accessType === 'university' 
-                ? 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800' 
-                : 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800'
-            }`}>
-              {accessType === 'university' ? (
-                <GraduationCap className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-              ) : (
-                <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-              )}
-              <span>{accessLabel}</span>
+        {/* Top Badges Row: Flex container to prevent collision or overlap on any screen size */}
+        <div className="absolute top-3 inset-x-3 z-10 flex items-center justify-between gap-1.5 pointer-events-none">
+          {accessLabel ? (
+            <div className="pointer-events-auto shrink-0 max-w-[48%]">
+              <div
+                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full shadow-xs border flex items-center gap-1 sm:gap-1.5 text-[10px] font-extrabold tracking-wider truncate ${
+                  accessType === 'university' 
+                    ? 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800' 
+                    : 'bg-purple-50 text-purple-700 border-purple-200/80 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800'
+                }`}
+                title={accessLabel}
+              >
+                {accessType === 'university' ? (
+                  <GraduationCap className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                ) : (
+                  <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400 shrink-0" />
+                )}
+                <span className="truncate">{accessLabel}</span>
+              </div>
             </div>
+          ) : (
+            <div />
+          )}
+
+          <div className="pointer-events-auto shrink-0 max-w-[52%] flex justify-end">
+            {isStatusVisible ? (
+              <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full shadow-xs border border-slate-200/80 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-bold text-slate-700 dark:text-slate-300 truncate">
+                <div className={`w-1.5 h-1.5 rounded-full ${theme.bg} shrink-0`}></div>
+                <span className="truncate">{labStatus}</span>
+              </div>
+            ) : hasTokens ? (
+              <div className="bg-emerald-500/15 backdrop-blur-sm px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full shadow-xs border border-emerald-500/30 flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 truncate">
+                <Zap className="w-3 h-3 text-emerald-600 dark:text-emerald-400 fill-emerald-500 shrink-0" />
+                <span className="truncate">{displayTokens} Tokens</span>
+              </div>
+            ) : (
+              <div className="bg-amber-500/15 backdrop-blur-sm px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full shadow-xs border border-amber-500/30 flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 truncate">
+                <Coins className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="truncate">Tokens Required</span>
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         {imageUrl ? (
-          <div className="relative z-10 w-full h-full p-8 flex items-center justify-center">
-            <img src={imageUrl} alt={name} className="max-w-[120px] max-h-[120px] object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-110" />
+          <div className="relative z-1 w-full h-full pt-10 pb-4 px-6 flex items-center justify-center">
+            <img src={imageUrl} alt={name} className="max-w-[96px] max-h-[96px] sm:max-w-[104px] sm:max-h-[104px] object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-110" />
           </div>
         ) : (
-          <div className="relative z-10 h-20 w-20 rounded-2xl bg-white dark:bg-slate-800 shadow-[0_4px_20px_rgb(0,0,0,0.05)] dark:shadow-[0_4px_20px_rgb(0,0,0,0.3)] border border-slate-100/50 dark:border-slate-700/50 flex items-center justify-center transition-transform duration-500 group-hover:scale-110 group-hover:-translate-y-1">
-            <MonitorPlay className={`h-10 w-10 ${theme.text}`} />
-          </div>
-        )}
-
-        {isStatusVisible ? (
-          <div className="absolute top-3.5 right-3.5 z-10">
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 flex items-center gap-1.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
-              <div className={`w-1.5 h-1.5 rounded-full ${theme.bg}`}></div>
-              {labStatus}
-            </div>
-          </div>
-        ) : hasTokens ? (
-          <div className="absolute top-3.5 right-3.5 z-10">
-            <div className="bg-emerald-500/15 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-xs border border-emerald-500/30 flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
-              <Zap className="w-3 h-3 text-emerald-600 dark:text-emerald-400 fill-emerald-500" />
-              <span>{displayTokens} Tokens</span>
-            </div>
-          </div>
-        ) : (
-          <div className="absolute top-3.5 right-3.5 z-10">
-            <div className="bg-amber-500/15 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-xs border border-amber-500/30 flex items-center gap-1.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
-              <Coins className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-              <span>Tokens Required</span>
-            </div>
+          <div className="relative z-1 mt-6 h-18 w-18 rounded-2xl bg-white dark:bg-slate-800 shadow-[0_4px_20px_rgb(0,0,0,0.05)] dark:shadow-[0_4px_20px_rgb(0,0,0,0.3)] border border-slate-100/50 dark:border-slate-700/50 flex items-center justify-center transition-transform duration-500 group-hover:scale-110 group-hover:-translate-y-1">
+            <MonitorPlay className={`h-9 w-9 ${theme.text}`} />
           </div>
         )}
       </CardHeader>
@@ -315,24 +318,24 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         </p>
 
         {!isRunning && hasTokens && (
-          <div className="mt-auto mb-3 flex items-center justify-between text-xs py-2 px-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60">
-            <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-500" />
-              {displayTokens} Tokens
+          <div className="mt-auto mb-3 flex flex-wrap items-center justify-between gap-1.5 text-xs py-2 px-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60">
+            <span className="font-bold text-emerald-800 dark:text-emerald-200 flex items-center gap-1.5 text-[11px] sm:text-xs">
+              <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 fill-emerald-500 shrink-0" />
+              <span>{displayTokens} Tokens</span>
             </span>
-            <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+            <span className="text-[10px] sm:text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
               {displayTokens} Mins Runtime
             </span>
           </div>
         )}
 
         {!isRunning && !hasTokens && (
-          <div className="mt-auto mb-3 flex items-center justify-between text-xs py-2 px-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60">
-            <span className="font-bold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
-              <Coins className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              0 Tokens Available
+          <div className="mt-auto mb-3 flex flex-wrap items-center justify-between gap-1.5 text-xs py-2 px-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60">
+            <span className="font-bold text-amber-800 dark:text-amber-200 flex items-center gap-1.5 text-[11px] sm:text-xs">
+              <Coins className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>0 Tokens Available</span>
             </span>
-            <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+            <span className="text-[10px] sm:text-[11px] font-semibold text-amber-700 dark:text-amber-300">
               Purchase Required
             </span>
           </div>

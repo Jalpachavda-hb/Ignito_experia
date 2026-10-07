@@ -143,24 +143,24 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
         </p>
       </div>
 
-      <div className={`grid grid-cols-2 ${!isDirect && hasLmsProgrammes ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${!isDirect && hasLmsProgrammes ? 'xl:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
         {stats.map((stat, i) => (
           <Card key={i} className="border-border/50 shadow-sm relative overflow-hidden transition-shadow hover:shadow-md">
             <div className={`absolute top-0 right-0 w-24 h-24 rounded-bl-full -mr-4 -mt-4 ${stat.bg}`}></div>
-            <CardContent className="p-5 flex items-center justify-between relative z-10">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            <CardContent className="p-4 sm:p-5 flex items-center justify-between relative z-10 gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 truncate">
                   {stat.title}
                 </p>
                 <div className="text-2xl sm:text-3xl font-bold tracking-tight">
                   {stat.value}
                 </div>
-                <p className="text-[11px] text-muted-foreground font-medium mt-1">
+                <p className="text-[11px] text-muted-foreground font-medium mt-1 truncate" title={stat.subtext}>
                   {stat.subtext}
                 </p>
               </div>
-              <div className={`h-12 w-12 rounded-xl flex items-center justify-center shadow-sm bg-white dark:bg-slate-900 border border-border/50 ${stat.color} shrink-0`}>
-                <stat.icon className="h-6 w-6" />
+              <div className={`h-11 w-11 sm:h-12 sm:w-12 rounded-xl flex items-center justify-center shadow-sm bg-white dark:bg-slate-900 border border-border/50 ${stat.color} shrink-0`}>
+                <stat.icon className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
             </CardContent>
           </Card>

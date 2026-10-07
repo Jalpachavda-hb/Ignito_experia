@@ -79,7 +79,7 @@ export default function LabCatalogue() {
             <div className="absolute top-0 right-0 bottom-0 w-[60%] bg-gradient-to-l from-red-50/80 to-transparent pointer-events-none" />
             <div className="absolute -top-24 -right-24 w-96 h-96 bg-red-100/50 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="relative z-10 p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8">
+            <div className="relative z-10 p-6 sm:p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-6 md:gap-8">
               <div className="max-w-xl">
                 <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">
                   Our Lab <span className="text-red-500">Catalogue</span>
@@ -132,7 +132,7 @@ export default function LabCatalogue() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5">
                     {categoryLabs.map((lab, index) => {
                       const labId = getLabId(lab);
                       const isPopular = category === 'Programming Labs' && index < 2;

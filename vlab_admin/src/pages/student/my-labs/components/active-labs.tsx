@@ -22,7 +22,7 @@ export function ActiveLabs({ labs, onResume }: ActiveLabsProps) {
         </h2>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {labs.slice(0, 3).map((lab) => {
           // For display purposes, assume an arbitrary progress if it's active
           const progress = 45; 

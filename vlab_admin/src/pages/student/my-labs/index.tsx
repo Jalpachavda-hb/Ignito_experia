@@ -1155,7 +1155,7 @@ export default function MyLabs() {
                       </div>
 
                       {purchasedLabs.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 lg:gap-6">
                           {purchasedLabs.map((lab: any) => (
                             <LabCard
                               key={lab.id}
@@ -1200,7 +1200,7 @@ export default function MyLabs() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 lg:gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 lg:gap-6">
                           {otherLabs.map((lab: any) => (
                             <LabCard
                               key={lab.id}
@@ -1232,7 +1232,7 @@ export default function MyLabs() {
                       </p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-4 lg:gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 lg:gap-6">
                       {displayLabs.map((lab: any, idx: number) => (
                         <LabCard
                           key={`${lab.courseCode || 'course'}-${lab.id || idx}`}
