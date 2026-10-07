@@ -2,6 +2,7 @@ import { describeTask } from "./ecsService.js";
 import { updateSession } from "./sessionRepository.js";
 import { executeAwsCommand } from "./awsExecuteCommand.js";
 import { ENV } from "../config/env.js";
+import { getPythonPlotHookB64 } from "../lib/pythonPlotHook.js";
 import path from "path";
 
 const updateExecuteCommandState = async (sessionId, state) => {
@@ -205,6 +206,12 @@ export const executeViaSsm = async (session, { path: filePath, content, language
     runCmd = `sh ${containerPath}`;
   }
 
+  const isPython = language === "python" || filePath.endsWith(".py");
+  let pythonHookB64 = "";
+  if (isPython) {
+    pythonHookB64 = getPythonPlotHookB64();
+  }
+
   // Create a robust self-contained runner script.
   // This avoids quote escaping and subshell parsing issues over the SSM connection.
   const runnerScript = `#!/bin/sh
@@ -225,6 +232,11 @@ if ! find . -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
     dotnet new console --force 2>/dev/null || dotnet new console
   fi
 fi
+` : ""}
+${isPython ? `
+mkdir -p /tmp/vlab_hooks
+echo "${pythonHookB64}" | base64 -d > /tmp/vlab_hooks/sitecustomize.py
+export PYTHONPATH="/tmp/vlab_hooks:\${PYTHONPATH}"
 ` : ""}
 
 echo "${b64}" | base64 -d > "${containerPath}"
@@ -263,12 +275,22 @@ echo "###EXIT_CODE:$?"
     .replace(/\+\[[0-9;?]*[a-zA-Z=]/g, "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .trim();
+    .replace(/^\n+/, "")
+    .trimEnd();
+
+  // Extract plot HTML if present
+  let plotHtml = null;
+  const plotMatch = cleanOutput.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
+  if (plotMatch) {
+    plotHtml = plotMatch[1].trim();
+    cleanOutput = cleanOutput.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, "").replace(/^\n+/, "").trimEnd();
+  }
 
   const success = (exitCode === 0);
   return {
     success,
     output: cleanOutput,
+    plotHtml,
     error: success ? null : (cleanOutput || "Execution failed"),
   };
 };

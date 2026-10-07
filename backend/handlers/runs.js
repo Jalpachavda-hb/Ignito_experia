@@ -16,6 +16,7 @@ import { RuntimeResolver } from "../runtime/RuntimeResolver.js";
 import { BrowserManager } from "../execution/BrowserManager.js";
 import { LogStreamer } from "../execution/LogStreamer.js";
 import { ExecuteCommand } from "../execution/ExecuteCommand.js";
+import { PYTHON_PLOT_HOOK_CODE } from "../lib/pythonPlotHook.js";
 
 export const runsCreateHandler = async ({ body, auth }) => {
   const sessionId = body?.sessionId || body?.session_id;
@@ -89,6 +90,13 @@ export const runsCreateHandler = async ({ body, auth }) => {
   // 3. File Synchronization
   if (filePath && code) {
     await FileSync.syncFile(session, filePath, code);
+  }
+
+  const isPython = language === "python" || (filePath && filePath.endsWith(".py")) || labType === "python" || (session.labId && session.labId.includes("python"));
+  if (isPython) {
+    await FileSync.syncFile(session, "/workspace/sitecustomize.py", PYTHON_PLOT_HOOK_CODE).catch((e) => {
+      console.warn("[runsCreateHandler] Failed to sync sitecustomize.py:", e.message);
+    });
   }
 
   // 4. Create database run record
@@ -204,6 +212,7 @@ except Exception as e:
     runId: run.runId,
     status: result.success ? "COMPLETED" : "FAILED",
     output: result.output,
+    plotHtml: result.plotHtml || null,
     error: result.error,
     syntaxError: result.syntaxError || "",
     runtimeError: result.runtimeError || "",
@@ -231,6 +240,7 @@ export const runsGetHandler = async ({ pathParameters, auth }) => {
     status: run.status,
     success: run.success,
     output: run.output || "",
+    plotHtml: run.plotHtml || null,
     error: run.error || run.runtimeError || "",
     syntaxError: run.syntaxError || "",
     runtimeError: run.runtimeError || "",

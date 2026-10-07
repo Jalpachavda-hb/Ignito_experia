@@ -1,5 +1,6 @@
 import { getContainerPort, getContainerHost } from "../lib/labTools.js";
 import { ENV } from "../config/env.js";
+import { PYTHON_PLOT_HOOK_CODE } from "../lib/pythonPlotHook.js";
 
 const EXECUTION_TIMEOUT_MS = ENV.executeCommandTimeout || 120000;
 
@@ -82,12 +83,19 @@ export const executeCode = async (session, payload, options = {}) => {
 
     console.log(`[ExecutionService] Sending POST request to resolved endpoint: ${baseUrl}${endpoint} (RunId: ${runId})`);
 
+    let execContent = payload.content || payload.code || "";
+    const isPython = payload.language === "python" || (payload.path && payload.path.endsWith(".py"));
+    if (isPython && !execContent.includes("_vlab_emit_html")) {
+      const pythonHookInline = `exec(compile(${JSON.stringify(PYTHON_PLOT_HOOK_CODE)}, '<vlab_init>', 'exec'))\n`;
+      execContent = pythonHookInline + execContent;
+    }
+
     const response = await fetch(`${baseUrl}${endpoint}`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         path: payload.path,
-        content: payload.content || payload.code || "",
+        content: execContent,
         language: payload.language,
         stdin: payload.stdin || "",
         labType: payload.labType,
@@ -169,11 +177,20 @@ export const executeCode = async (session, payload, options = {}) => {
       };
     }
 
+    let cleanOutput = data.output || "";
+    let plotHtml = null;
+    const plotMatch = cleanOutput.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
+    if (plotMatch) {
+      plotHtml = plotMatch[1].trim();
+      cleanOutput = cleanOutput.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, "").replace(/^\n+/, "").trimEnd();
+    }
+
     return {
       success: data.success !== false,
       status: data.success !== false ? "COMPLETED" : "FAILED",
       runId,
-      output: data.output || "",
+      output: cleanOutput,
+      plotHtml,
       error: data.error || null,
       syntaxError: data.syntaxError || "",
       runtimeError: data.runtimeError || "",

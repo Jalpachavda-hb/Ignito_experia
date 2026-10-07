@@ -57,6 +57,7 @@ const scanLocalFiles = (dir, baseDir = dir) => {
     "tmp",
     "kotlin",
     ".tanstack",
+    "sitecustomize.py",
   ];
 
   for (const file of list) {
@@ -388,6 +389,8 @@ export const listFiles = async (sessionId) => {
   result = await getUnfilteredList();
   result = result.filter(file => 
     file.name !== 'run_android_build.sh' &&
+    file.name !== 'sitecustomize.py' &&
+    !file.path.endsWith('/sitecustomize.py') &&
     !file.path.includes('.vlab_tmp') &&
     !file.path.includes('.tmp') &&
     !file.path.includes('/build/') &&
