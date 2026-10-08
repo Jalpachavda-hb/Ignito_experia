@@ -58,6 +58,21 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
     : (storeTransactions || []);
 
   const filteredTransactions = allTransactions.filter(tx => {
+    // Explicitly exclude any token deduction / runtime usage history
+    const isTokenCut =
+      tx?.type === 'Debit' ||
+      String(tx?.paymentMethod || '').toLowerCase().includes('runtime') ||
+      String(tx?.id || '').startsWith('session_') ||
+      String(tx?.id || '').startsWith('SESS-') ||
+      String(tx?.id || '').includes('token_') ||
+      String(tx?.description || '').toLowerCase().includes('finalized session') ||
+      String(tx?.description || '').toLowerCase().includes('session runtime') ||
+      String(tx?.description || '').toLowerCase().includes('runtime usage') ||
+      String(tx?.description || '').toLowerCase().includes('consumed') ||
+      String(tx?.description || '').toLowerCase().includes('token/s');
+
+    if (isTokenCut) return false;
+
     const search = (searchTerm || '').toLowerCase();
     const id = String(tx?.id || '').toLowerCase();
     const desc = String(tx?.description || '').toLowerCase();
@@ -89,9 +104,6 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
     if (m.includes('university') || m.includes('curriculum') || m.includes('quota') || m.includes('allocation')) {
       Icon = GraduationCap;
       colorClass = 'text-indigo-700 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900';
-    } else if (m.includes('runtime') || m.includes('usage') || m.includes('session')) {
-      Icon = Zap;
-      colorClass = 'text-rose-700 bg-rose-50 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900';
     } else if (m.includes('qr')) {
       Icon = QrCode;
       colorClass = 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900';
@@ -147,7 +159,7 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
       <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 gap-4 bg-white dark:bg-card">
         <div>
           <CardTitle className="text-xl font-bold">Transaction History</CardTitle>
-          <p className="text-xs text-slate-500 mt-1 font-medium">All student payments (Completed & Failed with Bank Details), Razorpay checkout receipts, and token allocations.</p>
+          <p className="text-xs text-slate-500 mt-1 font-medium">All student payments (Completed & Failed with Bank Details), Razorpay checkout receipts, and lab token purchases.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -180,6 +192,7 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
             className="h-9 px-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none"
           >
             <option value="ALL">All Methods</option>
+            <option value="razorpay">Razorpay</option>
             <option value="netbanking">Netbanking (Banks)</option>
             <option value="card">Credit / Debit Card</option>
             <option value="upi">UPI Payment</option>
@@ -286,11 +299,11 @@ export function TransactionTable({ transactions: propTransactions }: Transaction
                       {/* Amount */}
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
-                          <span className={`font-black text-sm ${isFailed ? 'text-rose-500 line-through opacity-80' : isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
-                            {isFailed ? `₹${tx.amountRupees ?? tx.amount}` : isCredit ? (tx.amountRupees && Number(tx.amountRupees) > 0 ? `₹${tx.amountRupees}` : 'Curriculum Quota') : 'Runtime Usage'}
+                          <span className={`font-black text-sm ${isFailed ? 'text-rose-500 line-through opacity-80' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            {isFailed ? `₹${tx.amountRupees ?? tx.amount}` : (tx.amountRupees && Number(tx.amountRupees) > 0 ? `₹${tx.amountRupees}` : (tx.paymentMethod === 'University Allocation' ? 'Curriculum Quota' : `₹${tx.amount}`))}
                           </span>
-                          <span className={`text-[10px] font-bold ${isFailed ? 'text-slate-400' : isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                            {isFailed ? '0 Tokens' : isCredit ? `+${tx.amount} Tokens` : `-${tx.amount} Tokens`}
+                          <span className={`text-[10px] font-bold ${isFailed ? 'text-slate-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            {isFailed ? '0 Tokens' : `+${tx.amount} Tokens`}
                           </span>
                         </div>
                       </td>

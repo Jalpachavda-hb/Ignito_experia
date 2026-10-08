@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 
+import { useUserMutations } from '../api/useUsersMutations'
+
 type UserMultiDeleteDialogProps<TData> = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -24,10 +26,11 @@ export function UsersMultiDeleteDialog<TData>({
   table,
 }: UserMultiDeleteDialogProps<TData>) {
   const [value, setValue] = useState('')
+  const { deleteUser } = useUserMutations()
 
   const selectedRows = table.getFilteredSelectedRowModel().rows
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (value.trim() !== CONFIRM_WORD) {
       toast.error(`Please type "${CONFIRM_WORD}" to confirm.`)
       return
@@ -35,17 +38,24 @@ export function UsersMultiDeleteDialog<TData>({
 
     onOpenChange(false)
 
-    toast.promise(sleep(2000), {
-      loading: 'Deleting users...',
-      success: () => {
-        setValue('')
-        table.resetRowSelection()
-        return `Deleted ${selectedRows.length} ${
-          selectedRows.length > 1 ? 'users' : 'user'
-        }`
-      },
-      error: 'Error',
-    })
+    toast.promise(
+      Promise.all(
+        selectedRows.map((row: any) =>
+          deleteUser.mutateAsync(row.original.UserId)
+        )
+      ),
+      {
+        loading: 'Deleting users and associated data...',
+        success: () => {
+          setValue('')
+          table.resetRowSelection()
+          return `Deleted ${selectedRows.length} ${
+            selectedRows.length > 1 ? 'users' : 'user'
+          } and all associated records`
+        },
+        error: (err: any) => err?.message || 'Failed to delete users',
+      }
+    )
   }
 
   return (

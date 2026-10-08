@@ -3,9 +3,15 @@ import { labRepository } from "../repositories/labRepository.js";
 const OWNER_API_URL = (process.env.OWNER_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 const FETCH_TIMEOUT_MS = parseInt(process.env.OWNER_API_TIMEOUT_MS || "5000", 10);
 
+let lastOwnerFailureTime = 0;
+const OWNER_COOLDOWN_MS = 20000;
+
 async function fetchFromOwner(endpoint) {
+  if (Date.now() - lastOwnerFailureTime < OWNER_COOLDOWN_MS) {
+    return null;
+  }
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), Math.min(FETCH_TIMEOUT_MS, 1500));
   try {
     const url = `${OWNER_API_URL}${endpoint}`;
     const response = await fetch(url, {
@@ -23,7 +29,8 @@ async function fetchFromOwner(endpoint) {
     return data;
   } catch (err) {
     clearTimeout(timeoutId);
-    console.error(`[LabService] Owner API communication error for ${endpoint}:`, err.message);
+    lastOwnerFailureTime = Date.now();
+    console.warn(`[LabService] Owner API unavailable for ${endpoint} (${err.message}). Using database fallback.`);
     return null;
   }
 }
@@ -162,12 +169,13 @@ class LabService {
     const target = String(labCodeOrId).toLowerCase().trim();
     const cleanTarget = target.replace(/-lab$/, '').replace(/^lab-/, '');
 
+    const dbLab = await labRepository.getById(labCodeOrId);
+    if (dbLab) return normalizeLabObject(dbLab);
+
     const data = await fetchFromOwner(`/api/labs/${encodeURIComponent(labCodeOrId)}`);
     if (data && data.lab) {
       return normalizeLabObject(data.lab);
     }
-    const dbLab = await labRepository.getById(labCodeOrId);
-    if (dbLab) return normalizeLabObject(dbLab);
 
     const all = await this.getAllActive();
     return all.find((l) => {

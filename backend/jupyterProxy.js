@@ -5,8 +5,8 @@ import { getSession } from "./services/sessionRepository.js";
 import { getLabRuntime, getContainerHost } from "./lib/labTools.js";
 import { ENV } from "./config/env.js";
 
-// Proxy timeout configured to 5s to fail fast during local dev if AWS SG blocks traffic
-const PROXY_TIMEOUT_MS = 5000;
+// Proxy timeout configured to 60s for long-running notebook cells and asset loading
+const PROXY_TIMEOUT_MS = 60000;
 
 const getCookieToken = (req, sessionId) => {
   const cookieHeader = req.headers?.cookie || "";
@@ -139,8 +139,21 @@ export const setupJupyterProxy = (app, apiPrefix) => {
         });
       }
 
-      const host = getContainerHost(session);
-      if (!host || session.status !== "running") {
+      let host = getContainerHost(session);
+      if (!host && session.taskArn) {
+        try {
+          const { getTaskPublicIp } = await import("./services/ecsService.js");
+          const publicIp = await getTaskPublicIp(session.taskArn);
+          if (publicIp) {
+            host = publicIp;
+            session.publicIp = publicIp;
+          }
+        } catch (e) {}
+      }
+
+      const sStatus = (session.status || "").toLowerCase();
+      const isStopped = sStatus === "stopped" || sStatus === "expired";
+      if (!host || isStopped) {
         return res.status(503).json({
           success: false,
           message: "Jupyter container is not ready yet",
@@ -162,12 +175,44 @@ export const setupJupyterProxy = (app, apiPrefix) => {
   const proxyMiddleware = createProxyMiddleware({
     target: "http://placeholder",
     changeOrigin: true,
-    ws: false,
+    ws: true,
     timeout: PROXY_TIMEOUT_MS,
     proxyTimeout: PROXY_TIMEOUT_MS,
-    router: (req) => {
-      console.log(`[jupyterProxy router] url=${req.url} jupyterTarget=${req.jupyterTarget}`);
-      return req.jupyterTarget || "http://127.0.0.1:8888";
+    pathFilter: (pathname, req) => {
+      const full = req?.originalUrl || req?.url || pathname || "";
+      return full.includes("/jupyter");
+    },
+    router: async (req) => {
+      if (req.jupyterTarget) {
+        return req.jupyterTarget;
+      }
+      const url = req.originalUrl || req.url || "";
+      const match = url.match(/\/(lab-sessions|lab\/sessions)\/([^/]+)\/jupyter/);
+      if (match) {
+        const sessionId = match[2];
+        try {
+          const session = await getSession(sessionId);
+          if (session) {
+            let host = getContainerHost(session);
+            if (!host && session.taskArn) {
+              const { getTaskPublicIp } = await import("./services/ecsService.js");
+              const publicIp = await getTaskPublicIp(session.taskArn);
+              if (publicIp) host = publicIp;
+            }
+            if (host) {
+              const runtime = await getLabRuntime(session.labId);
+              const target = `http://${host}:${runtime.port || 8888}`;
+              req.jupyterTarget = target;
+              console.log(`[jupyterProxy router] Resolved target for ${sessionId} -> ${target}`);
+              return target;
+            }
+          }
+        } catch (err) {
+          console.error("[jupyterProxy router async error]", err.message);
+        }
+      }
+      console.warn(`[jupyterProxy router] Fallback to 127.0.0.1 for url=${url}`);
+      return "http://127.0.0.1:8888";
     },
     pathRewrite: (path, req) => {
       const url = req.originalUrl || req.url || path || "";
@@ -178,7 +223,29 @@ export const setupJupyterProxy = (app, apiPrefix) => {
       return path.startsWith(prefix) ? path : `${prefix}${path}`;
     },
     on: {
-      proxyReq: fixRequestBody,
+      proxyReq: (proxyReq, req, res) => {
+        fixRequestBody(proxyReq, req);
+        const target = req.jupyterTarget;
+        if (target) {
+          try {
+            const u = new URL(target);
+            proxyReq.setHeader("origin", u.origin);
+            proxyReq.setHeader("host", u.host);
+          } catch (e) {}
+        }
+      },
+      proxyReqWs: (proxyReq, req, socket, options, head) => {
+        proxyReq.setHeader("Connection", "Upgrade");
+        proxyReq.setHeader("Upgrade", "websocket");
+        const target = req.jupyterTarget || (typeof options?.target === "string" ? options.target : options?.target?.href);
+        if (target) {
+          try {
+            const u = new URL(target);
+            proxyReq.setHeader("origin", u.origin);
+            proxyReq.setHeader("host", u.host);
+          } catch (e) {}
+        }
+      },
       error(err, req, res) {
         console.error("[jupyterProxy]", err.message, "target=", req.jupyterTarget);
         if (res.writeHead) {
@@ -276,36 +343,7 @@ export const setupJupyterProxy = (app, apiPrefix) => {
 };
 
 export const attachJupyterProxyUpgrade = (httpServer, apiPrefix) => {
-  httpServer.on("upgrade", async (req, socket, head) => {
-    const url = req.url || "";
-    if (!url.includes("/jupyter") || (!url.includes("/lab-sessions/") && !url.includes("/lab/sessions/"))) {
-      return;
-    }
-
-    const sessionIdMatch = url.match(/\/(lab-sessions|lab\/sessions)\/([^/]+)\/jupyter/);
-    if (!sessionIdMatch) {
-      return;
-    }
-
-    try {
-      const session = await getSession(sessionIdMatch[2]);
-      if (!session) {
-        socket.destroy();
-        return;
-      }
-      const host = getContainerHost(session);
-      const runtime = await getLabRuntime(session.labId);
-      const port = runtime.port || 8888;
-      req.jupyterTarget = `http://${host}:${port}`;
-
-      if (global.jupyterWsProxy && typeof global.jupyterWsProxy.upgrade === "function") {
-        global.jupyterWsProxy.upgrade(req, socket, head);
-      } else {
-        socket.destroy();
-      }
-    } catch (err) {
-      console.error("[jupyterProxyUpgrade error]", err);
-      socket.destroy();
-    }
-  });
+  // http-proxy-middleware with `ws: true` and `pathFilter` automatically handles
+  // HTTP upgrade events via its internal handleUpgrade and our async router.
+  // We keep this function exported for compatibility.
 };

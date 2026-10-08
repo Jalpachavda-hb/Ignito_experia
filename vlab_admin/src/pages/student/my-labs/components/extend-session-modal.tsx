@@ -161,8 +161,9 @@ export function ExtendSessionModal({ walletBalance, onPurchaseCredits }: ExtendS
             </Button>
           ) : (
             <Button
+              variant="outline"
               onClick={() => { setShowExtensionModal(false); onPurchaseCredits?.(); }}
-              className="rounded-xl font-bold bg-amber-600 hover:bg-amber-700 text-white text-[13px] px-6 h-10 shadow-md transition-all flex items-center gap-2"
+              className="rounded-xl font-bold border-2 border-red-500/80 text-red-600 dark:text-red-400 bg-red-50/20 dark:bg-red-950/20 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white text-[13px] px-6 h-10 shadow-none transition-all flex items-center gap-2"
             >
               <CreditCard className="w-4 h-4" /> Purchase Tokens
             </Button>

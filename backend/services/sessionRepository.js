@@ -15,11 +15,42 @@ export const createSessionId = () =>
 export const createSessionToken = () => crypto.randomBytes(16).toString("hex");
 
 export const getSession = async (sessionId) => {
+  let item = null;
   if (useDynamoDb()) {
-    const item = await ddbGet(ENV.sessionsTable, { sessionId });
-    return item ? await enrichSession({ ...item }) : null;
+    item = await ddbGet(ENV.sessionsTable, { sessionId });
+  } else {
+    item = memorySessions.get(sessionId);
   }
-  const item = memorySessions.get(sessionId);
+
+  // Hydrate missing core fields from MySQL lab_sessions if needed
+  if (!item || !item.labId || !item.userId || !item.taskArn) {
+    try {
+      const LabSessionRepository = (await import("../repositories/LabSessionRepository.js")).default;
+      const labSessionRepo = new LabSessionRepository();
+      const sqlRow = await labSessionRepo.getSessionById(sessionId);
+      if (sqlRow) {
+        if (!item) {
+          item = {
+            sessionId: sqlRow.SessionId,
+            labId: sqlRow.LabId,
+            userId: sqlRow.UserId,
+            status: (sqlRow.Status || "STARTING").toLowerCase(),
+            taskArn: sqlRow.TaskArn,
+            subtype: sqlRow.Subtype,
+            startTime: sqlRow.StartedAt ? new Date(sqlRow.StartedAt).toISOString() : undefined,
+            createdAt: sqlRow.CreatedAt,
+          };
+        } else {
+          if (!item.labId && sqlRow.LabId) item.labId = sqlRow.LabId;
+          if (!item.userId && sqlRow.UserId) item.userId = sqlRow.UserId;
+          if (!item.taskArn && sqlRow.TaskArn) item.taskArn = sqlRow.TaskArn;
+        }
+      }
+    } catch (e) {
+      console.warn("[sessionRepository getSession] Fallback hydration error:", e.message);
+    }
+  }
+
   return item ? await enrichSession({ ...item }) : null;
 };
 

@@ -189,7 +189,8 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             ) : !hasTokens ? (
               <Button
                 onClick={() => (onPurchase ? onPurchase(lab.id) : onStart?.(lab.id))}
-                className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-all duration-200"
+                variant="outline"
+                className="w-full h-10 rounded-xl font-semibold border-2 border-red-500/80 text-red-600 dark:text-red-400 bg-red-50/20 dark:bg-red-950/20 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white flex items-center justify-center gap-2 shadow-none transition-all duration-200"
               >
                 <Coins className="w-4 h-4" />
                 Purchase Tokens
@@ -380,7 +381,8 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
         ) : !hasTokens ? (
           <Button
             onClick={() => (onPurchase ? onPurchase(labId) : onStart?.(labId))}
-            className="w-full h-11 rounded-[10px] font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow-sm flex items-center justify-center gap-2 transition-all duration-200"
+            variant="outline"
+            className="w-full h-11 rounded-[10px] font-semibold border-2 border-red-500/80 text-red-600 dark:text-red-400 bg-red-50/20 dark:bg-red-950/20 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white shadow-none flex items-center justify-center gap-2 transition-all duration-200"
           >
             <Coins className="w-4 h-4" />
             Purchase Tokens

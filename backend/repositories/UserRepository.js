@@ -237,10 +237,145 @@ class UserRepository {
   }
 
   async delete(userId, deletedBy = null) {
-    await pool.query(
-      "UPDATE Users SET Status = 'Inactive', UpdatedAt = NOW() WHERE UserId = ?",
+    // 1. Fetch user metadata before deletion so we have all identifiers
+    const [uRows] = await pool.query(
+      "SELECT UserId, Email, ExternalStudentId FROM Users WHERE UserId = ?",
       [userId]
     );
+    if (!uRows || uRows.length === 0) {
+      return { success: false, message: "User not found" };
+    }
+    const user = uRows[0];
+    const uIdStr = String(user.UserId);
+    const extId = user.ExternalStudentId || null;
+    const email = user.Email ? user.Email.toLowerCase().trim() : null;
+
+    // 2. Stop any active sessions & containers for this student
+    try {
+      const { runtimeStopService } = await import("../services/RuntimeStopService.js");
+      const [activeSessions] = await pool.query(
+        "SELECT SessionId FROM lab_sessions WHERE UserId = ? AND Status IN ('RUNNING', 'STARTING', 'EXPIRING_SOON', 'PENDING')",
+        [userId]
+      );
+      for (const sess of activeSessions) {
+        await runtimeStopService.stopSessionContainers(sess.SessionId).catch(() => {});
+      }
+    } catch (stopErr) {
+      console.warn(`[userRepository.delete] Warning stopping container sessions for user ${userId}:`, stopErr.message);
+    }
+
+    // 3. Perform exhaustive cascading deletion in a transaction
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Clear token usages
+      await conn.query(
+        `DELETE FROM lab_token_usage 
+         WHERE StudentId = ? 
+            OR (? IS NOT NULL AND StudentId = ?) 
+            OR (? IS NOT NULL AND LOWER(StudentId) = ?)
+            OR WalletId IN (
+              SELECT Id FROM student_lab_token_wallets 
+              WHERE StudentId = ? 
+                 OR (? IS NOT NULL AND StudentId = ?) 
+                 OR (? IS NOT NULL AND LOWER(StudentId) = ?)
+            )`,
+        [uIdStr, extId, extId, email, email, uIdStr, extId, extId, email, email]
+      );
+
+      // Clear student lab token transactions
+      await conn.query(
+        `DELETE FROM student_lab_token_transactions 
+         WHERE StudentId = ? 
+            OR (? IS NOT NULL AND StudentId = ?) 
+            OR (? IS NOT NULL AND LOWER(StudentId) = ?)
+            OR WalletId IN (
+              SELECT Id FROM student_lab_token_wallets 
+              WHERE StudentId = ? 
+                 OR (? IS NOT NULL AND StudentId = ?) 
+                 OR (? IS NOT NULL AND LOWER(StudentId) = ?)
+            )`,
+        [uIdStr, extId, extId, email, email, uIdStr, extId, extId, email, email]
+      );
+
+      // Clear student lab token wallets
+      await conn.query(
+        `DELETE FROM student_lab_token_wallets 
+         WHERE StudentId = ? 
+            OR (? IS NOT NULL AND StudentId = ?) 
+            OR (? IS NOT NULL AND LOWER(StudentId) = ?)`,
+        [uIdStr, extId, extId, email, email]
+      );
+
+      // Clear token orders & items
+      await conn.query(
+        `DELETE FROM token_order_items 
+         WHERE OrderId IN (
+           SELECT Id FROM token_orders 
+           WHERE StudentId = ? 
+              OR (? IS NOT NULL AND StudentId = ?) 
+              OR (? IS NOT NULL AND LOWER(StudentId) = ?)
+         )`,
+        [uIdStr, extId, extId, email, email]
+      );
+
+      await conn.query(
+        `DELETE FROM token_orders 
+         WHERE StudentId = ? 
+            OR (? IS NOT NULL AND StudentId = ?) 
+            OR (? IS NOT NULL AND LOWER(StudentId) = ?)`,
+        [uIdStr, extId, extId, email, email]
+      );
+
+      // Clear credit transactions & wallets
+      await conn.query("DELETE FROM credit_transactions WHERE UserId = ?", [userId]);
+      await conn.query("DELETE FROM credit_wallets WHERE UserId = ?", [userId]);
+      await conn.query("DELETE FROM studentcreditwallets WHERE UserId = ?", [userId]);
+
+      // Clear lab sessions
+      await conn.query("DELETE FROM lab_sessions WHERE UserId = ?", [userId]);
+
+      // Clear user lab workspaces
+      await conn.query("DELETE FROM user_lab_workspaces WHERE userId = ?", [uIdStr]);
+
+      // Clear tenant mappings
+      await conn.query("DELETE FROM user_tenant_mapping WHERE UserId = ?", [userId]);
+
+      // Clear refresh tokens, devices & sessions
+      await conn.query("DELETE FROM refreshtokens WHERE UserId = ? OR StudentProfileId = ?", [userId, userId]);
+      await conn.query("DELETE FROM userrefreshtokens WHERE UserId = ?", [userId]);
+      await conn.query("DELETE FROM studentsessions WHERE UserId = ? OR StudentProfileId = ?", [userId, userId]);
+      await conn.query("DELETE FROM registereddevices WHERE StudentProfileId = ?", [userId]);
+
+      // Clear external identities
+      await conn.query(
+        `DELETE FROM external_identities 
+         WHERE UserId = ? 
+            OR (? IS NOT NULL AND ExternalStudentId = ?)`,
+        [userId, extId, extId]
+      );
+
+      // Clear student audits
+      await conn.query("DELETE FROM studentaudits WHERE UserId = ? OR ChangedByUserId = ?", [userId, userId]);
+
+      // Clear audit logs
+      await conn.query("DELETE FROM auditlogs WHERE UserId = ? OR StudentProfileId = ?", [userId, userId]);
+      await conn.query("DELETE FROM auditlogs_archive WHERE StudentProfileId = ?", [userId]);
+
+      // Finally permanently delete user from Users table
+      await conn.query("DELETE FROM Users WHERE UserId = ?", [userId]);
+
+      await conn.commit();
+      console.log(`[userRepository.delete] Permanently deleted user ${userId} and all related records across all tables.`);
+      return { success: true, message: "User and all associated data permanently deleted" };
+    } catch (err) {
+      await conn.rollback();
+      console.error(`[userRepository.delete] Error deleting user ${userId}:`, err);
+      throw err;
+    } finally {
+      conn.release();
+    }
   }
 
   async updateLastLogin(userId) {

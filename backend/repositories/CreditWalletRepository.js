@@ -141,6 +141,8 @@ class CreditWalletRepository {
               OR (? != '' AND UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?))
               OR (? != '' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.userEmail'))) = ?)
               OR (? != '' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.studentEmail'))) = ?))
+         AND Type NOT IN ('USAGE', 'CONSUMPTION', 'DEDUCTION', 'LAB_USAGE')
+         AND (Source IS NULL OR Source NOT IN ('SESSION_USAGE', 'LAB_RUNTIME'))
        ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`;
     const params = [
       sId,

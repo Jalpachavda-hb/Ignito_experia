@@ -71,7 +71,7 @@ export const buildJupyterProxyUrl = async (session) => {
     : `${base}/lab/sessions/${session.sessionId}/jupyter`;
 
   let targetPath = runtime.path || "";
-  if (!targetPath || targetPath === "/" || targetPath === "/lab") {
+  if (!targetPath || targetPath === "/" || targetPath === "/lab" || targetPath === "/workspace") {
     targetPath = "/lab";
   }
 

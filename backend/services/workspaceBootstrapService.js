@@ -160,13 +160,20 @@ if command -v curl >/dev/null 2>&1; then
     curl -sSL -o "$TMP_TAR" "$PRESIGNED_URL"
 elif command -v wget >/dev/null 2>&1; then
     wget -q -O "$TMP_TAR" "$PRESIGNED_URL"
+elif command -v python3 >/dev/null 2>&1; then
+    python3 -c "import urllib.request; urllib.request.urlretrieve('$PRESIGNED_URL', '$TMP_TAR')"
+elif command -v python >/dev/null 2>&1; then
+    python -c "import urllib.request; urllib.request.urlretrieve('$PRESIGNED_URL', '$TMP_TAR')"
 else
-    echo "ERROR: Neither curl nor wget is available"
+    echo "ERROR: Neither curl, wget, nor python is available"
     exit 1
 fi
 
 if [ -f "$TMP_TAR" ]; then
     tar -xzf "$TMP_TAR" -C "$DEST_DIR"
+    if [ -d "/workspace" ] && [ "$DEST_DIR" != "/workspace" ]; then
+        tar -xzf "$TMP_TAR" -C "/workspace" 2>/dev/null || true
+    fi
     rm -f "$TMP_TAR"
     
     # Fix CRLF line endings for gradlew and build.sh and make executable
@@ -225,7 +232,7 @@ const verifyContainerWorkspace = async (session, requiredFiles) => {
     const cleanFile = isDir ? file.slice(0, -1) : file;
     const testFlag = isDir ? "-d" : "-f";
     
-    return `( [ ${testFlag} "/tmp/workspace/workspace/${cleanFile}" ] || find /tmp/workspace/workspace -maxdepth 3 -name "${cleanFile}" | grep -q . )`;
+    return `( [ ${testFlag} "/tmp/workspace/workspace/${cleanFile}" ] || [ ${testFlag} "/workspace/${cleanFile}" ] || find /tmp/workspace/workspace /workspace -maxdepth 3 -name "${cleanFile}" 2>/dev/null | grep -q . )`;
   }).join(" && ");
 
   const shellScript = `#!/bin/sh

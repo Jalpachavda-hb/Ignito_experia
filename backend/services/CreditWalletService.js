@@ -347,7 +347,13 @@ class CreditWalletService {
       labByPayment.get(key).push(labRow);
     }
 
-    return rows.flatMap((row) => {
+    const purchaseRows = (rows || []).filter((r) => {
+      const type = String(r.Type || "").toUpperCase();
+      const source = String(r.Source || "").toUpperCase();
+      return type !== "USAGE" && type !== "CONSUMPTION" && type !== "DEDUCTION" && type !== "LAB_USAGE" && source !== "SESSION_USAGE" && source !== "LAB_RUNTIME";
+    });
+
+    return purchaseRows.flatMap((row) => {
       const meta = parseMetadata(row.MetadataJson);
       const metaItems = Array.isArray(meta.items) ? meta.items.filter((item) => item?.labId && Number(item.tokens) > 0) : [];
       if (metaItems.length > 1) {
@@ -414,7 +420,7 @@ class CreditWalletService {
     const email = userEmail != null ? String(userEmail).trim().toLowerCase() : '';
     const seenKeys = new Set(expanded.map(r => String(r.PaymentReference || r.IdempotencyKey || r.TransactionId)));
 
-    // 1. Also fetch direct student_lab_token_transactions to ensure 100% visibility of all token transactions
+    // 1. Also fetch direct student_lab_token_transactions to ensure 100% visibility of all token purchases
     try {
       const [tokenTxns] = await pool.query(
         `SELECT Id, TenantId, StudentId, LabId, TransactionType, Tokens, ReferenceType, ReferenceId, Description, IdempotencyKey, CreatedAt
@@ -422,6 +428,7 @@ class CreditWalletService {
          WHERE (StudentId = ? 
             OR (? != '' AND LOWER(StudentId) = ?)
             OR (? != '' AND StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?)))
+           AND UPPER(TransactionType) IN ('PURCHASE', 'ALLOCATION')
          ORDER BY CreatedAt DESC LIMIT ? OFFSET ?`,
         [sId, email, email, email, email, sId, Number(limit), Number(offset)]
       ).catch(() => [[]]);
@@ -439,16 +446,15 @@ class CreditWalletService {
           let friendlyDesc = t.Description;
           if (!friendlyDesc) {
             if (isAllocation) friendlyDesc = `University Course Allocation: ${labTitle}`;
-            else if (isPurchase) friendlyDesc = `Purchased ${t.Tokens} Tokens for ${labTitle}`;
-            else friendlyDesc = `${labTitle} Runtime Session Usage`;
+            else friendlyDesc = `Purchased ${t.Tokens} Tokens for ${labTitle}`;
           }
 
           expanded.push({
             TransactionId: t.Id,
             TenantId: t.TenantId,
             UserId: t.StudentId,
-            Type: isPurchase ? 'PURCHASE' : (isAllocation ? 'ALLOCATION' : 'USAGE'),
-            Source: isPurchase ? 'STUDENT_PURCHASE' : (isAllocation ? 'UNIVERSITY_ALLOCATION' : 'SESSION_USAGE'),
+            Type: isPurchase ? 'PURCHASE' : 'ALLOCATION',
+            Source: isPurchase ? 'STUDENT_PURCHASE' : 'UNIVERSITY_ALLOCATION',
             Credits: Number(t.Tokens || 0),
             Amount: isPurchase ? Number(t.Tokens || 0) : 0,
             Currency: 'INR',
@@ -465,53 +471,6 @@ class CreditWalletService {
       }
     } catch (e) {
       console.warn('[CreditWalletService] token transaction merge warning:', e.message);
-    }
-
-    // 2. Fetch completed/stopped sessions from lab_sessions to guarantee all runtime credit cuts appear
-    try {
-      const [billedSessions] = await pool.query(
-        `SELECT SessionId, UserId, LabId, Status, BilledTokens, BilledSeconds, StartedAt, CreatedAt
-         FROM lab_sessions
-         WHERE (UserId = ? 
-            OR (? != '' AND CAST(UserId AS CHAR) = ?) 
-            OR (? != '' AND UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?)))
-           AND BilledTokens > 0
-         ORDER BY CreatedAt DESC LIMIT ?`,
-        [sId, sId, sId, email, email, sId, Number(limit)]
-      ).catch(() => [[]]);
-
-      for (const sess of (billedSessions || [])) {
-        const sessKey = String(sess.SessionId);
-        // Check if there is already a ledger entry for this session
-        const alreadyLogged = Array.from(seenKeys).some(k => k.includes(sessKey));
-        if (!alreadyLogged) {
-          seenKeys.add(sessKey);
-          const cleanLab = String(sess.LabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-          const labTitle = displayLabName(cleanLab);
-          const minutes = Math.max(1, Math.round(Number(sess.BilledSeconds || 0) / 60));
-
-          expanded.push({
-            TransactionId: `SESS-${sess.SessionId}`,
-            TenantId: tenantId || 'DEFAULT',
-            UserId: String(sess.UserId),
-            Type: 'USAGE',
-            Source: 'SESSION_USAGE',
-            Credits: Number(sess.BilledTokens || 0),
-            Amount: 0,
-            Currency: 'INR',
-            PaymentReference: sess.SessionId,
-            LabId: sess.LabId,
-            labId: cleanLab,
-            labName: labTitle,
-            description: `${labTitle} Runtime Session (${sess.BilledTokens} Tokens / ${minutes} Mins)`,
-            IdempotencyKey: `SESSION-BILL-${sess.SessionId}`,
-            Status: 'SUCCESS',
-            CreatedAt: sess.StartedAt || sess.CreatedAt
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('[CreditWalletService] session usage merge warning:', e.message);
     }
 
     return expanded.sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());

@@ -75,11 +75,43 @@ function expandLabPurchases(rows: TransactionRecord[]): TransactionRecord[] {
   return expanded;
 }
 
+function isTokenCutOrUsage(t: any): boolean {
+  if (!t) return false;
+  const tType = String(t.type || t.Type || '').toUpperCase();
+  const source = String(t.source || t.Source || '').toUpperCase();
+  const method = String(t.paymentMethod || '').toLowerCase();
+  const id = String(t.id || t.transactionId || t.IdempotencyKey || '').toLowerCase();
+  const desc = String(t.description || '').toLowerCase();
+
+  return (
+    tType === 'USAGE' ||
+    tType === 'CONSUMPTION' ||
+    tType === 'DEBIT' ||
+    source === 'SESSION_USAGE' ||
+    source === 'LAB_RUNTIME' ||
+    method.includes('runtime') ||
+    id.startsWith('session_') ||
+    id.startsWith('sess-') ||
+    id.includes('token_') ||
+    desc.includes('finalized session') ||
+    desc.includes('session runtime') ||
+    desc.includes('runtime usage') ||
+    desc.includes('consumed') ||
+    desc.includes('token/s')
+  );
+}
+
 function getSavedTransactions(): TransactionRecord[] {
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem('vlab_student_transactions');
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed: TransactionRecord[] = JSON.parse(raw);
+    const cleaned = parsed.filter((t) => !isTokenCutOrUsage(t));
+    if (cleaned.length !== parsed.length) {
+      localStorage.setItem('vlab_student_transactions', JSON.stringify(cleaned));
+    }
+    return cleaned;
   } catch (e) {
     return [];
   }
@@ -88,7 +120,8 @@ function getSavedTransactions(): TransactionRecord[] {
 function saveTransactions(txs: TransactionRecord[]) {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem('vlab_student_transactions', JSON.stringify(txs));
+    const cleaned = (txs || []).filter((t) => !isTokenCutOrUsage(t));
+    localStorage.setItem('vlab_student_transactions', JSON.stringify(cleaned));
   } catch (e) {}
 }
 
@@ -102,28 +135,28 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       const res = await executeRequest('/credits/transactions', { auth: true });
       const rawList = res?.transactions || res?.data || [];
       const currentUser = useAuthStore.getState()?.auth?.user;
-      const formatted: TransactionRecord[] = expandLabPurchases(rawList.map((t: any) => {
+      
+      // Exclude runtime token deductions completely
+      const purchaseList = (rawList || []).filter((t: any) => !isTokenCutOrUsage(t));
+
+      const formatted: TransactionRecord[] = expandLabPurchases(purchaseList.map((t: any) => {
         const labName = t.labName || t.LabName || prettyLabName(t.labId || t.LabId);
         const tType = String(t.type || t.Type || '').toUpperCase();
-        const isCredit = tType === 'PURCHASE' || tType === 'ALLOCATION' || tType === 'CREDIT';
         const isAllocation = tType === 'ALLOCATION' || String(t.source || '').toUpperCase() === 'UNIVERSITY_ALLOCATION';
-        const isUsage = tType === 'USAGE' || tType === 'CONSUMPTION' || String(t.source || '').toUpperCase() === 'SESSION_USAGE';
 
         return {
           id: t.idempotencyKey || t.transactionId || t.id || `TXN-${t.TransactionId}`,
           razorpayPaymentId: t.paymentReference || t.PaymentReference,
           date: t.createdAt || t.CreatedAt || new Date().toISOString(),
-          description: t.description || (isAllocation ? `University Course Allocation: ${labName}` : isCredit ? `Token purchase: ${labName}` : `${labName} Session Runtime Usage`),
+          description: t.description || (isAllocation ? `University Course Allocation: ${labName}` : `Token purchase: ${labName}`),
           labName: labName || 'Virtual Lab',
           labId: t.labId || t.LabId,
-          type: isCredit ? 'Credit' as const : 'Debit' as const,
+          type: 'Credit' as const,
           amount: Number(t.credits || t.Credits || t.amount || 0),
           tokens: Number(t.credits || t.Credits || t.amount || 0),
-          amountRupees: isCredit && !isAllocation ? Number(t.amount ?? t.Amount ?? t.credits ?? 0) : 0,
+          amountRupees: !isAllocation ? Number(t.amount ?? t.Amount ?? t.credits ?? 0) : 0,
           paymentMethod: isAllocation 
             ? 'University Allocation' 
-            : isUsage 
-            ? 'Lab Runtime' 
             : (t.source === 'STUDENT_PURCHASE' ? 'Razorpay' : (t.source || t.paymentMethod || 'Razorpay')),
           studentEmail: t.userEmail || t.studentEmail || currentUser?.email || '',
           studentPhone: t.userPhone || t.studentPhone || currentUser?.phoneNumber || currentUser?.mobile || '',
@@ -135,11 +168,13 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       const mergedMap = new Map<string, TransactionRecord>();
       // First insert newly fetched transactions
       formatted.forEach((t) => mergedMap.set(String(t.id || t.razorpayPaymentId), t));
-      // Then merge any existing local transactions so freshly made purchases are preserved
+      // Then merge any existing local transactions so freshly made purchases are preserved, excluding usage
       get().transactions.forEach((t) => {
-        const key = String(t.id || t.razorpayPaymentId);
-        if (!mergedMap.has(key)) {
-          mergedMap.set(key, t);
+        if (!isTokenCutOrUsage(t)) {
+          const key = String(t.id || t.razorpayPaymentId);
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, t);
+          }
         }
       });
       const finalTransactions = Array.from(mergedMap.values()).sort(
@@ -155,6 +190,10 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   },
 
   addTransaction: (tx) => {
+    if (isTokenCutOrUsage(tx)) {
+      return;
+    }
+
     const newTx: TransactionRecord = {
       id: tx.id || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
       date: tx.date || new Date().toISOString(),
@@ -174,7 +213,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
 
     set((state) => {
       const filtered = state.transactions.filter(
-        (t) => t.id !== newTx.id && (!newTx.razorpayPaymentId || t.razorpayPaymentId !== newTx.razorpayPaymentId)
+        (t) => !isTokenCutOrUsage(t) && t.id !== newTx.id && (!newTx.razorpayPaymentId || t.razorpayPaymentId !== newTx.razorpayPaymentId)
       );
       const updated = [newTx, ...filtered];
       saveTransactions(updated);

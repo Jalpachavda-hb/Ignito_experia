@@ -13,7 +13,8 @@ function readStoredToken(key) {
 }
 
 function currentAccessToken() {
-  return useAuthStore.getState()?.auth?.accessToken || readStoredToken('auth-access-token') || '';
+  const value = useAuthStore.getState()?.auth?.accessToken || readStoredToken('auth-access-token') || '';
+  return String(value).trim().replace(/^Bearer\s+/i, '').replace(/^"|"$/g, '');
 }
 
 function currentRefreshToken() {
