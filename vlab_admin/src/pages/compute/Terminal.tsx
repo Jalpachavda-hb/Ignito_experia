@@ -8,7 +8,7 @@ import { Terminal as TerminalIcon, X, Plus, Power, ArrowLeft, RefreshCw, Clock }
 
 const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isLabBusy }: { session: any, isActive: boolean, onTerminalCommand?: () => void, isLabBusy?: boolean }, ref) => {
   const [terminalState, setTerminalState] = useState('initializing');
-  const [statusMessage, setStatusMessage] = useState('Connecting to container via AWS SSM...');
+  const [statusMessage, setStatusMessage] = useState('Connecting...');
 
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<any>(null);
@@ -35,7 +35,7 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isL
     }
 
     setTerminalState('initializing');
-    setStatusMessage('Connecting to container via AWS SSM...');
+    setStatusMessage('Connecting...');
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -66,6 +66,7 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isL
     if (terminalRef.current) {
       term.open(terminalRef.current);
       fitAddon.fit();
+      term.focus();
     }
 
     xtermRef.current = term;
@@ -80,14 +81,23 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isL
 
     socket.on('terminal-output', (data) => {
       term.write(data);
+      if (typeof data === 'string' && (data.includes("execute command agent isn't running") || data.includes('Terminal exited with code 254'))) {
+        setTerminalState('timeout');
+        setStatusMessage('Container agent is initializing. Reconnecting in 3s...');
+        setTimeout(() => {
+          initConnection();
+        }, 3000);
+      }
     });
 
     socket.on('terminal-status', (payload) => {
       if (payload.status === 'timeout') {
         setTerminalState('timeout');
       } else if (payload.status === 'ready') {
-        term.reset();
         setTerminalState('ready');
+        setTimeout(() => {
+          try { term.focus(); } catch (e) {}
+        }, 30);
       } else {
         setTerminalState(payload.status);
       }
@@ -155,6 +165,7 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isL
       setTimeout(() => {
         try {
           fitAddonRef.current.fit();
+          xtermRef.current.focus();
           socketRef.current.emit('terminal-resize', {
             cols: xtermRef.current.cols,
             rows: xtermRef.current.rows
@@ -174,50 +185,33 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isL
         zIndex: isActive ? 10 : 0
       }}
     >
-      {terminalState !== 'ready' && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c0c0c] text-white">
-          <div className="flex flex-col items-center gap-6 p-8 rounded-xl bg-[#1e1e1e] border border-black/40 shadow-2xl">
-            {terminalState === 'timeout' || terminalState === 'error' ? (
-              <div className="text-red-500 bg-red-500/10 p-4 rounded-full">
-                <Power size={48} />
-              </div>
-            ) : terminalState === 'waiting' ? (
-              <div className="text-amber-400 bg-amber-500/10 p-4 rounded-full">
-                <RefreshCw size={48} className="animate-spin" />
-              </div>
-            ) : (
-              <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin" />
-            )}
-            <div className="text-center">
-              <h2 className="text-xl font-bold tracking-wide text-slate-200 mb-2">
-                {terminalState === 'timeout' ? 'Connection Timeout' :
-                  terminalState === 'error' ? 'Connection Error' :
-                    terminalState === 'waiting' ? 'Waiting for BUILD/RUN' :
-                      'Connecting to Lab'}
-              </h2>
-              <p className="text-sm text-slate-400 font-mono">
-                {statusMessage}
-              </p>
-            </div>
-            {(terminalState === 'timeout' || terminalState === 'error') && (
-              <button
-                onClick={initConnection}
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded shadow-lg shadow-red-500/20"
-              >
-                <RefreshCw size={16} />
-                Retry Connection
-              </button>
-            )}
-          </div>
+
+
+      {/* Non-blocking error/timeout notification banner */}
+      {(terminalState === 'timeout' || terminalState === 'error') && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-[#1e1e1e]/95 backdrop-blur border border-red-500/50 px-4 py-2 rounded-lg shadow-2xl text-xs text-white max-w-lg">
+          <Power size={14} className="text-red-500 shrink-0" />
+          <span className="font-mono text-[11px] text-slate-300 truncate">{statusMessage}</span>
+          <button
+            onClick={initConnection}
+            className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-[11px] font-bold shadow transition-colors shrink-0"
+          >
+            <RefreshCw size={12} />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Non-blocking waiting banner */}
+      {terminalState === 'waiting' && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-3 bg-[#1e1e1e]/95 backdrop-blur border border-amber-500/50 px-4 py-2 rounded-lg shadow-2xl text-xs text-white max-w-lg">
+          <RefreshCw size={14} className="text-amber-400 shrink-0 animate-spin" />
+          <span className="font-mono text-[11px] text-slate-300 truncate">{statusMessage}</span>
         </div>
       )}
 
       <div
-        className="h-full w-full p-0 absolute inset-0"
-        style={{
-          opacity: terminalState === 'ready' ? 1 : 0,
-          visibility: terminalState === 'ready' ? 'visible' : 'hidden',
-        }}
+        className="h-full w-full p-0 absolute inset-0 opacity-100 visible"
       >
         <div ref={terminalRef} className="h-full w-full" />
       </div>

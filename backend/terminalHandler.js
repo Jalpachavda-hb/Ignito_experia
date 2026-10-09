@@ -7,6 +7,9 @@ import { ENV } from './config/env.js';
 
 const LOCAL_SHELL = os.platform() === 'win32' ? 'cmd.exe' : 'bash';
 const activePtys = new Map(); // Store PTYs strictly by socket.id
+const readySessionContainers = new Map(); // sessionId -> containerName
+const readyTaskContainers = new Map(); // taskId -> containerName
+let pluginInstalledChecked = false;
 
 // OSC window-title sequences (\x1b]0;…\x07) and orphaned "0;…" when ESC is dropped (SSM/ECS).
 const stripOscTitleSequences = (data) => {
@@ -60,6 +63,7 @@ export const setupTerminal = (io) => {
       containerName: ENV.ecsContainerName || 'lab-runtime'
     });
 
+    const taskId = session?.taskArn ? session.taskArn.split('/').pop() : null;
     let ptyProcess = null;
     let isContainer = false;
     let hasSentContainerOutput = false;
@@ -76,60 +80,64 @@ export const setupTerminal = (io) => {
 
     if (session && session.taskArn && cluster) {
       try {
-        const taskId = session.taskArn.split('/').pop();
         const containerName = ENV.ecsContainerName || 'lab-runtime';
-        const interactiveShell = ENV.ecsInteractiveShell;
+        let interactiveShell = ENV.ecsInteractiveShell;
+        if (session.labId === 'oracle' || session.labType === 'oracle') {
+          interactiveShell = '/bin/bash';
+        }
 
         console.log(`Connecting terminal socket ${socket.id} to ECS container...`);
 
         const { getSsmEnv, resolveSessionManagerPluginPath, resolveAwsCliPath, ensureSessionManagerPluginInstalled } = await import('./services/awsExecuteCommand.js');
-        await ensureSessionManagerPluginInstalled();
+        if (!pluginInstalledChecked) {
+          await ensureSessionManagerPluginInstalled();
+          pluginInstalledChecked = true;
+        }
         let pluginPath = resolveSessionManagerPluginPath();
         let awsExePath = resolveAwsCliPath();
 
-        let actualContainerName = containerName;
-        let agentReady = false;
+        let actualContainerName = readySessionContainers.get(sessionId) || readyTaskContainers.get(taskId) || containerName;
+        let agentReady = readySessionContainers.has(sessionId) || readyTaskContainers.has(taskId);
 
-        try {
-          const { describeTask } = await import('./services/ecsService.js'); 
-          const initialTaskDetails = await describeTask(session.taskArn);
-          if (initialTaskDetails) {
-            const container = initialTaskDetails.containers?.find(c => c.name === 'lab-runtime') || initialTaskDetails.containers?.[0];
-            if (container && container.name) {
-              actualContainerName = container.name;
-            }
-            const execAgent = container?.managedAgents?.find(a => a.name === 'ExecuteCommandAgent');
-            if (execAgent?.lastStatus === 'RUNNING' && initialTaskDetails.lastStatus === 'RUNNING') {
+        if (!agentReady) {
+          try {
+            const { describeTask } = await import('./services/ecsService.js'); 
+
+            const checkReadiness = (task) => {
+              if (!task || task.lastStatus !== 'RUNNING') return false;
+              const runningAgentContainer = task.containers?.find(c => 
+                c.managedAgents?.some(a => a.name === 'ExecuteCommandAgent' && a.lastStatus === 'RUNNING')
+              );
+              if (runningAgentContainer && runningAgentContainer.name) {
+                actualContainerName = runningAgentContainer.name;
+                return true;
+              }
+              return false;
+            };
+
+            const initialTaskDetails = await describeTask(session.taskArn, cluster);
+            if (checkReadiness(initialTaskDetails)) {
               agentReady = true;
-            }
-          }
+            } else {
+              socket.emit('terminal-status', { status: 'polling', message: 'Waiting for container agent...' });
+              console.log('[Terminal] Polling ExecuteCommandAgent readiness...');
 
-          if (!agentReady) {
-            socket.emit('terminal-status', { status: 'polling', message: 'Checking ECS Container Readiness...' });
-            console.log('[Terminal] Polling ExecuteCommandAgent readiness...');
-
-            for (let i = 0; i < 90; i++) {
-              const taskDetails = await describeTask(session.taskArn);
-              if (taskDetails) {
-                const container = taskDetails.containers?.find(c => c.name === 'lab-runtime') || taskDetails.containers?.[0];
-                if (container && container.name) {
-                  actualContainerName = container.name;
-                }
-                const execAgent = container?.managedAgents?.find(a => a.name === 'ExecuteCommandAgent');
-                if (execAgent?.lastStatus === 'RUNNING' && taskDetails.lastStatus === 'RUNNING') {
+              for (let i = 0; i < 40; i++) {
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                const taskDetails = await describeTask(session.taskArn, cluster);
+                if (checkReadiness(taskDetails)) {
                   agentReady = true;
                   break;
                 }
+                socket.emit('terminal-status', {
+                  status: 'polling',
+                  message: `Connecting to container shell (${i + 1}/40)...`,
+                });
               }
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              socket.emit('terminal-status', {
-                status: 'polling',
-                message: `Waiting for container shell (${i + 1}/90)...`,
-              });
             }
+          } catch (err) {
+            console.warn('[Readiness Check Error]', err.message);
           }
-        } catch (err) {
-          console.warn('[Readiness Check Error]', err.message);
         }
 
         if (!agentReady) {
@@ -141,7 +149,6 @@ export const setupTerminal = (io) => {
           return;
         } else {
           console.log('[ExecuteCommandAgent READY] Container:', actualContainerName);
-          socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
         }
 
         const region = process.env.AWS_REGION || "ap-south-1";
@@ -203,14 +210,45 @@ export const setupTerminal = (io) => {
           try {
             const { ECSClient, ExecuteCommandCommand } = await import('@aws-sdk/client-ecs');
             const ecsClient = new ECSClient({ region });
-            console.log(`[ECS TERMINAL] Initiating ExecuteCommand via AWS SDK for task: ${taskId}...`);
-            const ecsRes = await ecsClient.send(new ExecuteCommandCommand({
-              cluster,
-              task: taskId,
-              container: actualContainerName,
-              interactive: true,
-              command: interactiveShell,
-            }));
+            let ecsRes = null;
+            const maxSdkAttempts = 8;
+
+            for (let attempt = 1; attempt <= maxSdkAttempts; attempt++) {
+              try {
+                console.log(`[ECS TERMINAL] Initiating ExecuteCommand via AWS SDK (attempt ${attempt}/${maxSdkAttempts}) for task: ${taskId}...`);
+                ecsRes = await ecsClient.send(new ExecuteCommandCommand({
+                  cluster,
+                  task: taskId,
+                  container: actualContainerName,
+                  interactive: true,
+                  command: interactiveShell,
+                }));
+
+                if (ecsRes?.session) {
+                  break;
+                }
+              } catch (sdkErr) {
+                const errMsg = sdkErr?.message || '';
+                const isAgentLag =
+                  sdkErr?.name === 'InvalidParameterException' ||
+                  sdkErr?.name === 'TargetNotConnectedException' ||
+                  errMsg.includes("isn't running") ||
+                  errMsg.includes("not running") ||
+                  errMsg.includes("not enabled") ||
+                  errMsg.includes("TargetNotConnected");
+
+                if (isAgentLag && attempt < maxSdkAttempts) {
+                  console.warn(`[ECS TERMINAL SDK RETRY] Agent handshake pending (${errMsg}). Retrying in 2.5s (${attempt}/${maxSdkAttempts})...`);
+                  socket.emit('terminal-status', {
+                    status: 'polling',
+                    message: `Connecting to shell (${attempt}/${maxSdkAttempts})...`,
+                  });
+                  await new Promise((r) => setTimeout(r, 2500));
+                } else {
+                  throw sdkErr;
+                }
+              }
+            }
 
             if (ecsRes?.session) {
               const pluginArgs = [JSON.stringify(ecsRes.session), region, "StartSession", ""];
@@ -230,6 +268,9 @@ export const setupTerminal = (io) => {
 
               activePtys.set(socket.id, ptyProcess);
               isContainer = true;
+              readySessionContainers.set(sessionId, actualContainerName);
+              readyTaskContainers.set(taskId, actualContainerName);
+              socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
               console.log(`[SUCCESS] ECS terminal connected via session-manager-plugin for socket ${socket.id}`);
             }
           } catch (sdkTermErr) {
@@ -237,7 +278,7 @@ export const setupTerminal = (io) => {
           }
         }
 
-        // AWS CLI fallback only IF aws executable actually exists on disk
+        // AWS CLI fallback only IF aws executable actually exists on disk and SDK didn't succeed
         if (!ptyProcess && awsExePath && (fs.existsSync(awsExePath) || (os.platform() !== 'win32' && awsExePath !== 'aws'))) {
           console.log("========== AWS EXECUTE COMMAND CLI FALLBACK ==========");
           console.log("AWS CLI :", awsExePath);
@@ -256,6 +297,9 @@ export const setupTerminal = (io) => {
 
           activePtys.set(socket.id, ptyProcess);
           isContainer = true;
+          readySessionContainers.set(sessionId, actualContainerName);
+          readyTaskContainers.set(taskId, actualContainerName);
+          socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
           console.log(`[SUCCESS] ECS terminal connected via AWS CLI for socket ${socket.id}`);
         }
 
@@ -312,6 +356,10 @@ export const setupTerminal = (io) => {
 
     ptyProcess.onExit(({ exitCode }) => {
       console.log('PTY EXIT CODE:', exitCode);
+      if (exitCode !== 0) {
+        if (sessionId) readySessionContainers.delete(sessionId);
+        if (taskId) readyTaskContainers.delete(taskId);
+      }
       socket.emit('terminal-output', `\r\n[Terminal exited with code ${exitCode}]\r\n`);
       activePtys.delete(socket.id);
     });

@@ -27,6 +27,16 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
   
   // Real User Tokens calculated dynamically to match university allocations + personal purchased tokens
   const { totalBalance, uniTokens, personalTokens } = useMemo(() => {
+    // 1. Authoritative wallet balance matching Dashboard and Credit Wallet Summary
+    const hasSummary = summary && typeof summary.totalRemaining === 'number';
+    const authTotal = hasSummary
+      ? summary.totalRemaining
+      : (typeof user?.tokens === 'number' && user.tokens > 0)
+      ? Math.max(0, Math.round(user.tokens))
+      : (typeof user?.credits === 'number' && user.credits !== 1000 && user.credits > 0)
+      ? Math.max(0, Math.round(user.credits))
+      : null;
+
     let uSum = 0;
     let pSum = 0;
     const seenLabIds = new Set<string>();
@@ -58,36 +68,52 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
       }
     });
 
-    // Also check transactions for personal purchases
+    // If authoritative wallet summary exists, prioritize it directly to ensure perfect match with Dashboard
+    if (authTotal !== null) {
+      if (isDirectStudent(user) || uSum === 0) {
+        return {
+          totalBalance: authTotal,
+          uniTokens: 0,
+          personalTokens: authTotal,
+        };
+      }
+      const effectiveUni = Math.min(uSum, authTotal);
+      const effectivePersonal = Math.max(0, authTotal - effectiveUni);
+      return {
+        totalBalance: authTotal,
+        uniTokens: effectiveUni,
+        personalTokens: effectivePersonal,
+      };
+    }
+
+    // Fallback: use net transaction balance (Credits - Debits)
     const currentStudentEmail = user?.email?.toLowerCase();
     const liveTransactions = (transactions || []).filter(tx => {
       if (!currentStudentEmail) return true;
       return !tx.studentEmail || tx.studentEmail.toLowerCase() === currentStudentEmail;
     });
 
-    let txPersonalSum = 0;
+    let txCreditSum = 0;
+    let txDebitSum = 0;
     liveTransactions.forEach((tx) => {
       const isSuccess = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
-      if (isSuccess && tx.type === 'Credit') {
-        txPersonalSum += Number(tx.amount) || 0;
+      if (isSuccess) {
+        if (tx.type === 'Credit') {
+          txCreditSum += Number(tx.amount) || 0;
+        } else if (tx.type === 'Debit') {
+          txDebitSum += Number(tx.amount) || 0;
+        }
       }
     });
+    const netTxBalance = Math.max(0, txCreditSum - txDebitSum);
 
-    if (pSum === 0 && txPersonalSum > 0) {
-      pSum = txPersonalSum;
-    } else if (txPersonalSum > pSum) {
-      pSum = Math.max(pSum, txPersonalSum);
-    }
-
-    // Direct student fallback
-    if (isDirectStudent(user) && uSum === 0) {
-      if (pSum > 0) return { totalBalance: pSum, uniTokens: 0, personalTokens: pSum };
-      if (summary?.totalRemaining) return { totalBalance: summary.totalRemaining, uniTokens: 0, personalTokens: summary.totalRemaining };
+    if (pSum === 0 && netTxBalance > 0) {
+      pSum = netTxBalance;
     }
 
     const total = uSum + pSum;
     return {
-      totalBalance: total > 0 ? total : (summary?.totalRemaining || 0),
+      totalBalance: total,
       uniTokens: uSum,
       personalTokens: pSum,
     };
@@ -120,9 +146,11 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
       value: `${totalBalance}`,
       subtext: personalTokens > 0 && uniTokens > 0
         ? `${uniTokens} Uni • ${personalTokens} Personal`
+        : uniTokens > 0
+        ? `${uniTokens} University Tokens`
         : personalTokens > 0
         ? `${personalTokens} Personal Tokens`
-        : 'Wallet Balance',
+        : 'Active wallet balance',
       icon: Wallet,
       color: 'text-purple-500',
       bg: 'bg-purple-500/10',

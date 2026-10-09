@@ -50,11 +50,11 @@ export const getTaskPublicIp = async (taskArn) => {
   return eniDetails.NetworkInterfaces?.[0]?.Association?.PublicIp || null;
 };
 
-export const describeTask = async (taskArn) => {
+export const describeTask = async (taskArn, clusterOverride = null) => {
   if (!taskArn) return null;
   try {
     const res = await ecsClient.send(
-      new DescribeTasksCommand({ cluster: ENV.ecsCluster, tasks: [taskArn] }),
+      new DescribeTasksCommand({ cluster: clusterOverride || ENV.ecsCluster, tasks: [taskArn] }),
     );
     return res.tasks?.[0] || null;
   } catch (err) {
@@ -193,6 +193,14 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubty
     { name: "EXECUTION_TIMEOUT_MS", value: "360000" },
     { name: "TIMEOUT", value: "3600" },
   ];
+
+  if (labId === 'oracle' || labType === 'oracle') {
+    environment.push(
+      { name: "APP_USER", value: "" },
+      { name: "APP_USER_PASSWORD", value: "" },
+      { name: "ORACLE_PASSWORD", value: "oracle" }
+    );
+  }
 
   if (dotnetSubtype) {
     environment.push({ name: "DOTNET_SUBTYPE", value: String(dotnetSubtype) });

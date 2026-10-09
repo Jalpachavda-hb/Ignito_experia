@@ -25,8 +25,7 @@ export const getSession = async (sessionId) => {
   // Hydrate missing core fields from MySQL lab_sessions if needed
   if (!item || !item.labId || !item.userId || !item.taskArn) {
     try {
-      const LabSessionRepository = (await import("../repositories/LabSessionRepository.js")).default;
-      const labSessionRepo = new LabSessionRepository();
+      const labSessionRepo = (await import("../repositories/LabSessionRepository.js")).default;
       const sqlRow = await labSessionRepo.getSessionById(sessionId);
       if (sqlRow) {
         if (!item) {
