@@ -39,9 +39,12 @@ export function MyLabsHeader({ labs, activeSession, user }: MyLabsHeaderProps) {
       const isPersonal = l.accessType === 'personal' || l.isPurchased;
 
       if (isUni) {
-        uSum += remaining > 0 ? remaining : (Number(l.practicalCredit) || 60);
+        const uniRem = (l.remainingTokens !== undefined && l.remainingTokens !== null)
+          ? Number(l.remainingTokens)
+          : (Number(l.tokens ?? l.availableTokens ?? l.practicalCredit) || 0);
+        uSum += Math.max(0, uniRem);
       } else if (isPersonal) {
-        pSum += remaining;
+        pSum += Math.max(0, remaining);
       }
     });
 

@@ -256,19 +256,22 @@ class SsoService {
       // Auto-provision initial university lab wallets for LMS student
       try {
         const [mappings] = await connection.query(
-          `SELECT DISTINCT lab_id FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
+          `SELECT DISTINCT lab_id, course_code, practical_credit FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
           [tenantId || 'PLATFORM']
         );
         for (const m of mappings) {
           const rawLabId = String(m.lab_id).toLowerCase().trim();
           const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+          const codeStr = String(m.course_code || '').toUpperCase();
+          const defaultCred = (cleanLabId.includes('dbms') || codeStr.includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || codeStr.includes('4011')) ? 80 : 60);
+          const practicalCredit = Number(m.practical_credit || defaultCred);
           await connection.query(
             `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
-             VALUES (?, ?, ?, 60, 0, 60, 1)
+             VALUES (?, ?, ?, ?, 0, ?, 1)
              ON DUPLICATE KEY UPDATE
-               TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
-               RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
-            [tenantId || 'DEFAULT', String(userId), cleanLabId]
+               TotalPurchasedTokens = IF(TotalPurchasedTokens < VALUES(TotalPurchasedTokens), VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+               RemainingTokens = CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) THEN CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED) ELSE 0 END`,
+            [tenantId || 'DEFAULT', String(userId), cleanLabId, practicalCredit, practicalCredit]
           );
         }
       } catch (e) {

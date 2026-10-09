@@ -57,7 +57,16 @@ export default function CreditWallet() {
     (labWallets || []).forEach((w) => {
       const rawId = String(w.labId || '').toLowerCase().trim();
       const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
-      const remaining = Number(w.remainingTokens ?? Math.max(0, (w.purchasedTokens || 0) - (w.usedTokens || 0)));
+      const matchedCa = (courseAllocations || []).find((ca: any) => {
+        const caId = String(ca.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+        return caId === cleanId;
+      });
+      const defaultCred = (cleanId.includes('dbms')) ? 90 : ((cleanId.includes('dotnet')) ? 80 : 0);
+      const allocated = Number(matchedCa?.allocatedTokens || (isUniversity ? defaultCred : 0));
+      const purchased = Number(w.purchasedTokens || 0);
+      const used = Number(w.usedTokens || 0);
+      const totalQuota = Math.max(allocated, purchased);
+      const remaining = Number(w.remainingTokens ?? Math.max(0, totalQuota - used));
 
       const info = { availableTokens: remaining, reservedTokens: 0 };
       map[cleanId] = info;
@@ -69,8 +78,9 @@ export default function CreditWallet() {
     (courseAllocations || []).forEach((ca: any) => {
       const rawId = String(ca.labId || '').toLowerCase().trim();
       const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
+      const defaultCred = (cleanId.includes('dbms')) ? 90 : ((cleanId.includes('dotnet')) ? 80 : 60);
       if (!map[cleanId] || map[cleanId].availableTokens === 0) {
-        const info = { availableTokens: Number(ca.allocatedTokens || 60), reservedTokens: 0 };
+        const info = { availableTokens: Number(ca.allocatedTokens || defaultCred), reservedTokens: 0 };
         map[cleanId] = info;
         map[rawId] = info;
         map[`lab-${cleanId}`] = info;

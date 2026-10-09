@@ -191,6 +191,28 @@ class AuthService {
     }
  
     const passwordHash = hashPassword(password);
+    const cleanEmail = email.toLowerCase().trim();
+
+    // Ensure completely fresh slate for newly registered student (wipe any residual/orphaned data for this email across all tables)
+    try {
+      await pool.query(`DELETE FROM lab_token_usage WHERE LOWER(StudentId) = ?`, [cleanEmail]);
+      await pool.query(`DELETE FROM student_lab_token_transactions WHERE LOWER(StudentId) = ?`, [cleanEmail]);
+      await pool.query(`DELETE FROM student_lab_token_wallets WHERE LOWER(StudentId) = ?`, [cleanEmail]);
+      await pool.query(`
+        DELETE FROM token_order_items WHERE OrderId IN (
+          SELECT Id FROM token_orders WHERE LOWER(StudentId) = ?
+        )
+      `, [cleanEmail]);
+      await pool.query(`DELETE FROM token_orders WHERE LOWER(StudentId) = ?`, [cleanEmail]);
+      await pool.query(`
+        DELETE FROM credit_transactions 
+        WHERE LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.userEmail'))) = ?
+           OR LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.studentEmail'))) = ?
+      `, [cleanEmail, cleanEmail]);
+      await pool.query(`DELETE FROM user_lab_workspaces WHERE LOWER(userId) = ?`, [cleanEmail]);
+    } catch (cleanErr) {
+      console.warn("[AuthService.register] Notice cleaning residual records:", cleanErr.message);
+    }
    
     return await userRepository.insert({
       fullName: fullName || "New User",

@@ -170,16 +170,16 @@ export const sessionsStartHandler = async ({ body, auth }) => {
 
       if (isLmsCandidate) {
         const rawLabId = String(labId).toLowerCase().trim();
-        const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
-        const practicalCredit = Number(body?.practicalCredit || body?.academicCtx?.practicalCredit || 60);
+        const defaultCredit = (cleanLabId.includes('dbms') || String(body?.academicCtx?.courseCode || '').includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || String(body?.academicCtx?.courseCode || '').includes('4011')) ? 80 : 60);
+        const practicalCredit = Number(body?.practicalCredit || body?.academicCtx?.practicalCredit || defaultCredit);
 
         try {
           await connection.query(
             `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
              VALUES (?, ?, ?, ?, 0, ?, 1)
              ON DUPLICATE KEY UPDATE
-               TotalPurchasedTokens = IF(TotalPurchasedTokens = 0, VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
-               RemainingTokens = IF(TotalPurchasedTokens = 0, VALUES(RemainingTokens), RemainingTokens)`,
+               TotalPurchasedTokens = IF(TotalPurchasedTokens < VALUES(TotalPurchasedTokens), VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+               RemainingTokens = CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) THEN CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED) ELSE 0 END`,
             [tenantId || 'DEFAULT', String(userId), cleanLabId, practicalCredit, practicalCredit]
           );
         } catch (e) {}
@@ -332,20 +332,23 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       Status: 'RUNNING',
       StartedAt: now,
       TokenExpiryAt: tokenExpiryAt,
+      ExpiresAt: tokenExpiryAt,
       LastBilledAt: now,
       UnbilledSeconds: 0
     });
     const memorySess = await getSession(dbSession.SessionId);
     if (memorySess) {
       memorySess.status = "running";
+      memorySess.startedAt = now.toISOString();
+      memorySess.expiresAt = tokenExpiryAt.toISOString();
       await saveSession(memorySess);
     }
     return ok({
       sessionId: dbSession.SessionId,
       status: 'RUNNING',
       startedAt: now,
-      expiresAt: dbSession.ExpiresAt,
-      remainingSeconds: calculateRemainingSeconds(dbSession.ExpiresAt),
+      expiresAt: tokenExpiryAt,
+      remainingSeconds: calculateRemainingSeconds(tokenExpiryAt),
       allocatedCredits: dbSession.AllocatedCredits,
       allocatedDurationMinutes: dbSession.AllocatedDurationMinutes,
       dotnetSubtype: dotnetSubtype || dbSession.Subtype || null,
@@ -428,11 +431,32 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
       } else if (currentStatus === 'STARTING' || memorySess?.status === 'starting') {
         const net = await resolveTaskNetworking(dbSession.TaskArn, dbSession.LabId);
         if (net.status === 'running' || net.publicIp) {
+          const now = new Date();
+          const sessionTokens = Number(dbSession.AllocatedCredits || dbSession.AllocatedDurationMinutes || 60);
+          const tokenExpiryAt = new Date(now.getTime() + sessionTokens * 60 * 1000);
           currentStatus = 'RUNNING';
-          await labSessionRepository.updateSession(sessionId, { Status: 'RUNNING' });
-          if (memorySess && (!memorySess.bootstrapState || memorySess.bootstrapState === 'NOT_STARTED')) {
-            await updateSession(sessionId, net);
-            bootstrapSession(memorySess, net).catch(e => console.error(e));
+          await labSessionRepository.updateSession(sessionId, {
+            Status: 'RUNNING',
+            StartedAt: now,
+            TokenExpiryAt: tokenExpiryAt,
+            ExpiresAt: tokenExpiryAt,
+            LastBilledAt: now,
+            UnbilledSeconds: 0
+          });
+          dbSession.Status = 'RUNNING';
+          dbSession.StartedAt = now;
+          dbSession.TokenExpiryAt = tokenExpiryAt;
+          dbSession.ExpiresAt = tokenExpiryAt;
+          if (memorySess) {
+            memorySess.status = 'running';
+            memorySess.startedAt = now.toISOString();
+            memorySess.expiresAt = tokenExpiryAt.toISOString();
+            if (!memorySess.bootstrapState || memorySess.bootstrapState === 'NOT_STARTED') {
+              await updateSession(sessionId, net);
+              bootstrapSession(memorySess, net).catch(e => console.error(e));
+            } else {
+              await saveSession(memorySess);
+            }
           }
         }
       }
@@ -659,10 +683,14 @@ export const sessionsStopHandler = async ({ pathParameters, body, auth }) => {
   }
   await deleteSession(sessionId).catch(() => {});
 
+  const totalBilledTokens = Number(billingResult?.totalTokensCharged ?? dbSession?.BilledTokens ?? 0);
   return ok({
     sessionId,
     status: 'STOPPED',
     finalizedBilling: billingResult,
+    actualMinutesUsed: totalBilledTokens,
+    finalCreditsConsumed: totalBilledTokens,
+    creditsConsumed: totalBilledTokens,
     message: 'Lab session stopped successfully.'
   });
 };

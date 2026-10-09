@@ -53,7 +53,27 @@ const startCountdownTimer = (get: any, set: any) => {
 
   const tick = () => {
     const currentSession = get().activeSession;
-    if (currentSession && ['running', 'starting', 'expiring_soon', 'RUNNING', 'STARTING', 'EXPIRING_SOON'].includes(currentSession.status)) {
+    if (!currentSession) {
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+      return;
+    }
+
+    const isStarting = ['starting', 'STARTING'].includes(currentSession.status);
+    const isRunning = ['running', 'expiring_soon', 'RUNNING', 'EXPIRING_SOON'].includes(currentSession.status);
+
+    if (isStarting) {
+      // Container is still provisioning - do not count down time or deduct tokens
+      const totalMinutes = Number(currentSession.allocatedDurationMinutes || currentSession.allocatedCredits || 80);
+      set({ 
+        elapsedTime: `${totalMinutes}:00`, 
+        remainingSeconds: totalMinutes * 60, 
+        showWarningModal: false 
+      });
+      return;
+    }
+
+    if (isRunning) {
       let isExpired = false;
       let displayStr = '0:00';
       let secsRemaining = 0;
@@ -183,7 +203,9 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
     set({ startingLabId: labId, startError: null });
     try {
       const idempotencyKey = `START-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-      const practicalCredit = typeof userCredits === 'number' && userCredits > 0 ? userCredits : (academicCtx?.practicalCredit || 60);
+      const cleanLId = String(labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+      const defaultCred = cleanLId.includes('dbms') ? 90 : (cleanLId.includes('dotnet') ? 80 : 60);
+      const practicalCredit = typeof userCredits === 'number' && userCredits > 0 ? userCredits : (academicCtx?.practicalCredit || defaultCred);
       const startResponse = await startLabSession({
         labId,
         sessionBlocks,
@@ -280,19 +302,33 @@ export const useLabSessionStore = create<LabSessionStore>((set, get) => ({
     const targetLabId = labId || session?.labId || '';
     set({ stoppingLabId: targetLabId, stopError: null });
     try {
-      let calculatedMinutes = 1;
-      if (session?.startedAt) {
+      let calculatedMinutes = 0;
+      if (session?.startedAt && ['running', 'RUNNING', 'expiring_soon', 'EXPIRING_SOON'].includes(session?.status)) {
         const startMs = new Date(session.startedAt).getTime();
-        calculatedMinutes = Math.max(1, Math.ceil((Date.now() - startMs) / 60000));
+        const elapsedSec = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+        const fullMins = Math.floor(elapsedSec / 60);
+        const remSec = elapsedSec % 60;
+        // 30-second rule: >= 30 seconds used into this minute cuts a token; < 30 seconds used preserves the token
+        calculatedMinutes = remSec >= 30 ? fullMins + 1 : fullMins;
       }
 
       const stopRes = await stopLabSession(targetSessionId);
       const authUser = useAuthStore.getState()?.auth?.user;
       const uId = (authUser?.email || authUser?.userId || '').toString().trim().toLowerCase();
 
-      const actualMinutes = Number(stopRes?.actualMinutesUsed ?? calculatedMinutes);
+      const actualMinutes = Number(
+        stopRes?.actualMinutesUsed ?? 
+        stopRes?.finalCreditsConsumed ?? 
+        stopRes?.finalizedBilling?.totalTokensCharged ?? 
+        calculatedMinutes
+      );
       // 1 minute = 1 token/credit cut
-      const creditsConsumed = Number(stopRes?.finalCreditsConsumed ?? stopRes?.creditsConsumed ?? actualMinutes);
+      const creditsConsumed = Number(
+        stopRes?.finalCreditsConsumed ?? 
+        stopRes?.creditsConsumed ?? 
+        stopRes?.finalizedBilling?.totalTokensCharged ?? 
+        actualMinutes
+      );
 
       const labs = useLabStore.getState()?.labs || [];
       const matchedLab = labs.find((l: any) => (l.id || l.labId || l.LabId || l.labCode || l._id) === targetLabId);

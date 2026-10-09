@@ -11,6 +11,7 @@ import {
 import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
 import { useLabTokenStore } from '@/stores/labTokenStore';
+import { useLabSessionStore } from '@/stores/labSessionStore';
 import { resolveApiRelativeUrl } from '@/config/env';
 import { TestingWorkspace } from './TestingWorkspace';
 import { SeleniumExecutionDialog } from '@/components/SeleniumExecutionDialog';
@@ -378,11 +379,27 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     return () => clearInterval(tokenSyncInterval);
   }, [fetchStudentLabTokens]);
 
+  const { remainingSeconds, activeSession } = useLabSessionStore();
+
   const cleanEditorLabId = (labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
   const activeLabWallet = (labWallets || []).find(w => {
     const wClean = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
     return wClean === cleanEditorLabId || String(w.labId || '').toLowerCase() === String(labId || '').toLowerCase();
   });
+
+  const isSessionRunning = Boolean(
+    activeSession && ['running', 'RUNNING', 'expiring_soon', 'EXPIRING_SOON'].includes(activeSession.status)
+  );
+
+  let displayTokens = activeLabWallet ? Number(activeLabWallet.remainingTokens || 0) : 0;
+  if (isSessionRunning && typeof remainingSeconds === 'number' && remainingSeconds > 0) {
+    const mins = Math.floor(remainingSeconds / 60);
+    const secs = remainingSeconds % 60;
+    // 30-Second Rule:
+    // If >= 30s remain in the minute (up to 0.5m left, e.g. at 77:50), do NOT cut token for this minute (mins + 1).
+    // If < 30s remain (down to 0.5m left, e.g. 77:15), cut token for this minute (mins).
+    displayTokens = secs >= 30 ? mins + 1 : mins;
+  }
 
   const labType = propSession?.labType || '';
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
@@ -2251,7 +2268,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           {activeLabWallet && (
             <div className="hidden lg:flex items-center gap-1.5 text-emerald-700 font-mono text-xs font-bold bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl shadow-xs">
               <Coins size={14} className="text-emerald-600 shrink-0" />
-              <span>{activeLabWallet.remainingTokens} TOKENS</span>
+              <span>{displayTokens} TOKENS</span>
             </div>
           )}
 

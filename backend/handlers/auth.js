@@ -371,7 +371,7 @@ export const authLogoutHandler = async ({ body, headers }) => {
 import { permissionService } from "../services/PermissionService.js";
 import studentProfileRepository from "../repositories/StudentProfileRepository.js";
 
-export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
+export const authMeHandler = async ({ auth, headers = {}, queryStringParameters = {} }) => {
   if (!auth) {
     throw unauthorized("Not authenticated");
   }
@@ -532,6 +532,30 @@ export const authMeHandler = async ({ auth, queryStringParameters = {} }) => {
       provider: lmsProvider,
       externalStudentId: lmsExternalId,
     }, extProgrammes);
+
+    try {
+      const practical = await lmsProgrammeService.getPracticalAvailable({
+        tenantId: tenant.TenantId,
+        provider: lmsProvider,
+        bearerToken: getBearerToken(headers) || headers?.["x-lms-token"] || null,
+      });
+      const practicalList = practical?.programList || practical?.programmeList || [];
+      if (Array.isArray(practicalList) && practicalList.length > 0) {
+        const filtered = extProgrammes.filter((prog) =>
+          practicalList.some(
+            (p) =>
+              programmeMatches(prog, p.programId || p.programmeId) ||
+              programmeMatches(prog, p.programName || p.programmeName) ||
+              programmeMatches(prog, p.programCode || p.programmeCode)
+          )
+        );
+        if (filtered.length > 0) {
+          extProgrammes = filtered;
+        }
+      }
+    } catch (e) {
+      console.warn("[authMeHandler] practical filter failed:", e.message);
+    }
   }
   const extEnrollment = universityStudent
     ? (extProgrammes[0]?.enrollmentNumber || null)
@@ -778,6 +802,33 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
       })
     : null;
 
+  let refreshedProgrammes = mergeProgrammes(
+    Array.isArray(result?.data?.enrollmentnumberprogrammenamelist) ? result.data.enrollmentnumberprogrammenamelist : [],
+    purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
+  );
+  if (ctx.tenant && refreshedProgrammes.length) {
+    try {
+      const practical = await lmsProgrammeService.getPracticalAvailable({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+      });
+      const practicalList = practical?.programList || practical?.programmeList || [];
+      if (Array.isArray(practicalList) && practicalList.length > 0) {
+        const filtered = refreshedProgrammes.filter((prog) =>
+          practicalList.some(
+            (p) =>
+              programmeMatches(prog, p.programId || p.programmeId) ||
+              programmeMatches(prog, p.programName || p.programmeName) ||
+              programmeMatches(prog, p.programCode || p.programmeCode)
+          )
+        );
+        if (filtered.length > 0) {
+          refreshedProgrammes = filtered;
+        }
+      }
+    } catch (e) {}
+  }
+
   return ok({
     success: true,
     profileStatus: result?.profileStatus || "LMS_PROFILE_UNAVAILABLE",
@@ -785,10 +836,7 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
       ? "LMS profile refreshed and cache updated successfully."
       : "LMS data is temporarily unavailable.",
     profile: result?.data || null,
-    programmes: mergeProgrammes(
-      Array.isArray(result?.data?.enrollmentnumberprogrammenamelist) ? result.data.enrollmentnumberprogrammenamelist : [],
-      purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
-    ),
+    programmes: refreshedProgrammes,
   });
 };
 
@@ -819,9 +867,32 @@ export const studentPurchasedProgrammesHandler = async ({ auth, body = {} }) => 
   }
 
   const owned = await loadOwnedProgrammes(ctx);
-  const programmeList = (owned.programmes && owned.programmes.length > 0)
+  let programmeList = (owned.programmes && owned.programmes.length > 0)
     ? owned.programmes
     : (purchased?.programmeList || purchased?.programList || []);
+
+  if (ctx.tenant && programmeList.length) {
+    try {
+      const practical = await lmsProgrammeService.getPracticalAvailable({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+      });
+      const practicalList = practical?.programList || practical?.programmeList || [];
+      if (Array.isArray(practicalList) && practicalList.length > 0) {
+        const filtered = programmeList.filter((prog) =>
+          practicalList.some(
+            (p) =>
+              programmeMatches(prog, p.programId || p.programmeId) ||
+              programmeMatches(prog, p.programName || p.programmeName) ||
+              programmeMatches(prog, p.programCode || p.programmeCode)
+          )
+        );
+        if (filtered.length > 0) {
+          programmeList = filtered;
+        }
+      }
+    } catch (e) {}
+  }
 
   const semesterList = purchased?.semesterList || [];
 
@@ -971,10 +1042,33 @@ export const studentAcademicProgressHandler = async ({ auth, queryStringParamete
         studentId: ctx.studentId,
       })
     : null;
-  const programmes = mergeProgrammes(
+  let programmes = mergeProgrammes(
     Array.isArray(profile?.enrollmentnumberprogrammenamelist) ? profile.enrollmentnumberprogrammenamelist : [],
     purchased?.lmsStatus === "LIVE" ? (purchased.rawData || purchased) : null
   );
+
+  if (ctx.tenant && programmes.length) {
+    try {
+      const practical = await lmsProgrammeService.getPracticalAvailable({
+        tenantId: ctx.tenant.TenantId,
+        provider: ctx.provider,
+      });
+      const practicalList = practical?.programList || practical?.programmeList || [];
+      if (Array.isArray(practicalList) && practicalList.length > 0) {
+        const filtered = programmes.filter((prog) =>
+          practicalList.some(
+            (p) =>
+              programmeMatches(prog, p.programId || p.programmeId) ||
+              programmeMatches(prog, p.programName || p.programmeName) ||
+              programmeMatches(prog, p.programCode || p.programmeCode)
+          )
+        );
+        if (filtered.length > 0) {
+          programmes = filtered;
+        }
+      }
+    } catch (e) {}
+  }
 
   const progress = await lmsAcademicProgressService.getProgress({
     tenantId: ctx.tenant.TenantId,

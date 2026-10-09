@@ -129,11 +129,38 @@ export const useAuthStore = create<AuthState>()((set) => {
       setUser: (user) =>
         set((state) => {
           if (user) {
-            const u = { credits: 1000, ...user };
-            if (typeof window !== 'undefined') localStorage.setItem('auth-user', JSON.stringify(u));
-            return { ...state, auth: { ...state.auth, user: u } };
+            const prevUser = state.auth.user;
+            const userChanged = prevUser && (
+              String(prevUser.userId) !== String(user.userId) ||
+              String(prevUser.email || '').toLowerCase() !== String(user.email || '').toLowerCase()
+            );
+
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.removeItem('vlab_student_transactions');
+                if (userChanged) {
+                  const oldKey = prevUser.userId || prevUser.id || prevUser.email;
+                  if (oldKey) {
+                    localStorage.removeItem(`vlab_student_transactions_${String(oldKey).trim().toLowerCase()}`);
+                    localStorage.removeItem(`ignito_student_lab_history_${String(oldKey).trim().toLowerCase()}`);
+                    localStorage.removeItem(`ignito_student_lab_credit_usage_${String(oldKey).trim().toLowerCase()}`);
+                  }
+                  if (prevUser.email) {
+                    localStorage.removeItem(`ignito_student_lab_history_${String(prevUser.email).trim().toLowerCase()}`);
+                  }
+                }
+                localStorage.setItem('auth-user', JSON.stringify(user));
+              } catch (_) {}
+            }
+
+            return { ...state, auth: { ...state.auth, user } };
           } else {
-            if (typeof window !== 'undefined') localStorage.removeItem('auth-user');
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.removeItem('auth-user');
+                localStorage.removeItem('vlab_student_transactions');
+              } catch (_) {}
+            }
             return { ...state, auth: { ...state.auth, user: null } };
           }
         }),
@@ -184,7 +211,21 @@ export const useAuthStore = create<AuthState>()((set) => {
           writeToken(ACCESS_TOKEN, ACCESS_TOKEN_STORAGE, '')
           writeToken(REFRESH_TOKEN, REFRESH_TOKEN_STORAGE, '')
           writeToken(LMS_TOKEN, LMS_TOKEN_STORAGE, '')
-          if (typeof window !== 'undefined') localStorage.removeItem('auth-user');
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.removeItem('auth-user');
+              localStorage.removeItem('vlab_student_transactions');
+              localStorage.removeItem('ignito_student_lab_credit_usage');
+              const u = state.auth.user;
+              const uKey = u?.userId || u?.id || u?.email;
+              if (uKey) {
+                localStorage.removeItem(`ignito_student_lab_history_${String(uKey).trim().toLowerCase()}`);
+              }
+              if (u?.email) {
+                localStorage.removeItem(`ignito_student_lab_history_${String(u.email).trim().toLowerCase()}`);
+              }
+            } catch (_) {}
+          }
           return {
             ...state,
             auth: { ...state.auth, user: null, accessToken: '', refreshToken: '', lmsToken: '' },

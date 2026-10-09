@@ -108,12 +108,12 @@ export function MonthlyActivityChart({}: MonthlyActivityChartProps) {
       monthMap[currentMonthKey]['Tokens Added'] = Math.max(monthMap[currentMonthKey]['Tokens Added'], summary.totalPurchased);
     }
 
-    // Determine active labs with usage > 0 (or default top 2 if zero usage)
+    // Determine active labs with usage > 0
     const usedLabs = dynamicLabList.filter((l) => {
       return monthNames.some((m) => (monthMap[m][l.name] || 0) > 0);
     });
 
-    const activeLabConfig = usedLabs.length > 0 ? usedLabs : dynamicLabList.slice(0, 2);
+    const activeLabConfig = usedLabs;
 
     const chartData = monthNames.map((m) => ({
       name: m,

@@ -84,9 +84,10 @@ export function CreditWalletSummary() {
               const cCode = String(c.courseCode || c.code || c.subjectCode || '').trim();
               const cName = c.courseName || c.name || c.subjectName || cCode;
               const mapped = c.mappedLab || (c.labId ? { labId: c.labId, title: c.labTitle } : null);
-              const practical = Number(c.practicalCredit || mapped?.practicalCredit || c.credits || 60);
               const rawLabId = String(mapped?.labId || c.labId || '').toLowerCase().trim();
               const cleanId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+              const defaultCred = (cleanId.includes('dbms') || cCode.includes('4031')) ? 90 : ((cleanId.includes('dotnet') || cCode.includes('4011')) ? 80 : 60);
+              const practical = Number(c.practicalCredit || mapped?.practicalCredit || mapped?.tokens || mapped?.credits || c.credits || defaultCred);
 
               let labTitle = mapped?.title || c.labTitle;
               if (!labTitle) {
@@ -172,12 +173,8 @@ export function CreditWalletSummary() {
         return wId === item.labId;
       });
       const used = matchedWallet ? Number(matchedWallet.usedTokens || 0) : 0;
-      const allocated = matchedWallet && Number(matchedWallet.purchasedTokens || 0) > Number(item.allocatedTokens || 0)
-        ? Number(matchedWallet.purchasedTokens)
-        : Number(item.allocatedTokens || 60);
-      const remaining = matchedWallet
-        ? Number(matchedWallet.remainingTokens ?? Math.max(0, allocated - used))
-        : allocated;
+      const allocated = Math.max(Number(item.allocatedTokens || 0), Number(matchedWallet?.purchasedTokens || 0)) || 80;
+      const remaining = Math.max(0, allocated - used);
 
       return {
         ...item,
@@ -247,12 +244,12 @@ export function CreditWalletSummary() {
       }
       return 180;
     }
-    if (summary && typeof summary.totalPurchased === 'number' && summary.totalPurchased > 0) {
+    if (summary && typeof summary.totalPurchased === 'number') {
       return summary.totalPurchased;
     }
     return successfulTransactions
       .filter((t) => t.type === 'Credit' || (t.type as string) === 'Token' || !t.type)
-      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0) || 120;
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   }, [isUniversity, universityAllocations, summary, successfulTransactions]);
 
   // Real Tokens Consumed from live summary or practice records

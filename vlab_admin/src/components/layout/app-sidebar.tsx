@@ -15,6 +15,7 @@ import { NavGroup } from './nav-group'
 import { NavUser } from './nav-user'
 
 import { isDirectStudent, isUniversityStudent } from '@/lib/student-kind'
+import { getPracticalAvailablePrograms, isPracticalAvailableProgram } from '@/Utils/lmsApi_paths'
 
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
@@ -29,14 +30,67 @@ export function AppSidebar() {
       return
     }
 
-    const userProgs = (auth.user as any)?.programmesList || (auth.user as any)?.academic?.programmesList || []
-    setLmsPrograms(userProgs.map((prog: any) => ({
-      ...prog,
-      programId: prog.programId || prog.programmeId || '',
-      programName: prog.programName || prog.programmeName || prog.programmeNameAndCode,
-      semesters: prog.semesters || [],
-      currentSemester: prog.currentSemester,
-    })))
+    let isMounted = true
+
+    getPracticalAvailablePrograms()
+      .then((res: any) => {
+        if (!isMounted) return
+        const practicalList = res?.programList || res?.programmeList || res?.rawData?.programList || (Array.isArray(res) ? res : [])
+        const userProgs = (auth.user as any)?.programmesList || (auth.user as any)?.academic?.programmesList || []
+
+        let filteredProgs: any[] = []
+        if (Array.isArray(practicalList) && practicalList.length > 0) {
+          filteredProgs = userProgs.filter((prog: any) => isPracticalAvailableProgram(prog, practicalList))
+          if (filteredProgs.length === 0) {
+            filteredProgs = practicalList
+          }
+        } else {
+          filteredProgs = userProgs
+        }
+
+        const mapped = filteredProgs.map((prog: any) => {
+          const matchedPrac = Array.isArray(practicalList) ? practicalList.find((prac: any) => isPracticalAvailableProgram(prog, [prac])) : null
+          const totalSems = Number(prog.totalSemesters || matchedPrac?.totalSemesters || 0)
+          const fallbackSemesters = totalSems > 0
+            ? Array.from({ length: totalSems }, (_, i) => ({ semesterNumber: i + 1 }))
+            : (prog.currentSemester != null && prog.currentSemester !== '' ? [{ semesterNumber: prog.currentSemester }] : [{ semesterNumber: 1 }])
+
+          return {
+            ...prog,
+            ...matchedPrac,
+            programId: prog.programId || prog.programmeId || matchedPrac?.programId || matchedPrac?.programmeId || '',
+            programName: prog.programName || prog.programmeName || prog.programmeNameAndCode || matchedPrac?.programName || matchedPrac?.programmeName || 'Degree Program',
+            semesters: (prog.semesters && Array.isArray(prog.semesters) && prog.semesters.length > 0) ? prog.semesters : fallbackSemesters,
+            currentSemester: prog.currentSemester || matchedPrac?.currentSemester || 1,
+            totalSemesters: totalSems || 4,
+          }
+        })
+
+        setLmsPrograms(mapped)
+
+        if (userProgs.length > filteredProgs.length && filteredProgs.length > 0 && auth.user) {
+          useAuthStore.getState().auth.setUser({
+            ...auth.user,
+            programmesList: mapped,
+          } as any)
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load practical available programs in sidebar:', err)
+        if (!isMounted) return
+        const userProgs = (auth.user as any)?.programmesList || (auth.user as any)?.academic?.programmesList || []
+        setLmsPrograms(userProgs.map((prog: any) => ({
+          ...prog,
+          programId: prog.programId || prog.programmeId || '',
+          programName: prog.programName || prog.programmeName || prog.programmeNameAndCode,
+          semesters: prog.semesters || [],
+          currentSemester: prog.currentSemester,
+        })))
+      })
+
+    return () => {
+      isMounted = false
+    }
   }, [auth.user, location.pathname])
 
   const isStudentRoute = location.pathname.startsWith('/student')

@@ -329,7 +329,13 @@ class UserRepository {
       );
 
       // Clear credit transactions & wallets
-      await conn.query("DELETE FROM credit_transactions WHERE UserId = ?", [userId]);
+      await conn.query(
+        `DELETE FROM credit_transactions 
+         WHERE UserId = ?
+            OR (? IS NOT NULL AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.userEmail'))) = LOWER(?))
+            OR (? IS NOT NULL AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.studentEmail'))) = LOWER(?))`,
+        [userId, email, email, email, email]
+      );
       await conn.query("DELETE FROM credit_wallets WHERE UserId = ?", [userId]);
       await conn.query("DELETE FROM studentcreditwallets WHERE UserId = ?", [userId]);
 
@@ -337,7 +343,12 @@ class UserRepository {
       await conn.query("DELETE FROM lab_sessions WHERE UserId = ?", [userId]);
 
       // Clear user lab workspaces
-      await conn.query("DELETE FROM user_lab_workspaces WHERE userId = ?", [uIdStr]);
+      await conn.query(
+        `DELETE FROM user_lab_workspaces 
+         WHERE userId = ? 
+            OR (? IS NOT NULL AND LOWER(userId) = LOWER(?))`,
+        [uIdStr, email, email]
+      );
 
       // Clear tenant mappings
       await conn.query("DELETE FROM user_tenant_mapping WHERE UserId = ?", [userId]);
@@ -352,8 +363,9 @@ class UserRepository {
       await conn.query(
         `DELETE FROM external_identities 
          WHERE UserId = ? 
-            OR (? IS NOT NULL AND ExternalStudentId = ?)`,
-        [userId, extId, extId]
+            OR (? IS NOT NULL AND ExternalStudentId = ?)
+            OR (? IS NOT NULL AND LOWER(ExternalEmail) = LOWER(?))`,
+        [userId, extId, extId, email, email]
       );
 
       // Clear student audits

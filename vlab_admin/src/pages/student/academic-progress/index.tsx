@@ -3,7 +3,7 @@ import { Header } from '@/components/layout/header';
 import { Main } from '@/components/layout/main';
 import { dashboardData } from '@/pages/student/dashboard/data';
 import { useAuthStore } from '@/stores/auth-store';
-import { loadStudentPortalData, mergeStudentPortalUser } from '@/Utils/lmsApi_paths';
+import { loadStudentPortalData, mergeStudentPortalUser, getPracticalAvailablePrograms, isPracticalAvailableProgram } from '@/Utils/lmsApi_paths';
 import { GraduationCap, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -70,6 +70,16 @@ export default function AcademicProgress() {
   const u = (auth.user || {}) as any;
   const [selectedProgramIndex, setSelectedProgramIndex] = useState(0);
   const [progressPayload, setProgressPayload] = useState<any>(null);
+  const [practicalProgramsList, setPracticalProgramsList] = useState<any[]>([]);
+
+  useEffect(() => {
+    getPracticalAvailablePrograms()
+      .then((res: any) => {
+        const list = res?.programList || res?.programmeList || res?.rawData?.programList || (Array.isArray(res) ? res : []);
+        setPracticalProgramsList(list);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const studentId = u.studentId || u.studentDegreeAdmissionId || u.externalStudentId;
@@ -79,9 +89,18 @@ export default function AcademicProgress() {
         const merged = mergeStudentPortalUser(current, payload);
         useAuthStore.getState().auth.setUser(merged);
         const progress = payload.progress || {};
+        const practicalList = payload.practicalPrograms?.programList || payload.practicalPrograms?.programmeList || [];
+        if (Array.isArray(practicalList) && practicalList.length > 0) {
+          setPracticalProgramsList(practicalList);
+        }
+        let progs = (progress.programmes && progress.programmes.length > 0) ? progress.programmes : (merged.programmesList || []);
+        if (Array.isArray(practicalList) && practicalList.length > 0) {
+          const filtered = progs.filter((p: any) => isPracticalAvailableProgram(p, practicalList));
+          if (filtered.length > 0) progs = filtered;
+        }
         setProgressPayload({
           ...progress,
-          programmes: (progress.programmes && progress.programmes.length > 0) ? progress.programmes : (merged.programmesList || []),
+          programmes: progs,
           academicProgress: progress.academicProgress || merged.academicProgress || {},
           progressStatus: progress.progressStatus || merged.profileStatus || 'LMS_PROFILE_UNAVAILABLE',
         });
@@ -90,11 +109,20 @@ export default function AcademicProgress() {
   }, []);
 
   const academicProgress = progressPayload?.academicProgress || {};
-  const rawProgrammes = (progressPayload?.programmes && progressPayload.programmes.length > 0)
+  let rawProgrammes = (progressPayload?.programmes && progressPayload.programmes.length > 0)
     ? progressPayload.programmes
     : ((u.programmesList && Array.isArray(u.programmesList) && u.programmesList.length > 0)
         ? u.programmesList
         : []);
+
+  if (Array.isArray(practicalProgramsList) && practicalProgramsList.length > 0) {
+    const filtered = rawProgrammes.filter((prog: any) => isPracticalAvailableProgram(prog, practicalProgramsList));
+    if (filtered.length > 0) {
+      rawProgrammes = filtered;
+    } else {
+      rawProgrammes = practicalProgramsList;
+    }
+  }
 
   const helperGetShortName = (name: string) => {
     if (!name) return 'Program';

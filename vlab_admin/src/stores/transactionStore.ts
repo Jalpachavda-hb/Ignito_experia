@@ -101,15 +101,31 @@ function isTokenCutOrUsage(t: any): boolean {
   );
 }
 
-function getSavedTransactions(): TransactionRecord[] {
+function getStorageKey(user?: any): string {
+  const u = user || (typeof window !== 'undefined' ? (() => {
+    try {
+      const raw = localStorage.getItem('auth-user');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  })() : null);
+  const identifier = u?.userId || u?.id || u?.email;
+  return identifier ? `vlab_student_transactions_${String(identifier).trim().toLowerCase()}` : '';
+}
+
+function getSavedTransactions(user?: any): TransactionRecord[] {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem('vlab_student_transactions');
+    // Purge legacy global key so stale transactions from deleted accounts are never retained
+    localStorage.removeItem('vlab_student_transactions');
+
+    const key = getStorageKey(user);
+    if (!key) return [];
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed: TransactionRecord[] = JSON.parse(raw);
     const cleaned = parsed.filter((t) => !isTokenCutOrUsage(t));
     if (cleaned.length !== parsed.length) {
-      localStorage.setItem('vlab_student_transactions', JSON.stringify(cleaned));
+      localStorage.setItem(key, JSON.stringify(cleaned));
     }
     return cleaned;
   } catch (e) {
@@ -117,11 +133,14 @@ function getSavedTransactions(): TransactionRecord[] {
   }
 }
 
-function saveTransactions(txs: TransactionRecord[]) {
+function saveTransactions(txs: TransactionRecord[], user?: any) {
   if (typeof window === 'undefined') return;
   try {
+    localStorage.removeItem('vlab_student_transactions');
+    const key = getStorageKey(user);
+    if (!key) return;
     const cleaned = (txs || []).filter((t) => !isTokenCutOrUsage(t));
-    localStorage.setItem('vlab_student_transactions', JSON.stringify(cleaned));
+    localStorage.setItem(key, JSON.stringify(cleaned));
   } catch (e) {}
 }
 
@@ -132,9 +151,9 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
   fetchTransactions: async () => {
     set({ isLoading: true });
     try {
+      const currentUser = useAuthStore.getState()?.auth?.user;
       const res = await executeRequest('/credits/transactions', { auth: true });
       const rawList = res?.transactions || res?.data || [];
-      const currentUser = useAuthStore.getState()?.auth?.user;
       
       // Exclude runtime token deductions completely
       const purchaseList = (rawList || []).filter((t: any) => !isTokenCutOrUsage(t));
@@ -166,21 +185,30 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       }));
 
       const mergedMap = new Map<string, TransactionRecord>();
-      // First insert newly fetched transactions
+      // First insert newly fetched transactions from server (server is source of truth)
       formatted.forEach((t) => mergedMap.set(String(t.id || t.razorpayPaymentId), t));
-      // Then merge any existing local transactions so freshly made purchases are preserved, excluding usage
+
+      // Only retain in-memory unconfirmed transactions created locally within the last 5 minutes
+      // that explicitly match the current logged-in student's email
+      const currentEmail = currentUser?.email?.toLowerCase();
+      const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
       get().transactions.forEach((t) => {
         if (!isTokenCutOrUsage(t)) {
-          const key = String(t.id || t.razorpayPaymentId);
-          if (!mergedMap.has(key)) {
-            mergedMap.set(key, t);
+          const isSameStudent = Boolean(currentEmail && t.studentEmail && t.studentEmail.toLowerCase() === currentEmail);
+          const isRecent = t.date ? (new Date(t.date).getTime() > fiveMinutesAgo) : false;
+          if (isSameStudent && isRecent) {
+            const key = String(t.id || t.razorpayPaymentId);
+            if (!mergedMap.has(key)) {
+              mergedMap.set(key, t);
+            }
           }
         }
       });
+
       const finalTransactions = Array.from(mergedMap.values()).sort(
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
       );
-      saveTransactions(finalTransactions);
+      saveTransactions(finalTransactions, currentUser);
       set({ transactions: finalTransactions, isLoading: false });
       return;
     } catch (e) {
@@ -194,6 +222,7 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       return;
     }
 
+    const currentUser = useAuthStore.getState()?.auth?.user;
     const newTx: TransactionRecord = {
       id: tx.id || `TXN-${Math.floor(100000 + Math.random() * 900000)}`,
       date: tx.date || new Date().toISOString(),
@@ -204,9 +233,9 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
       amount: tx.amount,
       amountRupees: tx.amountRupees ?? tx.amount,
       paymentMethod: tx.paymentMethod || 'Razorpay',
-      studentEmail: tx.studentEmail || '',
+      studentEmail: tx.studentEmail || currentUser?.email || '',
       studentPhone: tx.studentPhone || '',
-      studentName: tx.studentName || 'Student User',
+      studentName: tx.studentName || currentUser?.fullName || 'Student User',
       status: tx.status || 'Completed',
       razorpayPaymentId: tx.razorpayPaymentId,
     };
@@ -216,13 +245,20 @@ export const useTransactionStore = create<TransactionState>((set, get) => ({
         (t) => !isTokenCutOrUsage(t) && t.id !== newTx.id && (!newTx.razorpayPaymentId || t.razorpayPaymentId !== newTx.razorpayPaymentId)
       );
       const updated = [newTx, ...filtered];
-      saveTransactions(updated);
+      saveTransactions(updated, currentUser);
       return { transactions: updated };
     });
   },
 
   clearTransactions: () => {
-    saveTransactions([]);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('vlab_student_transactions');
+        const currentUser = useAuthStore.getState()?.auth?.user;
+        const key = getStorageKey(currentUser);
+        if (key) localStorage.removeItem(key);
+      } catch (_) {}
+    }
     set(() => ({ transactions: [] }));
   },
 }));

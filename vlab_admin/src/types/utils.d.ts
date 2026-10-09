@@ -49,6 +49,9 @@ declare module '*PostApiHandler' {
   export const getSemesterCourseListByProgrammeId: any;
   export const getCoursesBySemesterId: any;
   export const getPracticalAvailablePrograms: any;
+  export const isPracticalAvailableProgram: any;
+  export const loadStudentPortalData: any;
+  export const mergeStudentPortalUser: any;
 }
 
 declare module '*lmsApi_paths' {
@@ -58,4 +61,7 @@ declare module '*lmsApi_paths' {
   export const getSemesterCourseListByProgrammeId: any;
   export const getCoursesBySemesterId: any;
   export const getPracticalAvailablePrograms: any;
+  export const isPracticalAvailableProgram: any;
+  export const loadStudentPortalData: any;
+  export const mergeStudentPortalUser: any;
 }

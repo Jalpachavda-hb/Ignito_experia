@@ -95,9 +95,30 @@ function isUniversityAccount(user) {
   return auth === 'LMS' || auth === 'LMS_AND_DIRECT' || created === 'LMS' || user.isLmsStudent === true || Boolean(user.studentDegreeAdmissionId) || Boolean(user.externalStudentId) || Boolean(user.studentId);
 }
 
+export function isPracticalAvailableProgram(program, practicalList) {
+  if (!program || !Array.isArray(practicalList) || practicalList.length === 0) return false;
+  const pId = String(program.programId ?? program.programmeId ?? '').trim().toLowerCase();
+  const pCode = String(program.programCode ?? program.programmeCode ?? '').trim().toLowerCase();
+  const pName = String(program.programName ?? program.programmeName ?? program.programmeNameAndCode ?? '').trim().toLowerCase();
+
+  return practicalList.some((prac) => {
+    const pracId = String(prac?.programId ?? prac?.programmeId ?? '').trim().toLowerCase();
+    const pracCode = String(prac?.programCode ?? prac?.programmeCode ?? '').trim().toLowerCase();
+    const pracName = String(prac?.programName ?? prac?.programmeName ?? prac?.programmeNameAndCode ?? '').trim().toLowerCase();
+
+    if (pId && pracId && pId === pracId) return true;
+    if (pCode && pracCode && pCode === pracCode) return true;
+    if (pName && pracName) {
+      if (pName === pracName) return true;
+      if (pName.includes(pracName) || pracName.includes(pName)) return true;
+    }
+    return false;
+  });
+}
+
 /**
  * After SSO, load the Experia profile, purchased programmes (by student id),
- * and academic progress, then merge them into the signed-in user.
+ * practical available programs, and academic progress, then merge them into the signed-in user.
  */
 export async function loadStudentPortalData(studentId) {
   const profile = await getStudentProfile(studentId);
@@ -112,16 +133,23 @@ export async function loadStudentPortalData(studentId) {
 
   let programmes = null;
   let progress = null;
+  let practicalPrograms = null;
   if (isUniversityAccount(apiUser) || resolvedId) {
-    const [programmesResult, progressResult] = await Promise.allSettled([
+    const [programmesResult, progressResult, practicalResult] = await Promise.allSettled([
       getStudentPurchasedProgrammes(resolvedId),
       getStudentAcademicProgress(resolvedId),
+      getPracticalAvailablePrograms(),
     ]);
     programmes = programmesResult.status === 'fulfilled' ? programmesResult.value : null;
     progress = progressResult.status === 'fulfilled' ? progressResult.value : null;
+    practicalPrograms = practicalResult.status === 'fulfilled' ? practicalResult.value : null;
+  } else {
+    try {
+      practicalPrograms = await getPracticalAvailablePrograms();
+    } catch {}
   }
 
-  return { profile, programmes, progress };
+  return { profile, programmes, progress, practicalPrograms };
 }
 
 export function mergeStudentPortalUser(currentUser, payload) {
@@ -130,14 +158,43 @@ export function mergeStudentPortalUser(currentUser, payload) {
   const profile = profileRes.profile || {};
   const purchased = payload?.programmes || {};
   const progress = payload?.progress || {};
+  const practicalRes = payload?.practicalPrograms || {};
+  const practicalList = practicalRes?.programList || practicalRes?.programmeList || practicalRes?.rawData?.programList || (Array.isArray(practicalRes) ? practicalRes : []);
+
   const purchasedList = purchased.programmeList || purchased.programList || [];
   const progressList = progress.programmes || [];
   const profileList = (apiUser.programmesList && apiUser.programmesList.length)
     ? apiUser.programmesList
     : (profileRes.programmes || []);
-  const programmes = purchasedList.length
+  let programmes = purchasedList.length
     ? purchasedList
     : (progressList.length ? progressList : (profileList.length ? profileList : (currentUser?.programmesList || [])));
+
+  if (Array.isArray(practicalList) && practicalList.length > 0) {
+    const filtered = programmes.filter(p => isPracticalAvailableProgram(p, practicalList));
+    if (filtered.length > 0) {
+      programmes = filtered.map(p => {
+        const matched = practicalList.find(prac => isPracticalAvailableProgram(p, [prac]));
+        return {
+          ...p,
+          totalSemesters: p.totalSemesters || matched?.totalSemesters,
+          isPracticalAvailable: true,
+        };
+      });
+    } else {
+      programmes = practicalList.map(p => ({
+        ...p,
+        programId: p.programId || p.programmeId,
+        programmeId: p.programId || p.programmeId,
+        programName: p.programName || p.programmeName,
+        programmeName: p.programName || p.programmeName,
+        currentSemester: p.currentSemester || 1,
+        semesters: p.semesters || (p.totalSemesters ? Array.from({ length: Number(p.totalSemesters) || 1 }, (_, i) => ({ semesterNumber: i + 1 })) : [{ semesterNumber: 1 }]),
+        isPracticalAvailable: true,
+      }));
+    }
+  }
+
   const primary = programmes[0] || {};
   const academicProgress = {
     ...(currentUser?.academicProgress || {}),

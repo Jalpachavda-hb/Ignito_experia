@@ -71,28 +71,43 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
             tenantId: ctx.tenant.TenantId,
             provider: ctx.provider,
             programmeId: pId,
-            semester: prog.currentSemester || null,
+            semester: null,
             externalStudentId: ctx.externalStudentId
           }).catch(() => null);
 
           const courses = courseRes?.courseList || [];
           for (const course of courses) {
             const mappedLabObj = course.mappedLab || (course.labId ? { labId: course.labId, title: course.labTitle } : null);
-            const rawLabId = String(mappedLabObj?.labId || mappedLabObj?.LabId || course.labId || '').toLowerCase().trim();
-            const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+            let rawLabId = String(mappedLabObj?.labId || mappedLabObj?.LabId || course.labId || '').toLowerCase().trim();
+            let cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
 
             const codeStr = String(course.courseCode || course.code || '').toUpperCase();
-            const defaultCredit = (cleanLabId.includes('dbms') || codeStr.includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || codeStr.includes('4011')) ? 70 : 60);
+            const courseNameLower = String(course.courseName || course.name || '').toLowerCase();
+
+            if (!cleanLabId) {
+              if (codeStr.includes('4031') || courseNameLower.includes('database') || courseNameLower.includes('dbms') || courseNameLower.includes('sql')) {
+                cleanLabId = 'dbms';
+              } else if (codeStr.includes('4011') || courseNameLower.includes('programming with c') || courseNameLower.includes('dotnet') || courseNameLower.includes('.net')) {
+                cleanLabId = 'dotnet';
+              } else if (courseNameLower.includes('python')) {
+                cleanLabId = 'python';
+              } else if (courseNameLower.includes('java')) {
+                cleanLabId = 'java';
+              }
+            }
+
+            const defaultCredit = (cleanLabId.includes('dbms') || codeStr.includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || codeStr.includes('4011')) ? 80 : 60);
             const practicalCredit = Number(
               course.practicalCredit ||
               mappedLabObj?.practicalCredit ||
               mappedLabObj?.tokens ||
+              mappedLabObj?.credits ||
               course.credits ||
               defaultCredit
             );
 
             if (cleanLabId) {
-              const labTitle = mappedLabObj?.title || course.mappedLab?.title || `${cleanLabId.toUpperCase()} Lab`;
+              const labTitle = mappedLabObj?.title || course.mappedLab?.title || (cleanLabId === 'dbms' ? 'Relational Database Management Systems' : (cleanLabId === 'dotnet' ? 'Programming with C' : `${cleanLabId.toUpperCase()} Lab`));
               courseAllocations.push({
                 courseCode: course.courseCode || course.code,
                 courseName: course.courseName || course.name,
@@ -109,7 +124,7 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
       // If no allocations found from external LMS API, fallback to course_lab_mappings in database
       if (courseAllocations.length === 0) {
         const [dbMappings] = await pool.query(
-          `SELECT course_code, lab_id FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
+          `SELECT course_code, lab_id, practical_credit FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
           [tenantId || 'PLATFORM']
         ).catch(() => [[]]);
 
@@ -118,7 +133,8 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
           dbMappings.forEach((m) => {
             const cleanLabId = String(m.lab_id).toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
             let labTitle = `${cleanLabId.toUpperCase()} Lab`;
-            let practicalCredit = Number(m.practical_credit) || (cleanLabId.includes('dbms') ? 90 : (cleanLabId.includes('dotnet') ? 70 : 60));
+            const codeStr = String(m.course_code || '').toUpperCase();
+            let practicalCredit = Number(m.practical_credit) || ((cleanLabId.includes('dbms') || codeStr.includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || codeStr.includes('4011')) ? 80 : 60));
             if (cleanLabId.includes('dbms')) {
               labTitle = 'Relational Database Management Systems';
             } else if (cleanLabId.includes('dotnet')) {
@@ -345,7 +361,7 @@ export const studentLabSingleTokenBalanceHandler = async ({ pathParameters, auth
 
   if (isLmsStudent && remainingTokens <= 0 && usedTokens === 0) {
     const clean = String(labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-    const defaultTokens = clean.includes('dbms') ? 90 : (clean.includes('dotnet') ? 70 : 60);
+    const defaultTokens = clean.includes('dbms') ? 90 : (clean.includes('dotnet') ? 80 : 60);
     purchasedTokens = defaultTokens;
     remainingTokens = defaultTokens;
   }

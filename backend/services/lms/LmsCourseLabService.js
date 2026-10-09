@@ -27,7 +27,7 @@ class LmsCourseLabService {
 
     const params = [tenantId, tenantId, ...codes];
     let sql = `
-      SELECT program_id, semester_id, course_code, lab_id
+      SELECT program_id, semester_id, course_code, lab_id, practical_credit
       FROM course_lab_mappings
       WHERE (tenant_id = ? OR tenant_id = 'PLATFORM')
         AND status = 'active'
@@ -52,7 +52,7 @@ class LmsCourseLabService {
         // Fallback: match by course_code regardless of program_id or semester_id
         const fallbackParams = [tenantId, ...codes, tenantId];
         const fallbackSql = `
-          SELECT program_id, semester_id, course_code, lab_id
+          SELECT program_id, semester_id, course_code, lab_id, practical_credit
           FROM course_lab_mappings
           WHERE (tenant_id = ? OR tenant_id = 'PLATFORM')
             AND status = 'active'
@@ -129,13 +129,23 @@ class LmsCourseLabService {
         }
       }
 
-      const practicalCredit = (course?.practicalCredit != null && !isNaN(Number(course.practicalCredit)))
+      const codeUpper = String(code || "").toUpperCase();
+      const nameLower = String(course?.courseName || course?.name || course?.subjectName || "").toLowerCase();
+      const defaultCred = (codeUpper.includes("4031") || nameLower.includes("database") || nameLower.includes("dbms"))
+        ? 90
+        : ((codeUpper.includes("4011") || nameLower.includes("programming with c") || nameLower.includes("dotnet") || nameLower.includes(".net"))
+            ? 80
+            : 60);
+
+      const practicalCredit = (course?.practicalCredit != null && !isNaN(Number(course.practicalCredit)) && Number(course.practicalCredit) > 0)
         ? Number(course.practicalCredit)
-        : (course?.mappedLab?.practicalCredit != null && !isNaN(Number(course.mappedLab.practicalCredit))
-            ? Number(course.mappedLab.practicalCredit)
-            : (course?.mappedLab?.tokens != null && !isNaN(Number(course.mappedLab.tokens))
-                ? Number(course.mappedLab.tokens)
-                : 60));
+        : (mapped?.practical_credit != null && !isNaN(Number(mapped.practical_credit)) && Number(mapped.practical_credit) > 0
+            ? Number(mapped.practical_credit)
+            : (course?.mappedLab?.practicalCredit != null && !isNaN(Number(course.mappedLab.practicalCredit)) && Number(course.mappedLab.practicalCredit) > 0
+                ? Number(course.mappedLab.practicalCredit)
+                : (course?.mappedLab?.tokens != null && !isNaN(Number(course.mappedLab.tokens)) && Number(course.mappedLab.tokens) > 0
+                    ? Number(course.mappedLab.tokens)
+                    : defaultCred)));
 
       if (!mapped) return { ...course, practicalCredit, mappedLab: null };
 

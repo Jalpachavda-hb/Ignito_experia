@@ -1,10 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { TerminalSquare, CheckCircle2, ArrowDownRight, ArrowUpRight, Flame } from 'lucide-react';
 import { useTransactionStore } from '@/stores/transactionStore';
-import { useLabCreditUsageStore } from '@/stores/labCreditUsageStore';
 import { useLabTokenStore } from '@/stores/labTokenStore';
-import { getSavedLabActivities } from '@/Utils/labActivityTracker';
 import { useAuthStore } from '@/stores/auth-store';
 
 interface LabCreditHistoryProps {
@@ -14,7 +12,6 @@ interface LabCreditHistoryProps {
 export function LabCreditHistory({ }: LabCreditHistoryProps) {
   const { auth } = useAuthStore();
   const { transactions } = useTransactionStore();
-  const { usageRecords } = useLabCreditUsageStore();
   const { labWallets } = useLabTokenStore();
   const [activeTab, setActiveTab] = useState<'consumed' | 'purchased'>('consumed');
 
@@ -55,10 +52,9 @@ export function LabCreditHistory({ }: LabCreditHistoryProps) {
 
   const purchasedLabs = Object.values(labMap);
 
-  // Dynamic Lab Tokens Consumed (Lab-wise) from real live labWallets and usage records
+  // Dynamic Lab Tokens Consumed (Lab-wise) strictly from real live labWallets where usedTokens > 0
   const consumedLabs = useMemo(() => {
     const list: any[] = [];
-    const seen = new Set<string>();
 
     (labWallets || []).forEach(w => {
       const used = Number(w.usedTokens || 0);
@@ -73,7 +69,6 @@ export function LabCreditHistory({ }: LabCreditHistoryProps) {
         else if (cleanId.includes('dotnet')) labName = '.NET Technologies Lab';
         else labName = `${rawId.toUpperCase()} Lab`;
 
-        seen.add(cleanId);
         list.push({
           id: `wallet-${cleanId}`,
           labId: cleanId,
@@ -86,45 +81,16 @@ export function LabCreditHistory({ }: LabCreditHistoryProps) {
       }
     });
 
-    const studentUsages = (usageRecords || []).filter(u => {
-      return !currentStudentEmail || !u.studentEmail || u.studentEmail.toLowerCase() === currentStudentEmail;
-    });
-
-    studentUsages.forEach(u => {
-      const rawId = String(u.labId || u.id || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
-      if (!seen.has(rawId)) {
-        seen.add(rawId);
-        list.push(u);
-      }
-    });
-
-    if (currentStudentEmail) {
-      const savedActivities = getSavedLabActivities(currentStudentEmail);
-      savedActivities.forEach(act => {
-        const cleanId = String(act.id || act.labName || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-        if (!seen.has(cleanId)) {
-          const credits = Number(act.creditsUsed || 0);
-          if (credits > 0 || act.status === 'Completed') {
-            seen.add(cleanId);
-            list.push({
-              id: act.id,
-              labId: act.id,
-              labName: act.labName,
-              creditsConsumed: credits > 0 ? credits : 5,
-              minutesUsed: credits > 0 ? credits : 5,
-              date: act.lastAccessed || new Date().toISOString(),
-              studentEmail: currentStudentEmail,
-              status: 'Completed'
-            });
-          }
-        }
-      });
-    }
-
     return list;
-  }, [labWallets, usageRecords, currentStudentEmail]);
+  }, [labWallets]);
 
   const totalTokensConsumed = consumedLabs.reduce((sum, item) => sum + (Number(item.creditsConsumed) || 0), 0);
+
+  useEffect(() => {
+    if (consumedLabs.length === 0 && purchasedLabs.length > 0) {
+      setActiveTab('purchased');
+    }
+  }, [consumedLabs.length, purchasedLabs.length]);
 
   return (
     <Card className="border-border/50 shadow-sm h-full rounded-2xl flex flex-col">

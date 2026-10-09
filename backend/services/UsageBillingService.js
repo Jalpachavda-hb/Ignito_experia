@@ -32,11 +32,26 @@ class UsageBillingService {
         const startedMs = session.StartedAt ? new Date(session.StartedAt).getTime() : 0;
         const baseMs = Math.max(createdMs, startedMs);
         if (baseMs > 0 && (Date.now() - baseMs) >= 40000) {
+          const promoNow = new Date();
+          const sessionTokens = Number(session.AllocatedCredits || session.AllocatedDurationMinutes || 60);
+          const tokenExpiryAt = new Date(promoNow.getTime() + sessionTokens * 60 * 1000);
           await connection.query(
-            `UPDATE lab_sessions SET Status = 'RUNNING', UpdatedAt = CURRENT_TIMESTAMP WHERE SessionId = ?`,
-            [sessionId]
+            `UPDATE lab_sessions 
+             SET Status = 'RUNNING', 
+                 StartedAt = ?, 
+                 TokenExpiryAt = ?, 
+                 ExpiresAt = ?, 
+                 LastBilledAt = ?, 
+                 UnbilledSeconds = 0, 
+                 UpdatedAt = CURRENT_TIMESTAMP 
+             WHERE SessionId = ?`,
+            [promoNow, tokenExpiryAt, tokenExpiryAt, promoNow, sessionId]
           );
           session.Status = 'RUNNING';
+          session.StartedAt = promoNow;
+          session.LastBilledAt = promoNow;
+          session.BilledSeconds = 0;
+          session.UnbilledSeconds = 0;
         } else {
           await connection.rollback();
           connection.release();
@@ -335,13 +350,19 @@ class UsageBillingService {
       );
 
       const now = new Date();
-      const startedAt = session.StartedAt ? new Date(session.StartedAt) : now;
-      const actualElapsedSeconds = Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000));
+      const isRunningSession = ['RUNNING', 'EXPIRING_SOON'].includes(session.Status);
+      const startedAt = isRunningSession && session.StartedAt ? new Date(session.StartedAt) : null;
+      const actualElapsedSeconds = startedAt ? Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000)) : 0;
       const billedSeconds = Number(session.BilledSeconds || 0);
-      const unbilledSeconds = actualElapsedSeconds - billedSeconds;
+      const billedTokens = Number(session.BilledTokens || 0);
 
-      // Charge partial minute if at least 15 seconds used
-      const tokensToCharge = unbilledSeconds >= 15 ? Math.ceil(unbilledSeconds / 60) : Math.floor(unbilledSeconds / 60);
+      // 30-Second Rounding Rule:
+      // If student used >= 30 seconds into the current minute (down to 0.5m left in that minute), cut token for this minute.
+      // If student used < 30 seconds into the current minute (>= 0.5m left in that minute, e.g. at 77:50), do NOT cut token for this minute.
+      const fullMinutes = Math.floor(actualElapsedSeconds / 60);
+      const remainderSec = actualElapsedSeconds % 60;
+      const totalTokensToCharge = remainderSec >= 30 ? fullMinutes + 1 : fullMinutes;
+      const tokensToCharge = Math.max(0, totalTokensToCharge - billedTokens);
 
       const availableTokens = Number(wallet?.RemainingTokens || 0);
       const actualTokensToCharge = wallet ? Math.min(tokensToCharge, availableTokens) : 0;
@@ -420,6 +441,8 @@ class UsageBillingService {
       return {
         finalized: true,
         chargedTokens: actualTokensToCharge,
+        totalTokensCharged: Number(session.BilledTokens || 0) + actualTokensToCharge,
+        actualMinutesUsed: totalTokensToCharge,
         balanceBefore,
         balanceAfter
       };

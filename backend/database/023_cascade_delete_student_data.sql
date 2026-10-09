@@ -56,7 +56,11 @@ BEGIN
      OR (OLD.Email IS NOT NULL AND LOWER(`StudentId`) = LOWER(OLD.Email));
 
   -- E. Delete credit transactions & credit wallets
-  DELETE FROM `credit_transactions` WHERE `UserId` = OLD.UserId;
+  DELETE FROM `credit_transactions` 
+  WHERE `UserId` = OLD.UserId
+     OR (OLD.Email IS NOT NULL AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.userEmail'))) = LOWER(OLD.Email))
+     OR (OLD.Email IS NOT NULL AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(MetadataJson, '$.studentEmail'))) = LOWER(OLD.Email));
+
   DELETE FROM `credit_wallets` WHERE `UserId` = OLD.UserId;
   DELETE FROM `studentcreditwallets` WHERE `UserId` = OLD.UserId;
 
@@ -64,7 +68,9 @@ BEGIN
   DELETE FROM `lab_sessions` WHERE `UserId` = OLD.UserId;
 
   -- G. Delete persisted lab workspaces and files
-  DELETE FROM `user_lab_workspaces` WHERE `userId` = CAST(OLD.UserId AS CHAR);
+  DELETE FROM `user_lab_workspaces` 
+  WHERE `userId` = CAST(OLD.UserId AS CHAR)
+     OR (OLD.Email IS NOT NULL AND LOWER(`userId`) = LOWER(OLD.Email));
 
   -- H. Delete user tenant mappings
   DELETE FROM `user_tenant_mapping` WHERE `UserId` = OLD.UserId;
@@ -78,7 +84,8 @@ BEGIN
   -- J. Delete external identities
   DELETE FROM `external_identities` 
   WHERE `UserId` = OLD.UserId 
-     OR (OLD.ExternalStudentId IS NOT NULL AND `ExternalStudentId` = OLD.ExternalStudentId);
+     OR (OLD.ExternalStudentId IS NOT NULL AND `ExternalStudentId` = OLD.ExternalStudentId)
+     OR (OLD.Email IS NOT NULL AND LOWER(`ExternalEmail`) = LOWER(OLD.Email));
 
   -- K. Delete student audit logs
   DELETE FROM `studentaudits` WHERE `UserId` = OLD.UserId OR `ChangedByUserId` = OLD.UserId;

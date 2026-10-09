@@ -197,20 +197,24 @@ export default function MyLabs() {
                     );
                   });
 
-                  const defaultCred = cCode.includes('4031') ? 90 : (cCode.includes('4011') ? 70 : 60);
+                  const defaultCred = cCode.includes('4031') ? 90 : (cCode.includes('4011') ? 80 : 60);
                   const practicalCredit = Number(
                     c.practicalCredit ||
                     mappedLabObj.practicalCredit ||
                     mappedLabObj.tokens ||
+                    mappedLabObj.credits ||
                     c.credits ||
                     defaultCred
                   );
+                  const cleanMId = mId.toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
                   const matchedW = (labWallets || []).find((w) => {
                     const wId = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-                    return wId === mId.toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+                    return wId === cleanMId || wId === mId.toLowerCase();
                   });
-                  const walletRem = matchedW ? Number(matchedW.remainingTokens ?? (Number(matchedW.purchasedTokens || 0) - Number(matchedW.usedTokens || 0))) : practicalCredit;
-                  const finalTokens = walletRem > 0 ? walletRem : practicalCredit;
+                  const usedTokens = Number(matchedW?.usedTokens || 0);
+                  const purchasedTokens = Number(matchedW?.purchasedTokens || 0);
+                  const totalQuota = Math.max(practicalCredit, purchasedTokens);
+                  const finalTokens = Math.max(0, totalQuota - usedTokens);
 
                   if (labMatch) {
                     allMapped.push({
@@ -273,8 +277,17 @@ export default function MyLabs() {
                     const uniqueKey = `${autoMatch.id}-${cCode}`;
                     if (!seenLabKeys.has(uniqueKey)) {
                       seenLabKeys.add(uniqueKey);
-                      const defaultCred = cCode.includes('4031') ? 90 : (cCode.includes('4011') ? 70 : 60);
+                      const defaultCred = cCode.includes('4031') ? 90 : (cCode.includes('4011') ? 80 : 60);
                       const practicalCredit = Number(c.practicalCredit || c.credits || defaultCred);
+                      const cleanAId = String(autoMatch.id || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+                      const matchedW = (labWallets || []).find((w) => {
+                        const wId = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+                        return wId === cleanAId;
+                      });
+                      const usedTokens = Number(matchedW?.usedTokens || 0);
+                      const purchasedTokens = Number(matchedW?.purchasedTokens || 0);
+                      const totalQuota = Math.max(practicalCredit, purchasedTokens);
+                      const finalTokens = Math.max(0, totalQuota - usedTokens);
                       allMapped.push({
                         ...autoMatch,
                         title: cName,
@@ -282,8 +295,9 @@ export default function MyLabs() {
                         courseCode: cCode,
                         courseName: cName,
                         practicalCredit,
-                        remainingTokens: practicalCredit,
-                        tokens: practicalCredit,
+                        remainingTokens: finalTokens,
+                        tokens: finalTokens,
+                        availableTokens: finalTokens,
                         credits: practicalCredit,
                         image: autoMatch.image || autoMatch.logo || null,
                         logo: autoMatch.logo || autoMatch.image || null,
@@ -607,24 +621,38 @@ export default function MyLabs() {
       const lId = String(labItem.id || labItem.labId || labItem.LabId || '').toLowerCase().trim();
       const cleanLId = lId.replace(/^lab-/, '').replace(/-lab$/, '');
       const lTitle = String(labItem.title || labItem.name || '').toLowerCase().trim();
+      const cCode = String(labItem.courseCode || '').toUpperCase();
 
       // Find token info in labWallets
-     const walletMatch = (labWallets || []).find((w) => {
-  const wId = String(w.labId || '').toLowerCase().trim();
-  const cleanWId = wId.replace(/^lab-/, '').replace(/-lab$/, '');
+      const walletMatch = (labWallets || []).find((w) => {
+        const wId = String(w.labId || '').toLowerCase().trim();
+        const cleanWId = wId.replace(/^lab-/, '').replace(/-lab$/, '');
 
-  return (
-    wId === lId ||
-    cleanWId === cleanLId ||
-    (
-      lTitle &&
-      (lTitle.includes(cleanWId) || cleanWId.includes(lTitle))
-    )
-  );
-});
+        return (
+          wId === lId ||
+          cleanWId === cleanLId ||
+          (
+            lTitle &&
+            (lTitle.includes(cleanWId) || cleanWId.includes(lTitle))
+          )
+        );
+      });
+
+      const fallbackCred = (cleanLId.includes('dbms') || cCode.includes('4031')) ? 90 : ((cleanLId.includes('dotnet') || cCode.includes('4011')) ? 80 : 60);
+
+      const isUniversity = !isDirectUser && (
+        hasCourseFilter ||
+        Boolean(labItem.courseCode) ||
+        Boolean(labItem.courseName) ||
+        enrolledUniversityLabIds.has(lId) ||
+        enrolledUniversityLabIds.has(cleanLId) ||
+        enrolledUniversityLabIds.has(lTitle)
+      );
 
       const coursePracticalTokens = Number(
-        labItem.practicalCredit || 0
+        labItem.practicalCredit ||
+        labItem.credits ||
+        (isUniversity ? fallbackCred : 0)
       );
 
       const walletRemainingTokens = walletMatch
@@ -655,27 +683,20 @@ export default function MyLabs() {
         return isMatch ? sum + (Number(tx.amount) || 0) : sum;
       }, 0);
 
-      const isUniversity = !isDirectUser && (
-        hasCourseFilter ||
-        Boolean(labItem.courseCode) ||
-        Boolean(labItem.courseName) ||
-        enrolledUniversityLabIds.has(lId) ||
-        enrolledUniversityLabIds.has(cleanLId) ||
-        enrolledUniversityLabIds.has(lTitle)
-      );
-
-      const assignedUniTokens = coursePracticalTokens || Number(labItem.practicalCredit) || (isUniversity ? 60 : 0);
+      const assignedUniTokens = coursePracticalTokens || (isUniversity ? fallbackCred : 0);
       const usedTokens = Number(walletMatch?.usedTokens || 0);
+      const walletPurchased = Number(walletMatch?.purchasedTokens || 0);
 
       let effectiveRemainingTokens = 0;
-      if (walletMatch) {
-        effectiveRemainingTokens = walletRemainingTokens;
+      if (isUniversity) {
+        // University allocation is assigned once (e.g. 80 for C, 90 for DBMS).
+        // Total available quota is practicalCredit + extra purchased tokens.
+        const totalQuota = Math.max(assignedUniTokens, walletPurchased);
+        effectiveRemainingTokens = Math.max(0, totalQuota - usedTokens);
+      } else if (walletMatch) {
+        effectiveRemainingTokens = Number(walletMatch.remainingTokens ?? Math.max(0, walletPurchased - usedTokens));
       } else if (txCredits > 0) {
         effectiveRemainingTokens = Math.max(0, txCredits - usedTokens);
-      } else if (isUniversity) {
-        effectiveRemainingTokens = usedTokens > 0
-          ? Math.max(0, assignedUniTokens - usedTokens)
-          : assignedUniTokens;
       } else {
         const itemTokens = Number(labItem.remainingTokens ?? labItem.availableTokens ?? labItem.tokens ?? 0);
         effectiveRemainingTokens = Math.max(0, itemTokens - usedTokens);
@@ -722,7 +743,15 @@ export default function MyLabs() {
       (semesterCourses || []).forEach((c: any, idx: number) => {
         const cCode = String(c.courseCode || c.code || c.subjectCode || `CRS-${idx + 1}`);
         const cName = c.courseName || c.name || c.subjectName || `Course ${cCode}`;
-        const practicalCredit = Number(c.practicalCredit || c.credits || 60);
+        const defaultCred = cCode.includes('4031') ? 90 : (cCode.includes('4011') ? 80 : 60);
+        const practicalCredit = Number(
+          c.practicalCredit ||
+          c.mappedLab?.practicalCredit ||
+          c.mappedLab?.tokens ||
+          c.mappedLab?.credits ||
+          c.credits ||
+          defaultCred
+        );
         const mappedLabObj = c.mappedLab || (c.labId ? { labId: c.labId, title: c.labTitle } : null);
 
         if (mappedLabObj && (mappedLabObj.labId || mappedLabObj.LabId)) {
@@ -947,7 +976,8 @@ export default function MyLabs() {
       return;
     }
 
-    const effectiveTokens = remainingTokens > 0 ? remainingTokens : 60;
+    const defaultCred = labId.toLowerCase().includes('dbms') ? 90 : (labId.toLowerCase().includes('dotnet') ? 80 : 60);
+    const effectiveTokens = remainingTokens > 0 ? remainingTokens : defaultCred;
 
     const academicCtx = isUniversityLab ? {
       programId: programIdQuery,
@@ -979,7 +1009,7 @@ export default function MyLabs() {
     }
 
     const isUniversityLab = (lab as any)?.isUniversity || (lab as any)?.accessType === 'university';
-    const effectiveTokens = remainingTokens > 0 ? remainingTokens : 60;
+    const effectiveTokens = remainingTokens > 0 ? remainingTokens : 80;
 
     const academicCtx = isUniversityLab ? {
       programId: programIdQuery,

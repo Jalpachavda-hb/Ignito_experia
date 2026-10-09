@@ -19,12 +19,25 @@ interface LabCreditUsageState {
   clearUsageRecords: () => void;
 }
 
-const USAGE_STORAGE_KEY = 'ignito_student_lab_credit_usage';
+function getUsageStorageKey(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const rawUser = localStorage.getItem('auth-user');
+    const u = rawUser ? JSON.parse(rawUser) : null;
+    const identifier = u?.userId || u?.id || u?.email;
+    return identifier ? `ignito_student_lab_credit_usage_${String(identifier).trim().toLowerCase()}` : '';
+  } catch {
+    return '';
+  }
+}
 
 const loadInitialUsage = (): LabUsageRecord[] => {
   if (typeof window === 'undefined') return [];
   try {
-    const raw = localStorage.getItem(USAGE_STORAGE_KEY);
+    localStorage.removeItem('ignito_student_lab_credit_usage');
+    const key = getUsageStorageKey();
+    if (!key) return [];
+    const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed;
@@ -56,7 +69,9 @@ export const useLabCreditUsageStore = create<LabCreditUsageState>((set) => ({
       const updated = [newRecord, ...state.usageRecords];
       if (typeof window !== 'undefined') {
         try {
-          localStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(updated));
+          localStorage.removeItem('ignito_student_lab_credit_usage');
+          const key = getUsageStorageKey();
+          if (key) localStorage.setItem(key, JSON.stringify(updated));
         } catch (e) {
           console.error('Failed to save lab credit usage:', e);
         }
@@ -67,7 +82,11 @@ export const useLabCreditUsageStore = create<LabCreditUsageState>((set) => ({
   clearUsageRecords: () =>
     set(() => {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem(USAGE_STORAGE_KEY);
+        try {
+          localStorage.removeItem('ignito_student_lab_credit_usage');
+          const key = getUsageStorageKey();
+          if (key) localStorage.removeItem(key);
+        } catch (_) {}
       }
       return { usageRecords: [] };
     }),
