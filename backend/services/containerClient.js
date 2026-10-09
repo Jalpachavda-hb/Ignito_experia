@@ -427,32 +427,55 @@ export const deleteFromContainer = async (session, filePath) => {
  * Paths are /workspace/... style from the IDE.
  */
 export const renameInContainer = async (session, oldPath, newPath) => {
-  const toContainerPath = (p) => {
-    if (p.startsWith("/tmp/workspace/workspace/")) return p;
-    const clean = String(p || "").replace(/^\/workspace\//, "").replace(/^\/+/, "");
-    return `/tmp/workspace/workspace/${clean}`;
-  };
-
-  const src = toContainerPath(oldPath);
-  const dest = toContainerPath(newPath);
+  const cleanSrc = String(oldPath || "").replace(/^\/workspace\//, "").replace(/^\/+/, "");
+  const cleanDest = String(newPath || "").replace(/^\/workspace\//, "").replace(/^\/+/, "");
+  const src = `/tmp/workspace/workspace/${cleanSrc}`;
+  const dest = `/tmp/workspace/workspace/${cleanDest}`;
   const destDir = path.dirname(dest).replace(/\\/g, "/");
 
   const shellScript = `#!/bin/sh
 set -e
-SRC="${src}"
-DEST="${dest}"
-if [ ! -e "$SRC" ]; then
+CLEAN_SRC="${cleanSrc}"
+CLEAN_DEST="${cleanDest}"
+
+if [ -e "/tmp/workspace/workspace/$CLEAN_SRC" ]; then
+  SRC="/tmp/workspace/workspace/$CLEAN_SRC"
+  DEST="/tmp/workspace/workspace/$CLEAN_DEST"
+elif [ -e "/workspace/$CLEAN_SRC" ]; then
+  SRC="/workspace/$CLEAN_SRC"
+  DEST="/workspace/$CLEAN_DEST"
+elif [ -e "${src}" ]; then
+  SRC="${src}"
+  DEST="${dest}"
+else
   echo "SOURCE_MISSING"
   exit 1
 fi
+
 if [ -e "$DEST" ]; then
   echo "DEST_EXISTS"
   exit 1
 fi
-mkdir -p "${destDir}"
+
+DEST_DIR=$(dirname "$DEST")
+mkdir -p "$DEST_DIR"
 mv "$SRC" "$DEST"
 echo "SUCCESS"
 `;
+
+  const tryFileLevelFallback = async () => {
+    try {
+      const content = await readFromContainer(session, oldPath);
+      if (content !== null) {
+        await saveToContainer(session, { path: newPath, content });
+        await deleteFromContainer(session, oldPath);
+        return true;
+      }
+    } catch (fallbackErr) {
+      console.warn(`[containerClient] File-level rename fallback skipped: ${fallbackErr.message}`);
+    }
+    return false;
+  };
 
   const baseUrl = await getPrivateBaseUrl(session);
   if (baseUrl && shouldAttemptHttp()) {
@@ -475,8 +498,24 @@ echo "SUCCESS"
           recordHttpSuccess();
           return { success: true };
         }
-        if (output.includes("SOURCE_MISSING")) throw new Error("Source path not found");
+        if (output.includes("SOURCE_MISSING")) {
+          const fallbackOk = await tryFileLevelFallback();
+          if (fallbackOk) {
+            recordHttpSuccess();
+            return { success: true };
+          }
+          throw new Error("Source path not found");
+        }
         if (output.includes("DEST_EXISTS")) throw new Error("A file or folder with that name already exists");
+        
+        // If HTTP execute didn't report SUCCESS (e.g., specialized container runner didn't execute shell script),
+        // try file-level read/save/delete fallback
+        const fallbackOk = await tryFileLevelFallback();
+        if (fallbackOk) {
+          recordHttpSuccess();
+          return { success: true };
+        }
+
         if (data.success === false) throw new Error(data.error || output || "Rename failed");
         recordHttpSuccess();
         return { success: true };
@@ -486,11 +525,17 @@ echo "SUCCESS"
       if (!/Source path not found|already exists/i.test(err.message)) recordHttpFailure();
       console.warn(`[containerClient] HTTP rename failed: ${err.message}. Checking SSM fallback...`);
       if (/Source path not found|already exists/i.test(err.message)) throw err;
-      if (!canUseSsmFallback()) throw err;
+      if (!canUseSsmFallback()) {
+        const fallbackOk = await tryFileLevelFallback();
+        if (fallbackOk) return { success: true };
+        throw err;
+      }
     }
   }
 
   if (!canUseSsmFallback()) {
+    const fallbackOk = await tryFileLevelFallback();
+    if (fallbackOk) return { success: true };
     throw new Error("Failed to rename: direct container HTTP endpoint unreachable");
   }
 
@@ -503,8 +548,15 @@ echo "SUCCESS"
   });
   const output = execRes?.output || "";
   if (output.includes("SUCCESS")) return { success: true };
-  if (output.includes("SOURCE_MISSING")) throw new Error("Source path not found");
+  if (output.includes("SOURCE_MISSING")) {
+    const fallbackOk = await tryFileLevelFallback();
+    if (fallbackOk) return { success: true };
+    throw new Error("Source path not found");
+  }
   if (output.includes("DEST_EXISTS")) throw new Error("A file or folder with that name already exists");
+
+  const fallbackOk = await tryFileLevelFallback();
+  if (fallbackOk) return { success: true };
   throw new Error(execRes?.error || output || "Rename failed via SSM");
 };
 

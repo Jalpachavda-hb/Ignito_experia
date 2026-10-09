@@ -7,6 +7,7 @@ import {
   getFileContentFromContainer,
   saveToContainer,
   deleteFromContainer,
+  renameInContainer,
   getPresignedUrl,
   getStarterAssetKey,
 } from "./containerClient.js";
@@ -406,22 +407,6 @@ export const listFiles = async (sessionId) => {
   const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
   const isPython = labType === "python" || labId === "python-lab" || labId.includes("python");
 
-  // 1. If workspace is empty, check for persisted student files from current session!
-  // (NOTE: For .NET lab, all changes are discarded on stop; starter files come from S3)
-  if (!isDotnet && finalTree.length === 0 && session?.userId && session?.labId) {
-    try {
-      const savedUserFiles = await userWorkspaceService.getUserWorkspaceFiles(session.userId, session.labId);
-      if (savedUserFiles && savedUserFiles.length > 0) {
-        console.log(`[listFiles] Restoring ${savedUserFiles.length} persistent workspace file(s) for user ${session.userId}, lab ${session.labId}`);
-        finalTree = filterDotnetFiles(savedUserFiles, session);
-        await updateSession(sessionId, { files: finalTree }).catch(e => {
-          console.warn(`[listFiles] Failed to cache restored user files in DB: ${e.message}`);
-        });
-      }
-    } catch (restoreErr) {
-      console.warn("[listFiles] Error restoring user files:", restoreErr.message);
-    }
-  }
 
   // 2. If workspace is empty or container not ready yet, load starter files directly from S3!
   // For .NET lab: always ensure fresh starter files from S3 if session is new or files not yet populated.
@@ -662,6 +647,106 @@ export const deleteFile = async (sessionId, filePath) => {
       console.warn("[deleteFile] Failed to delete from container:", err.message);
     }
   }
+};
+
+export const renameFile = async (sessionId, oldPath, newPath) => {
+  const session = await getSession(sessionId);
+  const newName = newPath.split("/").pop();
+  const prefix = oldPath.endsWith("/") ? oldPath : `${oldPath}/`;
+
+  // 1. In-memory file content cache update
+  const oldCacheKey = getCacheKey(sessionId, oldPath);
+  if (fileContentCache.has(oldCacheKey)) {
+    const existing = fileContentCache.get(oldCacheKey);
+    fileContentCache.delete(oldCacheKey);
+    fileContentCache.set(getCacheKey(sessionId, newPath), {
+      ...existing,
+      path: newPath,
+      name: newName,
+      language: detectLanguageFromPath(newPath),
+    });
+  }
+  for (const key of Array.from(fileContentCache.keys())) {
+    const sessionPrefix = `${sessionId}:`;
+    if (key.startsWith(sessionPrefix)) {
+      const p = key.slice(sessionPrefix.length);
+      if (p.startsWith(prefix)) {
+        const nextSubPath = newPath + p.slice(oldPath.length);
+        const existing = fileContentCache.get(key);
+        fileContentCache.delete(key);
+        fileContentCache.set(getCacheKey(sessionId, nextSubPath), {
+          ...existing,
+          path: nextSubPath,
+          name: nextSubPath.split("/").pop(),
+          language: detectLanguageFromPath(nextSubPath),
+        });
+      }
+    }
+  }
+
+  // 2. Persistent storage for user in MySQL
+  if (session?.userId && session?.labId) {
+    userWorkspaceService.renameUserWorkspaceFile(session.userId, session.labId, oldPath, newPath).catch((err) => {
+      console.warn("[renameFile] Failed to persist rename to MySQL:", err.message);
+    });
+  }
+
+  // 3. Update session.files and in-memory workspaceIndexCache
+  let currentFiles = session?.files && session.files.length > 0
+    ? [...session.files]
+    : (workspaceIndexCache.get(sessionId) ? [...workspaceIndexCache.get(sessionId)] : []);
+
+  const updatedFiles = currentFiles.map((f) => {
+    if (f.path === oldPath) {
+      return {
+        ...f,
+        path: newPath,
+        name: newName,
+        language: detectLanguageFromPath(newPath),
+      };
+    }
+    if (f.path.startsWith(prefix)) {
+      const nextPath = newPath + f.path.slice(oldPath.length);
+      return {
+        ...f,
+        path: nextPath,
+        name: nextPath.split("/").pop(),
+        language: detectLanguageFromPath(nextPath),
+      };
+    }
+    return f;
+  });
+
+  workspaceIndexCache.set(sessionId, updatedFiles);
+  await updateSession(sessionId, { files: updatedFiles }).catch((e) => {
+    console.warn("[renameFile] Failed to update session in DB:", e.message);
+  });
+
+  // 4. Local workspace disk rename (for local runner/testing)
+  if (!session?.taskArn) {
+    try {
+      const localFrom = getLocalFilePath(oldPath);
+      const localTo = getLocalFilePath(newPath);
+      if (fs.existsSync(localFrom)) {
+        fs.mkdirSync(path.dirname(localTo), { recursive: true });
+        fs.renameSync(localFrom, localTo);
+      }
+    } catch (e) {
+      console.warn("[renameFile] Local disk rename error:", e.message);
+    }
+  }
+
+  // 5. Container rename
+  if (session?.status === "running") {
+    try {
+      await renameInContainer(session, oldPath, newPath);
+    } catch (err) {
+      console.warn("[renameFile] Failed to rename in container:", err.message);
+      throw err;
+    }
+  }
+
+  return updatedFiles;
 };
 
 export const clearDiskWorkspace = () => {

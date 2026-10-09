@@ -161,7 +161,7 @@ export const runCommandInContainer = async (session, commandValue, options = {})
 /**
  * SSM bridge payload executor mapping path/content/language directly to Fargate execute-command shell writes.
  */
-export const executeViaSsm = async (session, { path: filePath, content, language, labType, action }) => {
+export const executeViaSsm = async (session, { path: filePath, content, language, labType, action, stdin }) => {
   const b64 = Buffer.from(content || "").toString("base64");
   
   let containerPath = filePath.replace(/\\/g, "/");
@@ -212,6 +212,9 @@ export const executeViaSsm = async (session, { path: filePath, content, language
     pythonHookB64 = getPythonPlotHookB64();
   }
 
+  const hasStdin = typeof stdin === "string" && stdin.length > 0;
+  const stdinB64 = hasStdin ? Buffer.from(stdin).toString("base64") : "";
+
   // Create a robust self-contained runner script.
   // This avoids quote escaping and subshell parsing issues over the SSM connection.
   const runnerScript = `#!/bin/sh
@@ -239,18 +242,28 @@ echo "${pythonHookB64}" | base64 -d > /tmp/vlab_hooks/sitecustomize.py
 export PYTHONPATH="/tmp/vlab_hooks:\${PYTHONPATH}"
 ` : ""}
 
+${content ? `
 echo "${b64}" | base64 -d > "${containerPath}"
 if [ $? -ne 0 ]; then
   echo "###EXIT_CODE:$?"
   exit $?
 fi
-
 chmod +x "${containerPath}"
+` : ""}
 cd "${parentDir}"
 
-# Execute target command
-${runCmd} \${PROJECT_ARG:-}
+# Execute target command with optional stdin
+${hasStdin ? `
+echo "${stdinB64}" | base64 -d > /tmp/vlab_stdin.txt
+(${runCmd} \${PROJECT_ARG:-}) < /tmp/vlab_stdin.txt
+EXEC_EXIT=$?
+rm -f /tmp/vlab_stdin.txt
+echo "###EXIT_CODE:$EXEC_EXIT"
+exit $EXEC_EXIT
+` : `
+(${runCmd} \${PROJECT_ARG:-}) < /dev/null
 echo "###EXIT_CODE:$?"
+`}
 `;
 
   const runnerB64 = Buffer.from(runnerScript).toString("base64");

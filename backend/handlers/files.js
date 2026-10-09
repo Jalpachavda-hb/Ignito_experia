@@ -7,6 +7,7 @@ import {
   getFile,
   upsertFile,
   deleteFile,
+  renameFile,
   cacheFileContent,
 } from "../services/fileRepository.js";
 import { saveToContainer, deleteFromContainer, readFromContainer, readBinaryFromContainer, renameInContainer } from "../services/containerClient.js";
@@ -208,34 +209,13 @@ export const filesRenameHandler = async (event) => {
     throw badRequest("Invalid file or folder name");
   }
 
-  if (session?.status === "running") {
-    await renameInContainer(session, from, to);
-  } else {
+  if (session?.status !== "running") {
     throw badRequest("Session is not running");
   }
 
-  // Update persistent storage for user
-  if (session?.userId && session?.labId) {
-    userWorkspaceService.renameUserWorkspaceFile(session.userId, session.labId, from, to).catch(() => {});
-  }
+  const updatedFiles = await renameFile(sessionId, from, to);
 
-  // Update cached file paths (files under renamed folder, or the file itself)
-  if (session.files?.length) {
-    const prefix = from.endsWith("/") ? from : `${from}/`;
-    const updated = session.files.map((f) => {
-      if (f.path === from) {
-        return { ...f, path: to, name: newName };
-      }
-      if (f.path.startsWith(prefix)) {
-        const nextPath = to + f.path.slice(from.length);
-        return { ...f, path: nextPath, name: nextPath.split("/").pop() };
-      }
-      return f;
-    });
-    await updateSession(sessionId, { files: updated }).catch(() => {});
-  }
-
-  return ok({ message: "Renamed successfully", oldPath: from, newPath: to });
+  return ok({ message: "Renamed successfully", oldPath: from, newPath: to, files: updatedFiles });
 };
 
 export const filesDownloadHandler = async (event) => {

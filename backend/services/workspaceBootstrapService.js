@@ -329,17 +329,16 @@ export const bootstrap = async (session, netInfo = null) => {
 
     if (!config) {
       console.log(`[WorkspaceBootstrap] Lab ${freshSession.labId} does not require template archive.`);
-      if (freshSession.files && freshSession.files.length > 0) {
-        console.log(`[WorkspaceBootstrap] Syncing ${freshSession.files.length} restored workspace file(s) into container...`);
-        for (const file of freshSession.files) {
-          if (file.path && typeof file.content === "string") {
-            try {
-              await saveToContainer(freshSession, { path: file.path, content: file.content });
-            } catch (syncErr) {
-              console.warn(`[WorkspaceBootstrap] Could not sync user file ${file.path} to container:`, syncErr.message);
-            }
-          }
-        }
+      try {
+        await executeViaSsm(freshSession, {
+          action: "run",
+          path: "/tmp/clean_workspace.sh",
+          language: "shell",
+          labType: "linux",
+          content: `#!/bin/sh\nrm -rf /tmp/workspace/workspace/* /tmp/workspace/workspace/.* 2>/dev/null || true\nmkdir -p /tmp/workspace/workspace\necho "CLEANED"\n`,
+        });
+      } catch (cleanErr) {
+        console.warn(`[WorkspaceBootstrap] Could not clean container workspace:`, cleanErr.message);
       }
       return;
     }

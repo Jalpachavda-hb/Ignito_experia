@@ -262,27 +262,10 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       starterAssetKey,
     });
 
-    const isDotnetLab = labId.toLowerCase().includes('dotnet') || dotnetSubtype !== null;
-    const isPythonLab = labId.toLowerCase() === 'python-lab' || labId.toLowerCase().includes('python');
-    if (isDotnetLab || isPythonLab) {
-      // For .NET and Python lab, all prior changes are discarded on stop/start; never restore prior files.
-      // Python lab starts 100% clean and fresh with 0 files (no default starter file).
-      sessionRecord.files = [];
-      userWorkspaceService.clearUserWorkspace(effectiveUserId, labId).catch(() => {});
-      if (isPythonLab) {
-        clearDiskWorkspace();
-      }
-    } else {
-      // Restore persistent student files if applicable
-      try {
-        let userFiles = await userWorkspaceService.getUserWorkspaceFiles(effectiveUserId, labId);
-        if (userFiles && userFiles.length > 0) {
-          sessionRecord.files = userFiles;
-        }
-      } catch (restoreErr) {
-        console.warn("[sessionsStartHandler] Persistent workspace restore error:", restoreErr.message);
-      }
-    }
+    // All lab sessions start 100% clean and fresh with 0 files; never restore prior files from old sessions.
+    sessionRecord.files = [];
+    userWorkspaceService.clearUserWorkspace(effectiveUserId, labId).catch(() => {});
+    clearDiskWorkspace();
 
     const sessionId = sessionRecord.sessionId;
 
@@ -678,8 +661,10 @@ export const sessionsStopHandler = async ({ pathParameters, body, auth }) => {
   }).catch(() => {});
 
   clearSessionFiles(sessionId, dbSession);
-  if (dbSession?.UserId && dbSession?.LabId) {
-    await userWorkspaceService.clearUserWorkspace(dbSession.UserId, dbSession.LabId).catch(() => {});
+  const stopUserId = dbSession?.UserId || dbSession?.userId;
+  const stopLabId = dbSession?.LabId || dbSession?.labId;
+  if (stopUserId && stopLabId) {
+    await userWorkspaceService.clearUserWorkspace(stopUserId, stopLabId).catch(() => {});
   }
   await deleteSession(sessionId).catch(() => {});
 

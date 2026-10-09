@@ -103,7 +103,7 @@ const getLabExtensionRules = (labName: string, labId: string) => {
       extensions: ['java', 'kt', 'xml', 'gradle', 'properties', "sh", "json", "png", "jpg", "jpeg", "pro"]
     };
   }
-  if (name.includes('java development') || id.includes('java-development')) {
+  if (name.includes('java') || id.includes('java')) {
     return {
       courseName: 'Java Development Lab',
       extensions: ['java']
@@ -203,13 +203,20 @@ class Program
 `;
 
 const needsConsoleInput = (code: string) =>
-  /Console\.ReadLine\s*\(/.test(code) || /Console\.Read\s*\(/.test(code) || /input\s*\(/.test(code);
+  /Console\.ReadLine\s*\(/.test(code) ||
+  /Console\.Read\s*\(/.test(code) ||
+  /input\s*\(/.test(code) ||
+  /Scanner\b/.test(code) ||
+  /\.next(Int|Line|Double|Float|Long|Short|Byte|Boolean)?\s*\(/.test(code) ||
+  /System\.in/.test(code) ||
+  /BufferedReader\b/.test(code);
 
 const countConsoleReads = (code: string) => {
   const readLine = (code.match(/Console\.ReadLine\s*\(/g) || []).length;
   const readChar = (code.match(/Console\.Read\s*\(/g) || []).length;
   const pyInput = (code.match(/input\s*\(/g) || []).length;
-  return readLine + readChar + pyInput;
+  const javaScanner = (code.match(/\.next(Int|Line|Double|Float|Long|Short|Byte|Boolean)?\s*\(/g) || []).length;
+  return readLine + readChar + pyInput + javaScanner;
 };
 
 const extractConsoleOutput = (raw: string) => {
@@ -271,8 +278,13 @@ const ConsoleInteractivePreview = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
   const outputRef = useRef<HTMLDivElement>(null);
+  const hasLoop = /(?:while|for|do)\s*[\s\S]*?(?:Scanner|next|ReadLine|input|hasNext|System\.in|BufferedReader)/.test(session.code || '');
   const readCount = Math.max(countConsoleReads(session.code), needsConsoleInput(session.code) ? 1 : 0);
-  const needsInput = readCount > 0 && session.stdinLines.length < readCount && !session.isRunning;
+  const needsInput = !session.isRunning && !session.success && !session.error && (
+    session.stdinLines.length === 0 ||
+    session.stdinLines.length < readCount ||
+    hasLoop
+  );
 
   useEffect(() => {
     outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: 'smooth' });
@@ -287,19 +299,23 @@ const ConsoleInteractivePreview = ({
 
   const statusLabel = session.isRunning
     ? 'Running...'
-    : session.success
-      ? 'Execution Succeeded'
-      : session.error
-        ? 'Execution Failed'
-        : 'Console';
+    : needsInput
+      ? 'Waiting for input...'
+      : session.success
+        ? 'Execution Succeeded'
+        : session.error
+          ? 'Execution Failed'
+          : 'Console';
 
   const statusClass = session.isRunning
     ? 'text-white/60'
-    : session.success
-      ? 'text-[#50fa7b]'
-      : session.error
-        ? 'text-[#ff5555]'
-        : 'text-white/60';
+    : needsInput
+      ? 'text-[#f1fa8c]'
+      : session.success
+        ? 'text-[#50fa7b]'
+        : session.error
+          ? 'text-[#ff5555]'
+          : 'text-white/60';
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[#1e1e1e]">
@@ -313,10 +329,13 @@ const ConsoleInteractivePreview = ({
         className="flex-1 overflow-auto p-4 font-mono text-[13px] text-[#f8f8f2] whitespace-pre-wrap leading-relaxed"
       >
         {session.output}
+        {session.error && (
+          <div className="text-[#ff5555] mt-2">{session.error}</div>
+        )}
         {session.isRunning && (
           <span className="block mt-2 text-white/40 animate-pulse">Running...</span>
         )}
-        {!session.output && !session.isRunning && (
+        {!session.output && !session.error && !session.isRunning && (
           <span className="text-white/40">(No output)</span>
         )}
       </div>
@@ -405,6 +424,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
   const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
   const isSelenium = labType === 'testing';
+  const isJava = labType === 'java' || labId === 'java-lab' || labId.includes('java') || (propSession?.labId || '').toLowerCase().includes('java');
 
   const [seleniumRunState, setSeleniumRunState] = useState<{
     status: 'IDLE' | 'STARTING' | 'CONNECTING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'ERROR' | 'DISCONNECTED';
@@ -601,16 +621,51 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
     setIsRenaming(true);
     try {
-      await renamePath(renamingPath, newPath, sessionId);
+      // 1. Optimistically update local files state immediately
+      setFiles((prev) => {
+        const next = prev.map((f) => {
+          if (f.path === renamingPath) {
+            return {
+              ...f,
+              path: newPath,
+              name: trimmed,
+              language: detectLanguage(trimmed),
+            };
+          }
+          if (f.path.startsWith(renamingPath + '/')) {
+            const nextSub = newPath + f.path.slice(renamingPath.length);
+            return {
+              ...f,
+              path: nextSub,
+              name: nextSub.split('/').pop() || f.name,
+              language: detectLanguage(nextSub.split('/').pop() || f.name),
+            };
+          }
+          return f;
+        });
+        filesRef.current = next;
+        return next;
+      });
 
-      setOpenFilePaths(prev => prev.map(p => {
-        if (p === renamingPath) return newPath;
-        if (p.startsWith(renamingPath + '/')) return newPath + p.slice(renamingPath.length);
-        return p;
-      }));
-      setExpandedFolders(prev => {
+      setOpenFilePaths((prev) =>
+        prev.map((p) => {
+          if (p === renamingPath) return newPath;
+          if (p.startsWith(renamingPath + '/')) return newPath + p.slice(renamingPath.length);
+          return p;
+        })
+      );
+      setLoadedPaths((prev) => {
         const next = new Set<string>();
-        prev.forEach(p => {
+        prev.forEach((p) => {
+          if (p === renamingPath) next.add(newPath);
+          else if (p.startsWith(renamingPath + '/')) next.add(newPath + p.slice(renamingPath.length));
+          else next.add(p);
+        });
+        return next;
+      });
+      setExpandedFolders((prev) => {
+        const next = new Set<string>();
+        prev.forEach((p) => {
           if (p === renamingPath) next.add(newPath);
           else if (p.startsWith(renamingPath + '/')) next.add(newPath + p.slice(renamingPath.length));
           else next.add(p);
@@ -625,12 +680,24 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         );
       }
 
+      if (dirtyPathsRef.current.has(renamingPath)) {
+        dirtyPathsRef.current.delete(renamingPath);
+        dirtyPathsRef.current.add(newPath);
+      }
+      if (lastSavedContentRef.current.has(renamingPath)) {
+        const c = lastSavedContentRef.current.get(renamingPath);
+        lastSavedContentRef.current.delete(renamingPath);
+        lastSavedContentRef.current.set(newPath, c ?? '');
+      }
+
       cancelRename();
+      await renamePath(renamingPath, newPath, sessionId);
       await handleSync();
       toast.success(`Renamed to ${trimmed}`);
     } catch (err: any) {
       console.error('Rename error:', err);
       toast.error(`Failed to rename: ${err.message || 'Unknown error'}`);
+      await handleSync();
     } finally {
       setIsRenaming(false);
     }
@@ -797,6 +864,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                     if (!window.confirm(`Are you sure you want to delete ${file.name}?`)) return;
                     if (!sessionId) return;
                     try {
+                      setFiles((prev) => {
+                        const next = prev.filter((f) => f.path !== file.path && !f.path.startsWith(file.path + '/'));
+                        filesRef.current = next;
+                        return next;
+                      });
+                      setOpenFilePaths((prev) => prev.filter((p) => p !== file.path && !p.startsWith(file.path + '/')));
                       await deleteFile(file.path, sessionId);
                       await handleSync();
                     } catch (err: any) {
@@ -1374,7 +1447,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     if (!sessionId) return;
     setIsLoading(true);
     try {
-      const response = await fetchFiles(sessionId);
+      const response = await fetchFiles(sessionId, true);
       if (response.success) {
         const newFilesList = response.files || [];
         const activePathBefore =
@@ -1394,19 +1467,20 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           }
         }
 
-        setFiles(() =>
-          newFilesList.map((newFile: any) => {
-            const existing = filesRef.current.find((f) => f.path === newFile.path);
-            if (existing && existing.content !== undefined) {
-              return {
-                ...newFile,
-                content: existing.content,
-                language: existing.language || newFile.language,
-              };
-            }
-            return newFile;
-          })
-        );
+        const mergedFiles = newFilesList.map((newFile: any) => {
+          const existing = filesRef.current.find((f) => f.path === newFile.path);
+          if (existing && existing.content !== undefined) {
+            return {
+              ...newFile,
+              content: existing.content,
+              language: existing.language || newFile.language,
+            };
+          }
+          return newFile;
+        });
+
+        filesRef.current = mergedFiles;
+        setFiles(mergedFiles);
 
         setActiveFileIndex(newActiveIdx);
         setOpenFilePaths((prev) => prev.filter((p) => newPaths.has(p)));
@@ -1487,12 +1561,20 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     setConsoleSession((prev) => (prev ? { ...prev, isRunning: true, error: null } : prev));
 
     try {
+      const resolvedLabType = isDotnet
+        ? 'dotnet'
+        : isAndroid
+          ? 'android'
+          : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
+            ? 'java'
+            : (labType || (labId?.includes('python') ? 'python' : labId || 'python'));
+
       const response = await runFile(
         {
           path: activeFile!.path,
-          language: activeFile!.language || (isDotnet ? 'csharp' : 'python'),
+          language: activeFile!.language || (isDotnet ? 'csharp' : isJava ? 'java' : 'python'),
           content: code,
-          labType: isDotnet ? 'dotnet' : (isAndroid ? 'android' : 'python'),
+          labType: resolvedLabType,
           stdin,
         },
         sessionId,
@@ -1513,34 +1595,68 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       textOnly = textOnly.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, '').replace(/^[\r\n]+/, '').trimEnd();
 
       const output = extractConsoleOutput(textOnly);
-      const cmdName = isDotnet ? 'dotnet run' : isAndroid ? './build.sh' : `python ${activeFile?.name || 'main.py'}`;
+      const cmdName = isDotnet
+        ? 'dotnet run'
+        : isAndroid
+          ? './build.sh'
+          : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
+            ? `java ${activeFile?.name || 'Main.java'}`
+            : `python ${activeFile?.name || 'main.py'}`;
+
+      const isInitialProbe = stdinLines.length === 0;
+      const isCompileError = /error:|syntax error|SyntaxError|cannot find symbol|class, interface, or enum expected|package .* does not exist/i.test(rawError || rawOutput);
+
+      const isMissingInputError = !runSuccess && !isCompileError && (
+        /NoSuchElementException|EOFError|End of stream|EndOfStreamException|No line found|NullReferenceException/i.test(rawError || rawOutput) ||
+        (isInitialProbe && needsConsoleInput(code))
+      );
+
+      let cleanConsoleOutput = output;
+      if (isMissingInputError) {
+        cleanConsoleOutput = cleanConsoleOutput
+          .replace(/Exception in thread "main" java\.util\.NoSuchElementException[\s\S]*/, '')
+          .replace(/Traceback \(most recent call last\):[\s\S]*EOFError[\s\S]*/, '')
+          .trimEnd();
+      }
+
+      const sessionError = runSuccess
+        ? null
+        : isMissingInputError
+          ? null
+          : (rawError || rawOutput || 'Program exited with an error');
 
       setConsoleSession((prev) =>
         prev
           ? {
             ...prev,
             isRunning: false,
-            output,
+            output: cleanConsoleOutput,
             stdinLines,
             success: runSuccess,
-            error: runSuccess ? null : rawError || 'Program exited with an error',
+            error: sessionError,
           }
           : prev,
       );
 
       setTerminalOutput({
         command: cmdName,
-        output: output || textOnly,
+        output: cleanConsoleOutput || textOnly,
         plotHtml,
-        error: runSuccess ? null : (rawError || 'Program exited with an error'),
-        status: runSuccess ? 'success' : 'error',
+        error: sessionError,
+        status: runSuccess ? 'success' : isMissingInputError ? 'idle' : 'error',
       });
 
       if (plotHtml) {
         setOutputTab('plot');
       }
     } catch (err: any) {
-      const cmdName = isDotnet ? 'dotnet run' : isAndroid ? './build.sh' : `python ${activeFile?.name || 'main.py'}`;
+      const cmdName = isDotnet
+        ? 'dotnet run'
+        : isAndroid
+          ? './build.sh'
+          : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
+            ? `java ${activeFile?.name || 'Main.java'}`
+            : `python ${activeFile?.name || 'main.py'}`;
       setConsoleSession((prev) =>
         prev
           ? {
@@ -1675,12 +1791,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
     setConsoleSession(null);
 
-    const fileName = activeFile?.name || 'main.py';
+    const fileName = activeFile?.name || (isJava ? 'Main.java' : 'main.py');
     const commandText = isAndroid
       ? './build.sh'
       : isDotnet
         ? (dotnetAction === 'build' ? 'dotnet build' : 'dotnet run')
-        : activeFile?.language === 'java'
+        : isJava || activeFile?.language === 'java' || fileName.endsWith('.java')
           ? `java ${fileName}`
           : `python ${fileName}`;
 
@@ -1703,6 +1819,16 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         dirtyPathsRef.current.delete(activeFile.path);
       }
 
+      const resolvedLabType = isAndroid
+        ? 'android'
+        : isDotnet
+          ? 'dotnet'
+          : isSelenium
+            ? 'testing'
+            : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
+              ? 'java'
+              : (labType || (labId?.includes('python') ? 'python' : labId || 'python'));
+
       const runPayload = isAndroid
         ? { path: '/workspace/build.sh', language: 'shell', content: '', labType: 'android' }
         : isDotnet
@@ -1715,9 +1841,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           }
           : {
             path: activeFile.path,
-            language: activeFile.language || 'python',
+            language: activeFile.language || (isJava ? 'java' : 'python'),
             content: editorCode,
-            labType: isSelenium ? 'testing' : 'python',
+            labType: resolvedLabType,
           };
 
       const response = await runFile(runPayload, sessionId);
@@ -1976,7 +2102,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     const rules = getLabExtensionRules(labName, labId);
 
     let defaultExt = 'txt';
-    if (rules.extensions.includes('py')) {
+    if (isJava) {
+      defaultExt = 'java';
+    } else if (rules.extensions.includes('py')) {
       defaultExt = 'py';
     } else if (rules.extensions.includes('java')) {
       defaultExt = 'java';
@@ -1985,7 +2113,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     } else if (rules.extensions.length > 0) {
       defaultExt = rules.extensions[0];
     }
-    const defaultName = isDotnet ? 'Program.cs' : isAndroid ? 'MainActivity.java' : `script.${defaultExt}`;
+    const defaultName = isDotnet
+      ? 'Program.cs'
+      : isAndroid
+        ? 'MainActivity.java'
+        : (isJava || defaultExt === 'java')
+          ? 'Main.java'
+          : `script.${defaultExt}`;
 
     const createIn = resolveCreateFolderPath(targetFolderPath);
     setSelectedFolderPath(createIn);
@@ -2003,17 +2137,31 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       return;
     }
 
+    const javaClassName = fileName.replace(/\.java$/, '') || 'Main';
+    const javaStarter = `public class ${javaClassName} {\n    public static void main(String[] args) {\n        System.out.println("Hello, World!");\n    }\n}\n`;
+
     const newFile = {
       name: fileName,
       path: `${createIn}/${fileName}`,
       type: 'file',
       language: detectLanguage(fileName),
-      content: isDotnet && fileName === 'Program.cs' ? DOTNET_CONSOLE_STARTER : '',
+      content: isDotnet && fileName === 'Program.cs'
+        ? DOTNET_CONSOLE_STARTER
+        : (isJava || fileName.endsWith('.java'))
+          ? javaStarter
+          : '',
     };
     if (sessionId) {
+      const existingIdx = files.findIndex(f => f.path === newFile.path);
+      const targetIdx = existingIdx !== -1 ? existingIdx : files.length;
+
       setFiles(prev => {
-        if (prev.some(f => f.path === newFile.path)) return prev;
-        const next = [...prev, newFile];
+        const next = [...prev];
+        if (existingIdx !== -1) {
+          next[existingIdx] = newFile;
+        } else {
+          next.push(newFile);
+        }
         filesRef.current = next;
         return next;
       });
@@ -2026,7 +2174,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         next.add(newFile.path);
         return next;
       });
-      setActiveFileIndex(files.length);
+      lastSavedContentRef.current.set(newFile.path, newFile.content);
+      dirtyPathsRef.current.delete(newFile.path);
+      setActiveFileIndex(targetIdx);
       try {
         await saveFile(newFile, sessionId);
         toast.success(`Created ${fileName} in ${folderLabel}`);
@@ -2035,7 +2185,10 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         console.error('Failed to save newly added file on backend:', err);
         toast.error('Failed to create file');
       }
-      selectFile(files.length, [...files, newFile]).catch(() => { });
+      const updatedList = existingIdx !== -1
+        ? files.map((f, i) => i === existingIdx ? newFile : f)
+        : [...files, newFile];
+      selectFile(targetIdx, updatedList).catch(() => { });
     }
   };
 
@@ -2208,8 +2361,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const labTitle = isPythonLab ? 'Python Lab' : (labRules.courseName || 'Virtual Lab');
   const labSubtitle = isPythonLab ? 'Write, Run and Explore Python Programs' : `Write, Run and Explore ${labTitle} Programs`;
 
-  const readCount = consoleSession ? Math.max(countConsoleReads(consoleSession.code), needsConsoleInput(consoleSession.code) ? 1 : 0) : 0;
-  const needsInput = !!consoleSession && readCount > 0 && consoleSession.stdinLines.length < readCount && !consoleSession.isRunning;
+  const needsInput = !!consoleSession && !consoleSession.isRunning && !consoleSession.success && !consoleSession.error;
 
   const handleTerminalConsoleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2653,7 +2805,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                 <button
                   onClick={() => {
                     setTerminalOutput({
-                      command: isAndroid ? './build.sh' : isDotnet ? 'dotnet run' : `python ${activeFile?.name || 'main.py'}`,
+                      command: isAndroid
+                        ? './build.sh'
+                        : isDotnet
+                          ? 'dotnet run'
+                          : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
+                            ? `java ${activeFile?.name || 'Main.java'}`
+                            : `python ${activeFile?.name || 'main.py'}`,
                       output: '',
                       plotHtml: null,
                       status: 'idle'
@@ -2724,7 +2882,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                     <div className="flex-1 overflow-y-auto">
                       {/* Command Prompt line */}
                       <div className="text-sky-400 font-semibold mb-2 select-text font-mono">
-                        $ {terminalOutput.command || (isAndroid ? './build.sh' : isDotnet ? 'dotnet run' : activeFile?.language === 'java' ? `java ${activeFile?.name || 'Main.java'}` : `python ${activeFile?.name || 'main.py'}`)}
+                        $ {terminalOutput.command || (isAndroid ? './build.sh' : isDotnet ? 'dotnet run' : (isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')) ? `java ${activeFile?.name || 'Main.java'}` : `python ${activeFile?.name || 'main.py'}`)}
                       </div>
 
                       {/* Interactive graph notification banner */}
@@ -2747,9 +2905,25 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                       {/* Console / Terminal output content */}
                       {consoleSession?.active ? (
                         <div>
+                          {consoleSession.stdinLines.length > 0 && (
+                            <div className="mb-2 space-y-0.5 select-text">
+                              {consoleSession.stdinLines.map((inp, idx) => (
+                                <div key={idx} className="font-mono text-xs sm:text-sm text-yellow-300">
+                                  &gt; {inp}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
                           {consoleSession.output && (
                             <pre className="font-mono text-xs sm:text-sm whitespace-pre overflow-x-auto leading-relaxed select-text text-slate-100 m-0 font-normal">
                               {consoleSession.output}
+                            </pre>
+                          )}
+
+                          {consoleSession.error && (
+                            <pre className="font-mono text-xs sm:text-sm whitespace-pre-wrap overflow-x-auto leading-relaxed select-text text-rose-400 mt-2 m-0 font-normal">
+                              {consoleSession.error}
                             </pre>
                           )}
 
@@ -2771,6 +2945,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                                 Send
                               </button>
                             </form>
+                          )}
+
+                          {!needsInput && !consoleSession.isRunning && consoleSession.success && !consoleSession.output && (
+                            <div className="text-slate-500 text-xs italic mt-1">
+                              (Program finished with no output)
+                            </div>
                           )}
                         </div>
                       ) : (
@@ -2805,14 +2985,19 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                           <RotateCw size={13} className="animate-spin text-amber-400" />
                           <span>Running program...</span>
                         </div>
-                      ) : (consoleSession?.active && consoleSession.success) || terminalOutput.status === 'success' ? (
+                      ) : consoleSession?.active && needsInput ? (
+                        <div className="flex items-center gap-2 text-amber-400 font-medium text-xs">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                          <span>Waiting for input...</span>
+                        </div>
+                      ) : (consoleSession?.active && consoleSession.success) || (!consoleSession?.active && terminalOutput.status === 'success') ? (
                         <div className="flex items-center gap-2 text-emerald-400 font-medium text-xs">
                           <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
                             <Check size={11} className="stroke-[3]" />
                           </div>
                           <span>Process completed successfully</span>
                         </div>
-                      ) : (consoleSession?.active && consoleSession.error) || terminalOutput.status === 'error' ? (
+                      ) : (consoleSession?.active && consoleSession.error) || (!consoleSession?.active && terminalOutput.status === 'error') ? (
                         <div className="flex items-center gap-2 text-rose-400 font-medium text-xs">
                           <div className="w-4 h-4 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center">
                             <X size={11} className="stroke-[3]" />
