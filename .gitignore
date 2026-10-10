@@ -145,3 +145,6 @@ PROJECT_CONTEXT.md
 backend/database/backups/
 uploads/*
 !uploads/.gitkeep
+
+# Downloaded tools / binaries
+bin/
