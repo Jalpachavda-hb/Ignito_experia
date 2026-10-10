@@ -23,7 +23,7 @@ export const getSession = async (sessionId) => {
   }
 
   // Hydrate missing core fields from MySQL lab_sessions if needed
-  if (!item || !item.labId || !item.userId || !item.taskArn) {
+  if (!item || !item.labId || !item.userId || !item.taskArn || !item.dotnetSubtype) {
     try {
       const labSessionRepo = (await import("../repositories/LabSessionRepository.js")).default;
       const sqlRow = await labSessionRepo.getSessionById(sessionId);
@@ -36,6 +36,7 @@ export const getSession = async (sessionId) => {
             status: (sqlRow.Status || "STARTING").toLowerCase(),
             taskArn: sqlRow.TaskArn,
             subtype: sqlRow.Subtype,
+            dotnetSubtype: sqlRow.Subtype,
             startTime: sqlRow.StartedAt ? new Date(sqlRow.StartedAt).toISOString() : undefined,
             createdAt: sqlRow.CreatedAt,
           };
@@ -43,11 +44,19 @@ export const getSession = async (sessionId) => {
           if (!item.labId && sqlRow.LabId) item.labId = sqlRow.LabId;
           if (!item.userId && sqlRow.UserId) item.userId = sqlRow.UserId;
           if (!item.taskArn && sqlRow.TaskArn) item.taskArn = sqlRow.TaskArn;
+          if (!item.dotnetSubtype && sqlRow.Subtype) {
+            item.dotnetSubtype = sqlRow.Subtype;
+            item.subtype = sqlRow.Subtype;
+          }
         }
       }
     } catch (e) {
       console.warn("[sessionRepository getSession] Fallback hydration error:", e.message);
     }
+  }
+
+  if (item && !item.dotnetSubtype && (item.subtype || item.Subtype)) {
+    item.dotnetSubtype = item.subtype || item.Subtype;
   }
 
   return item ? await enrichSession({ ...item }) : null;

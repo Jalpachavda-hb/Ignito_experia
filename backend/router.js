@@ -36,6 +36,7 @@ import {
   sessionsStopHandler,
   sessionsListByUserHandler,
   sessionsExtendHandler,
+  sessionsSwitchSubtypeHandler,
 } from "./handlers/sessions.js";
 import { runsCreateHandler, runsGetHandler, runLegacyHandler } from "./handlers/runs.js";
 import {
@@ -213,6 +214,12 @@ export const ROUTES = [
     method: "POST",
     path: "/lab-sessions/:sessionId/extend",
     handler: sessionsExtendHandler,
+    auth: true,
+  },
+  {
+    method: "POST",
+    path: "/lab-sessions/:sessionId/switch-subtype",
+    handler: sessionsSwitchSubtypeHandler,
     auth: true,
   },
   {

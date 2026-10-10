@@ -143,6 +143,17 @@ export const stopLabSession = async (sessionId) => {
   });
 };
 
+export const switchDotnetSubtype = async (sessionId, subtype) => {
+  if (!sessionId) {
+    throw new Error('sessionId is required to switch subtype');
+  }
+  return executeRequest(API_PATHS.LAB_SESSIONS.SWITCH_SUBTYPE(sessionId), {
+    method: 'POST',
+    body: { subtype },
+    auth: true,
+  });
+};
+
 export const updateLabCredits = async (labId, credits) => {
   return executeRequest(API_PATHS.LABS.UPDATE_CREDITS(labId), {
     method: 'PATCH',

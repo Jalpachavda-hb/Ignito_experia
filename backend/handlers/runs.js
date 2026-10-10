@@ -102,6 +102,10 @@ export const runsCreateHandler = async ({ body, auth }) => {
   // 4. Create database run record
   const run = await createRun({ sessionId, labType });
 
+  const resolvedDotnetSubtype = String(
+    body?.dotnetSubtype || session?.dotnetSubtype || session?.subtype || session?.Subtype || ""
+  ).toLowerCase().trim();
+
   let payload = {
     path: filePath,
     language,
@@ -110,6 +114,7 @@ export const runsCreateHandler = async ({ body, auth }) => {
     action: body?.action,
     stdin: body?.stdin,
     executionMode,
+    dotnetSubtype: resolvedDotnetSubtype,
   };
 
   // Process wrapper transformation for Hadoop (if required)
@@ -260,6 +265,8 @@ export const runLegacyHandler = async (parsed) => {
       language: parsed.body?.language,
       content: parsed.body?.content,
       stdin: parsed.body?.stdin,
+      action: parsed.body?.action,
+      dotnetSubtype: parsed.body?.dotnetSubtype,
     },
   });
 };

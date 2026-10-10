@@ -11,7 +11,8 @@ import { getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { executeCode } from "./ExecutionService.js";
 import { executeViaSsm } from "./executeCommandService.js";
-import { invalidateWorkspaceIndex } from "./fileRepository.js";
+import { invalidateWorkspaceIndex, clearSessionFiles, clearDiskWorkspace, listFiles } from "./fileRepository.js";
+import labSessionRepository from "../repositories/LabSessionRepository.js";
 
 const execAsync = promisify(exec);
 const BOOTSTRAP_VERSION = "1.0.0";
@@ -150,6 +151,11 @@ const waitForContainerReady = async (session, timeoutMs = 45000) => {
 };
 
 const runContainerSsmBootstrap = async (session, presignedUrl) => {
+  const subtype = String(
+    session.dotnetSubtype || session.subtype || session.Subtype || ""
+  ).toLowerCase().trim();
+  const isMvc = subtype === "mvc" || (session.labId || "").toLowerCase().includes("mvc");
+
   const shellScript = `#!/bin/sh
 PRESIGNED_URL="${presignedUrl}"
 DEST_DIR="/tmp/workspace/workspace"
@@ -184,56 +190,69 @@ if [ -f "$TMP_TAR" ]; then
             chmod +x "$filepath"
         fi
     done
-    
-    # If .NET workspace has Program.cs but no .csproj, initialize console project behind the scenes
-    if [ -f "$DEST_DIR/Program.cs" ] && ! find "$DEST_DIR" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-        cp "$DEST_DIR/Program.cs" /tmp/Program.cs.bak 2>/dev/null || true
-        (cd "$DEST_DIR" && dotnet new console --force 2>/dev/null || true)
-        if [ -f /tmp/Program.cs.bak ]; then
-            mv /tmp/Program.cs.bak "$DEST_DIR/Program.cs"
-        fi
-    fi
 
-    # Ensure /workspace has csproj and obj from DEST_DIR if they exist
-    if [ -d "/workspace" ] && [ "$DEST_DIR" != "/workspace" ]; then
-        for proj in "$DEST_DIR"/*.csproj; do
-            if [ -f "$proj" ]; then
-                cp "$proj" /workspace/ 2>/dev/null || true
-            fi
-        done
-        if [ -d "$DEST_DIR/obj" ]; then
-            cp -r "$DEST_DIR/obj" /workspace/ 2>/dev/null || true
+    if [ "${isMvc ? "1" : "0"}" = "1" ]; then
+        # MVC Lab: All starter files come directly from S3 (MyWebApp, Controllers, Models, Views, wwwroot, Program.cs)
+        if [ -f "$DEST_DIR/MyWebApp/Program.cs" ] && [ ! -f "$DEST_DIR/Program.cs" ]; then
+            cp -f "$DEST_DIR/MyWebApp/Program.cs" "$DEST_DIR/Program.cs" 2>/dev/null || true
         fi
-        if [ -f "$DEST_DIR/Program.cs" ] && [ ! -f "/workspace/Program.cs" ]; then
-            cp "$DEST_DIR/Program.cs" /workspace/ 2>/dev/null || true
+        if [ -d "/workspace" ] && [ "$DEST_DIR" != "/workspace" ]; then
+            cp -ru "$DEST_DIR"/* /workspace/ 2>/dev/null || true
         fi
-    fi
-
-    # Ensure /opt/dotnet-snippet and /opt/dotnet_snippet directories have project file & obj assets
-    for snip_dir in /opt/dotnet-snippet /opt/dotnet_snippet; do
-        mkdir -p "$snip_dir" 2>/dev/null || true
-        for csproj in "$DEST_DIR"/*.csproj "/workspace"/*.csproj; do
-            if [ -f "$csproj" ]; then
-                cp "$csproj" "$snip_dir/" 2>/dev/null || true
-            fi
-        done
-        if [ -d "$DEST_DIR/obj" ]; then
-            cp -r "$DEST_DIR/obj" "$snip_dir/" 2>/dev/null || true
-        elif [ -d "/workspace/obj" ]; then
-            cp -r "/workspace/obj" "$snip_dir/" 2>/dev/null || true
-        fi
-        if ! find "$snip_dir" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-            (cd "$snip_dir" && dotnet new console --force 2>/dev/null || true)
-        fi
-        chown -R labuser:labuser "$snip_dir" 2>/dev/null || true
-    done
-
-    # Change ownership back to container's non-root user
-    if [ -f "/app/lab_server.py" ]; then
-        chown -R $(stat -c '%U:%G' /app/lab_server.py) /tmp/workspace
+        # Remove any lingering console snippet Program.cs
+        rm -f /opt/dotnet-snippet/Program.cs /opt/dotnet_snippet/Program.cs 2>/dev/null || true
     else
-        chown -R labuser:labuser /tmp/workspace || true
+        # Console Lab: If .NET workspace has Program.cs but no .csproj anywhere in workspace, initialize console project
+        if [ -f "$DEST_DIR/Program.cs" ] && ! find "$DEST_DIR" -maxdepth 2 -name "*.csproj" 2>/dev/null | grep -q .; then
+            cp "$DEST_DIR/Program.cs" /tmp/Program.cs.bak 2>/dev/null || true
+            (cd "$DEST_DIR" && dotnet new console --force 2>/dev/null || true)
+            if [ -f /tmp/Program.cs.bak ]; then
+                mv /tmp/Program.cs.bak "$DEST_DIR/Program.cs"
+            fi
+        fi
+
+        # Ensure /workspace has csproj and obj from DEST_DIR if they exist
+        if [ -d "/workspace" ] && [ "$DEST_DIR" != "/workspace" ]; then
+            for proj in "$DEST_DIR"/*.csproj; do
+                if [ -f "$proj" ]; then
+                    cp "$proj" /workspace/ 2>/dev/null || true
+                fi
+            done
+            if [ -d "$DEST_DIR/obj" ]; then
+                cp -r "$DEST_DIR/obj" /workspace/ 2>/dev/null || true
+            fi
+            if [ -f "$DEST_DIR/Program.cs" ] && [ ! -f "/workspace/Program.cs" ]; then
+                cp "$DEST_DIR/Program.cs" /workspace/ 2>/dev/null || true
+            fi
+        fi
+
+        # Ensure /opt/dotnet-snippet and /opt/dotnet_snippet directories have project file & obj assets
+        for snip_dir in /opt/dotnet-snippet /opt/dotnet_snippet; do
+            mkdir -p "$snip_dir" 2>/dev/null || true
+            for csproj in "$DEST_DIR"/*.csproj "/workspace"/*.csproj; do
+                if [ -f "$csproj" ]; then
+                    cp "$csproj" "$snip_dir/" 2>/dev/null || true
+                fi
+            done
+            if [ -d "$DEST_DIR/obj" ]; then
+                cp -r "$DEST_DIR/obj" "$snip_dir/" 2>/dev/null || true
+            elif [ -d "/workspace/obj" ]; then
+                cp -r "/workspace/obj" "$snip_dir/" 2>/dev/null || true
+            fi
+            if ! find "$snip_dir" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+                (cd "$snip_dir" && dotnet new console --force 2>/dev/null || true)
+            fi
+            chown -R labuser:labuser "$snip_dir" 2>/dev/null || true
+        done
     fi
+
+    # Change ownership and grant write permissions back to container's non-root user
+    if [ -f "/app/lab_server.py" ]; then
+        chown -R $(stat -c '%U:%G' /app/lab_server.py) /tmp/workspace /workspace 2>/dev/null || true
+    else
+        chown -R labuser:labuser /tmp/workspace /workspace 2>/dev/null || true
+    fi
+    chmod -R 777 /tmp/workspace /workspace 2>/dev/null || true
 
     echo "SUCCESS"
 else
@@ -535,3 +554,162 @@ export const bootstrap = async (session, netInfo = null) => {
   });
   console.log(`[WorkspaceBootstrap] Bootstrap COMPLETED and verified successfully for session ${sessionId}. Lifecycle: EDITOR_READY.`);
 };
+
+export const switchDotnetSubtypeWorkspace = async (dbSession, targetSubtype) => {
+  const sessionId = dbSession.SessionId;
+  const normalizedSubtype = targetSubtype === "mvc" ? "mvc" : "console";
+  const assetKey = normalizedSubtype === "mvc"
+    ? "lab-assets/dotnet/mvc/latest.tar.gz"
+    : "lab-assets/dotnet/console-snippet/latest.tar.gz";
+
+  console.log(`[WorkspaceBootstrap] Switching session ${sessionId} to .NET subtype '${normalizedSubtype}' (asset: ${assetKey})`);
+
+  // 1. Update MySQL database
+  await labSessionRepository.updateSession(sessionId, { Subtype: normalizedSubtype });
+
+  // 2. Update memory/DynamoDB session state
+  let session = await getSession(sessionId);
+  if (!session) {
+    session = {
+      sessionId,
+      labId: dbSession.LabId,
+      taskArn: dbSession.TaskArn,
+      containerPort: dbSession.ContainerPort,
+      publicIp: dbSession.PublicIp,
+      status: "running",
+    };
+  }
+  session.dotnetSubtype = normalizedSubtype;
+  session.subtype = normalizedSubtype;
+  session.starterAssetKey = assetKey;
+  session.files = [];
+  session.isBootstrapped = true;
+  session.bootstrapState = "READY";
+  await updateSession(sessionId, {
+    dotnetSubtype: normalizedSubtype,
+    subtype: normalizedSubtype,
+    starterAssetKey: assetKey,
+    files: [],
+    bootstrapState: "READY",
+  });
+
+  // 3. Clear cached files in memory and persistent storage
+  clearSessionFiles(sessionId, session);
+  invalidateWorkspaceIndex(sessionId);
+
+  const bucket = ENV.testCasesBucket || "vlab-dev-lab-files-0kdrg0q8";
+  const ttl = ENV.labBootstrapPresignTtlSeconds || 3600;
+  const presignedUrl = await getPresignedUrl(bucket, assetKey, ttl);
+
+  const taskArn = session?.taskArn || dbSession?.TaskArn || dbSession?.taskArn;
+  if (taskArn) {
+    session.taskArn = taskArn;
+  }
+  const isEcs = !!taskArn;
+
+  if (isEcs) {
+    console.log(`[WorkspaceBootstrap] Performing container workspace switch for session ${sessionId}`);
+    const shellScript = `#!/bin/sh
+PRESIGNED_URL="${presignedUrl}"
+DEST_DIR="/tmp/workspace/workspace"
+TMP_TAR="/tmp/bootstrap.tar.gz"
+
+mkdir -p "$DEST_DIR"
+rm -rf "$DEST_DIR"/* "$DEST_DIR"/.[!.]* 2>/dev/null || true
+if [ -d "/workspace" ] && [ "$DEST_DIR" != "/workspace" ]; then
+    rm -rf /workspace/* /workspace/.[!.]* 2>/dev/null || true
+fi
+
+if command -v curl >/dev/null 2>&1; then
+    curl -sSL -o "$TMP_TAR" "$PRESIGNED_URL"
+elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$TMP_TAR" "$PRESIGNED_URL"
+elif command -v python3 >/dev/null 2>&1; then
+    python3 -c "import urllib.request; urllib.request.urlretrieve('$PRESIGNED_URL', '$TMP_TAR')"
+elif command -v python >/dev/null 2>&1; then
+    python -c "import urllib.request; urllib.request.urlretrieve('$PRESIGNED_URL', '$TMP_TAR')"
+fi
+
+if [ -f "$TMP_TAR" ]; then
+    tar -xzf "$TMP_TAR" -C "$DEST_DIR"
+    if [ -d "/workspace" ] && [ "$DEST_DIR" != "/workspace" ]; then
+        tar -xzf "$TMP_TAR" -C "/workspace" 2>/dev/null || true
+    fi
+    rm -f "$TMP_TAR"
+
+    if [ "${normalizedSubtype}" = "console" ]; then
+        for snip_dir in /opt/dotnet-snippet /opt/dotnet_snippet; do
+            mkdir -p "$snip_dir" 2>/dev/null || true
+            for csproj in "$DEST_DIR"/*.csproj "/workspace"/*.csproj; do
+                if [ -f "$csproj" ]; then
+                    cp "$csproj" "$snip_dir/" 2>/dev/null || true
+                fi
+            done
+            if [ -d "$DEST_DIR/obj" ]; then
+                cp -r "$DEST_DIR/obj" "$snip_dir/" 2>/dev/null || true
+            elif [ -d "/workspace/obj" ]; then
+                cp -r "/workspace/obj" "$snip_dir/" 2>/dev/null || true
+            fi
+            if ! find "$snip_dir" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+                (cd "$snip_dir" && dotnet new console --force 2>/dev/null || true)
+            fi
+            chown -R labuser:labuser "$snip_dir" 2>/dev/null || true
+        done
+    else
+        rm -f /opt/dotnet-snippet/Program.cs /opt/dotnet_snippet/Program.cs 2>/dev/null || true
+    fi
+
+    if [ -f "/app/lab_server.py" ]; then
+        chown -R $(stat -c '%U:%G' /app/lab_server.py) /tmp/workspace /workspace 2>/dev/null || true
+    else
+        chown -R labuser:labuser /tmp/workspace /workspace 2>/dev/null || true
+    fi
+    chmod -R 777 /tmp/workspace /workspace 2>/dev/null || true
+    echo "SUCCESS"
+else
+    echo "ERROR: Failed to download archive"
+    exit 1
+fi
+`;
+
+    const payload = {
+      action: "run",
+      path: "/tmp/switch_workspace.sh",
+      language: "shell",
+      labType: "linux",
+      content: shellScript,
+    };
+    try {
+      const execResult = await executeViaSsm(session, payload);
+      console.log(`[WorkspaceBootstrap] Switch SSM result:`, execResult?.output || "No output");
+    } catch (ssmErr) {
+      console.warn(`[WorkspaceBootstrap] Switch SSM warning:`, ssmErr.message);
+    }
+  } else {
+    // Local workspace switch
+    const root = getLocalWorkspaceRoot();
+    clearDiskWorkspace();
+    const tempTarPath = path.join(root, `switch_${sessionId}.tar.gz`);
+    try {
+      await downloadFile(presignedUrl, tempTarPath);
+      await extractTar(tempTarPath, root);
+      if (fs.existsSync(tempTarPath)) {
+        fs.unlinkSync(tempTarPath);
+      }
+    } catch (localErr) {
+      console.warn(`[WorkspaceBootstrap] Local switch warning:`, localErr.message);
+    }
+  }
+
+  // 4. Load fresh files
+  const files = await listFiles(sessionId, session, true);
+
+  return {
+    success: true,
+    subtype: normalizedSubtype,
+    dotnetSubtype: normalizedSubtype,
+    files,
+    message: `Switched to .NET ${normalizedSubtype === "mvc" ? "MVC Web App" : "Console App"} successfully.`
+  };
+};
+

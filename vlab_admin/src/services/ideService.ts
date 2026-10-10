@@ -10,6 +10,7 @@ import {
   runFile as runFileApi,
   deleteFile,
   startAndroidBuild,
+  switchDotnetSubtype,
 } from '../Utils/PostApiHandler';
 
 export interface TerminalConnection {
@@ -25,6 +26,7 @@ export {
   deleteFile,
   startAndroidBuild,
   fetchAndroidBuildStatus,
+  switchDotnetSubtype,
 };
 
 export async function runFile(payload: any, sessionId: string) {

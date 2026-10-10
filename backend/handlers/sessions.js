@@ -24,7 +24,7 @@ import {
   resolveTaskNetworking,
 } from "../services/ecsService.js";
 import { clearSessionFiles, clearDiskWorkspace } from "../services/fileRepository.js";
-import { bootstrap as bootstrapSession } from "../services/workspaceBootstrapService.js";
+import { bootstrap as bootstrapSession, switchDotnetSubtypeWorkspace } from "../services/workspaceBootstrapService.js";
 import userWorkspaceService from "../services/UserWorkspaceService.js";
 
 function calculateRemainingSeconds(expiresAt) {
@@ -783,3 +783,37 @@ export const sessionsListByUserHandler = async ({
 
   return ok({ success: false, message: "No active session found" });
 };
+
+export const sessionsSwitchSubtypeHandler = async ({ pathParameters, body, auth }) => {
+  if (!auth?.userId) throw unauthorized("Authentication required");
+  const sessionId = pathParameters?.sessionId || body?.sessionId;
+  if (!sessionId) throw badRequest("Session ID required");
+
+  const targetSubtype = (body?.subtype || body?.dotnetSubtype || "").toLowerCase().trim();
+  if (targetSubtype !== "console" && targetSubtype !== "mvc") {
+    throw badRequest("Invalid subtype. Allowed values: 'console', 'mvc'");
+  }
+
+  const dbSession = await labSessionRepository.getSessionById(sessionId);
+  if (!dbSession) throw notFound("Session not found");
+
+  const isOwner = await verifySessionOwnership(dbSession, auth);
+  if (!isOwner) throw forbidden("You do not own this session");
+
+  if (['COMPLETED', 'EXPIRED', 'FAILED', 'STOPPING', 'STOPPED'].includes(dbSession.Status)) {
+    throw badRequest("Cannot switch subtype of an inactive session.");
+  }
+
+  const labId = (dbSession.LabId || "").toLowerCase();
+  const lab = await getLabById(dbSession.LabId);
+  const labType = (lab?.runtime?.type || lab?.RuntimeType || lab?.runtimeType || canonicalLabType(labId) || "").toLowerCase();
+
+  const isDotnet = labType === "dotnet" || labId === "dotnet-lab" || labId.includes("dotnet");
+  if (!isDotnet) {
+    throw badRequest("Subtype switching is only supported for .NET labs");
+  }
+
+  const result = await switchDotnetSubtypeWorkspace(dbSession, targetSubtype);
+  return ok(result);
+};
+

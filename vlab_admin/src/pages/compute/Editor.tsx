@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Editor } from '@monaco-editor/react';
 import { useLocation } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath, startAndroidBuild, fetchAndroidBuildStatus } from '../../services/ideService';
+import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath, startAndroidBuild, fetchAndroidBuildStatus, switchDotnetSubtype } from '../../services/ideService';
 import {
   File, Code2, Plus, Upload, Play, Save,
   Trash2, X, FileJson, FileText, ChevronRight, ChevronDown, ChevronUp, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
@@ -206,6 +206,8 @@ const needsConsoleInput = (code: string) =>
   /Console\.ReadLine\s*\(/.test(code) ||
   /Console\.Read\s*\(/.test(code) ||
   /input\s*\(/.test(code) ||
+  /raw_input\s*\(/.test(code) ||
+  /sys\.stdin\b/.test(code) ||
   /Scanner\b/.test(code) ||
   /\.next(Int|Line|Double|Float|Long|Short|Byte|Boolean)?\s*\(/.test(code) ||
   /System\.in/.test(code) ||
@@ -214,7 +216,7 @@ const needsConsoleInput = (code: string) =>
 const countConsoleReads = (code: string) => {
   const readLine = (code.match(/Console\.ReadLine\s*\(/g) || []).length;
   const readChar = (code.match(/Console\.Read\s*\(/g) || []).length;
-  const pyInput = (code.match(/input\s*\(/g) || []).length;
+  const pyInput = (code.match(/(?:input|raw_input)\s*\(/g) || []).length;
   const javaScanner = (code.match(/\.next(Int|Line|Double|Float|Long|Short|Byte|Boolean)?\s*\(/g) || []).length;
   return readLine + readChar + pyInput + javaScanner;
 };
@@ -250,6 +252,23 @@ const isDotnetMvcPath = (filePath: string, content?: string) => {
     normalized.includes('/controllers/') ||
     normalized.includes('/views/')
   );
+};
+
+const isMvcWorkspace = (fileList: any[]) => {
+  if (!fileList || fileList.length === 0) return false;
+  return fileList.some((f) => {
+    const p = (f.path || '').toLowerCase();
+    const n = (f.name || '').toLowerCase();
+    const c = f.content || '';
+    return (
+      p.includes('mywebapp') ||
+      p.includes('/controllers/') ||
+      p.includes('/views/') ||
+      n.endsWith('.cshtml') ||
+      n === 'homecontroller.cs' ||
+      (n === 'program.cs' && isDotnetMvcPath(p, c))
+    );
+  });
 };
 
 const normalizeDotnetUploadName = (fileName: string) => {
@@ -919,6 +938,85 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const isRunning = runningAction !== null;
   const [webPreviewCode, setWebPreviewCode] = useState('');
   const [sessionId, setSessionId] = useState('');
+  const [currentSubtype, setCurrentSubtype] = useState<string>(() => {
+    const fromSession = (propSession?.dotnetSubtype || propSession?.subtype || activeSession?.dotnetSubtype || '').toLowerCase();
+    return fromSession === 'mvc' || fromSession === 'console' ? fromSession : 'console';
+  });
+  const [isSwitchingSubtype, setIsSwitchingSubtype] = useState(false);
+  const [showSwitchConfirmModal, setShowSwitchConfirmModal] = useState(false);
+  const [pendingSubtype, setPendingSubtype] = useState<'console' | 'mvc' | null>(null);
+
+  useEffect(() => {
+    const sub = (propSession?.dotnetSubtype || propSession?.subtype || activeSession?.dotnetSubtype || '').toLowerCase();
+    if (sub === 'mvc' || sub === 'console') {
+      setCurrentSubtype(sub);
+    }
+  }, [propSession?.dotnetSubtype, propSession?.subtype, activeSession?.dotnetSubtype]);
+
+  // Auto-detect .NET project subtype from workspace files to guarantee 100% accurate status
+  useEffect(() => {
+    if (!isDotnet || files.length === 0) return;
+    const isMvc = isMvcWorkspace(files);
+    const expected = isMvc ? 'mvc' : 'console';
+    if (currentSubtype !== expected) {
+      console.log(`[Editor] Auto-detected .NET subtype from workspace files: ${expected} (was: ${currentSubtype})`);
+      setCurrentSubtype(expected);
+    }
+  }, [files, isDotnet, currentSubtype]);
+
+  const handleRequestSubtypeSwitch = (target: 'console' | 'mvc') => {
+    if (isSwitchingSubtype || isRunning) return;
+    if (currentSubtype === target) return;
+    setPendingSubtype(target);
+    setShowSwitchConfirmModal(true);
+  };
+
+  const handleConfirmSubtypeSwitch = async () => {
+    if (!pendingSubtype || !sessionId || isSwitchingSubtype) return;
+    const target = pendingSubtype;
+    setShowSwitchConfirmModal(false);
+    setIsSwitchingSubtype(true);
+    const loadingToast = toast.loading(`Switching to .NET ${target === 'mvc' ? 'MVC Web App' : 'Console App'}...`);
+
+    try {
+      const res = await switchDotnetSubtype(sessionId, target);
+      if (res && (res.success || res.files)) {
+        setCurrentSubtype(target);
+        if (activeSession) {
+          useLabSessionStore.setState({
+            activeSession: { ...activeSession, dotnetSubtype: target }
+          });
+        }
+        resetEditorState();
+        if (res.files && Array.isArray(res.files) && res.files.length > 0) {
+          setFiles(res.files);
+          filesRef.current = res.files;
+          const preferredFileIdx = res.files.findIndex((f: any) =>
+            /program\.cs|homecontroller\.cs|index\.cshtml/i.test(f.name)
+          );
+          const targetIdx = preferredFileIdx >= 0 ? preferredFileIdx : 0;
+          const targetFile = res.files[targetIdx];
+          if (targetFile) {
+            setOpenFilePaths([targetFile.path]);
+            selectFile(targetIdx, res.files);
+          }
+        } else {
+          await refreshFiles(true, true);
+        }
+        toast.dismiss(loadingToast);
+        toast.success(`Successfully switched to .NET ${target === 'mvc' ? 'MVC Web App' : 'Console App'}!`);
+      } else {
+        toast.dismiss(loadingToast);
+        toast.error(res?.message || 'Failed to switch project type');
+      }
+    } catch (err: any) {
+      toast.dismiss(loadingToast);
+      toast.error(err?.message || 'Error switching project type');
+    } finally {
+      setIsSwitchingSubtype(false);
+      setPendingSubtype(null);
+    }
+  };
   const [isLoading, setIsLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -1136,6 +1234,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             selectFile(targetIdx, response.files);
           }
         }
+
+        if (isDotnet && response.files && response.files.length > 0) {
+          const isMvc = isMvcWorkspace(response.files);
+          setCurrentSubtype(isMvc ? 'mvc' : 'console');
+        }
+
         return response.files;
       }
     } catch (err) {
@@ -1556,7 +1660,11 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     URL.revokeObjectURL(url);
   };
 
-  const runConsoleInteractive = async (code: string, stdinLines: string[]) => {
+  const runConsoleInteractive = async (
+    code: string,
+    stdinLines: string[],
+    historyPrefix: string = ''
+  ) => {
     const stdin = stdinLines.length > 0 ? `${stdinLines.join('\n')}\n` : '';
     setConsoleSession((prev) => (prev ? { ...prev, isRunning: true, error: null } : prev));
 
@@ -1575,6 +1683,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           language: activeFile!.language || (isDotnet ? 'csharp' : isJava ? 'java' : 'python'),
           content: code,
           labType: resolvedLabType,
+          dotnetSubtype: currentSubtype || (isMvcWorkspace(files) ? 'mvc' : 'console'),
           stdin,
         },
         sessionId,
@@ -1582,7 +1691,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
       const rawOutput = response?.output != null ? String(response.output) : '';
       const rawError = response?.error || response?.runtimeError || response?.syntaxError || '';
-      const runSuccess = response?.success || response?.status === 'COMPLETED';
+      const runSuccess = Boolean(response?.success || response?.status === 'COMPLETED');
 
       let plotHtml: string | null = response?.plotHtml || null;
       let textOnly = rawOutput;
@@ -1604,19 +1713,46 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             : `python ${activeFile?.name || 'main.py'}`;
 
       const isInitialProbe = stdinLines.length === 0;
-      const isCompileError = /error:|syntax error|SyntaxError|cannot find symbol|class, interface, or enum expected|package .* does not exist/i.test(rawError || rawOutput);
+
+      // Identify missing/waiting stdin errors (EOFError, NoSuchElementException, etc.)
+      const isMissingInputPattern = /NoSuchElementException|EOFError|End of stream|EndOfStreamException|No line found/i.test(rawError || rawOutput);
+
+      // Distinguish true compile/syntax errors from missing standard input errors
+      const isCompileError = !isMissingInputPattern && /(?:\berror\s*:|syntax error|SyntaxError|IndentationError|TabError|cannot find symbol|class, interface, or enum expected|package .* does not exist)/i.test(rawError || rawOutput);
 
       const isMissingInputError = !runSuccess && !isCompileError && (
-        /NoSuchElementException|EOFError|End of stream|EndOfStreamException|No line found|NullReferenceException/i.test(rawError || rawOutput) ||
+        isMissingInputPattern ||
         (isInitialProbe && needsConsoleInput(code))
       );
 
       let cleanConsoleOutput = output;
+
+      // If output was empty, check if prompt was emitted to stderr before EOF traceback
+      if (!cleanConsoleOutput && rawError && isMissingInputError) {
+        const promptCandidate = rawError
+          .replace(/Traceback \(most recent call last\):[\s\S]*/, '')
+          .replace(/Exception in thread "main"[\s\S]*/, '')
+          .trim();
+        if (promptCandidate) {
+          cleanConsoleOutput = promptCandidate;
+        }
+      }
+
       if (isMissingInputError) {
         cleanConsoleOutput = cleanConsoleOutput
           .replace(/Exception in thread "main" java\.util\.NoSuchElementException[\s\S]*/, '')
-          .replace(/Traceback \(most recent call last\):[\s\S]*EOFError[\s\S]*/, '')
+          .replace(/Traceback \(most recent call last\):[\s\S]*/, '')
           .trimEnd();
+      }
+
+      // Interleave prompt and user inputs for natural terminal output
+      let finalDisplayOutput = cleanConsoleOutput;
+      if (historyPrefix) {
+        let newContent = cleanConsoleOutput;
+        if (consoleSession?.output && cleanConsoleOutput.startsWith(consoleSession.output)) {
+          newContent = cleanConsoleOutput.slice(consoleSession.output.length);
+        }
+        finalDisplayOutput = historyPrefix + (newContent || '');
       }
 
       const sessionError = runSuccess
@@ -1625,22 +1761,19 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           ? null
           : (rawError || rawOutput || 'Program exited with an error');
 
-      setConsoleSession((prev) =>
-        prev
-          ? {
-            ...prev,
-            isRunning: false,
-            output: cleanConsoleOutput,
-            stdinLines,
-            success: runSuccess,
-            error: sessionError,
-          }
-          : prev,
-      );
+      setConsoleSession({
+        active: true,
+        code,
+        output: finalDisplayOutput,
+        stdinLines,
+        isRunning: false,
+        success: runSuccess,
+        error: sessionError,
+      });
 
       setTerminalOutput({
         command: cmdName,
-        output: cleanConsoleOutput || textOnly,
+        output: finalDisplayOutput || textOnly,
         plotHtml,
         error: sessionError,
         status: runSuccess ? 'success' : isMissingInputError ? 'idle' : 'error',
@@ -1677,9 +1810,13 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   };
 
   const handleConsoleInputSubmit = (value: string) => {
-    if (!consoleSession) return;
+    if (!consoleSession || consoleSession.isRunning) return;
     const newLines = [...consoleSession.stdinLines, value];
-    runConsoleInteractive(consoleSession.code, newLines);
+    const currentPrompt = consoleSession.output || '';
+    const turnText = currentPrompt
+      ? `${currentPrompt}${currentPrompt.endsWith('\n') ? '' : ' '}${value}\n`
+      : `> ${value}\n`;
+    runConsoleInteractive(consoleSession.code, newLines, turnText);
   };
 
   const getExecutionMode = () => new Promise<'gui' | 'headless'>((resolve) => {
@@ -1768,10 +1905,19 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     }
 
     const code = editorRef.current ? editorRef.current.getValue() : (activeFile?.content || '');
+    if (activeFile?.path && dirtyPathsRef.current.has(activeFile.path)) {
+      saveFile({ ...activeFile, content: code }, sessionId).catch(() => {});
+      lastSavedContentRef.current.set(activeFile.path, code);
+      dirtyPathsRef.current.delete(activeFile.path);
+    }
+
     const isConsoleInteractive =
-      !isDotnetBuildMode && !dotnetAction && needsConsoleInput(code);
+      !isDotnetBuildMode && !dotnetAction && currentSubtype !== 'mvc' && !isMvcWorkspace(files) && needsConsoleInput(code);
 
     if (isConsoleInteractive) {
+      setOutputTab('output');
+      setIsOutputCollapsed(false);
+      setConsoleInputValue('');
       setConsoleSession({
         active: true,
         code,
@@ -1829,6 +1975,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
               ? 'java'
               : (labType || (labId?.includes('python') ? 'python' : labId || 'python'));
 
+      const effectiveDotnetSubtype = currentSubtype || (isMvcWorkspace(files) ? 'mvc' : 'console');
+
       const runPayload = isAndroid
         ? { path: '/workspace/build.sh', language: 'shell', content: '', labType: 'android' }
         : isDotnet
@@ -1837,6 +1985,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             language: 'csharp',
             content: editorCode,
             labType: 'dotnet',
+            dotnetSubtype: effectiveDotnetSubtype,
             ...(dotnetAction ? { action: dotnetAction } : {}),
           }
           : {
@@ -1866,6 +2015,27 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
         const cleanOutput = extractConsoleOutput(textOnly);
         const finalOutput = cleanOutput !== undefined && cleanOutput !== '' ? cleanOutput : textOnly;
+        const isMissingInput = !runSuccess && /NoSuchElementException|EOFError|End of stream|EndOfStreamException|No line found/i.test(rawError || rawOutput);
+        if (isMissingInput) {
+          const promptCandidate = (cleanOutput || rawOutput || rawError)
+            .replace(/Traceback \(most recent call last\):[\s\S]*/, '')
+            .replace(/Exception in thread "main"[\s\S]*/, '')
+            .trimEnd();
+
+          setOutputTab('output');
+          setIsOutputCollapsed(false);
+          setConsoleInputValue('');
+          setConsoleSession({
+            active: true,
+            code: editorCode,
+            output: promptCandidate,
+            stdinLines: [],
+            isRunning: false,
+            success: false,
+            error: null,
+          });
+          return;
+        }
 
         setTerminalOutput({
           command: commandText,
@@ -2358,18 +2528,32 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const currentLabName = currentLab?.name || currentLab?.title || propSession?.labName || '';
   const labRules = getLabExtensionRules(currentLabName, labId);
   const isPythonLab = (labRules.courseName || '').toLowerCase().includes('python') || labId.toLowerCase().includes('python') || labType === 'python';
-  const labTitle = isPythonLab ? 'Python Lab' : (labRules.courseName || 'Virtual Lab');
-  const labSubtitle = isPythonLab ? 'Write, Run and Explore Python Programs' : `Write, Run and Explore ${labTitle} Programs`;
+  const labTitle = isPythonLab
+    ? 'Python Lab'
+    : isDotnet
+      ? `.NET ${currentSubtype === 'mvc' ? 'MVC' : 'Console'} Lab`
+      : (labRules.courseName || 'Virtual Lab');
+  const labSubtitle = isPythonLab
+    ? 'Write, Run and Explore Python Programs'
+    : isDotnet
+      ? (currentSubtype === 'mvc' ? 'Model-View-Controller Web Application' : 'Command-Line Console Application')
+      : `Write, Run and Explore ${labTitle} Programs`;
 
   const needsInput = !!consoleSession && !consoleSession.isRunning && !consoleSession.success && !consoleSession.error;
 
   const handleTerminalConsoleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!consoleInputValue.trim() || !consoleSession || consoleSession.isRunning) return;
+    if (!consoleSession || consoleSession.isRunning) return;
     const val = consoleInputValue;
     setConsoleInputValue('');
     const newLines = [...consoleSession.stdinLines, val];
-    runConsoleInteractive(consoleSession.code, newLines);
+
+    const currentPrompt = consoleSession.output || '';
+    const turnText = currentPrompt
+      ? `${currentPrompt}${currentPrompt.endsWith('\n') ? '' : ' '}${val}\n`
+      : `> ${val}\n`;
+
+    runConsoleInteractive(consoleSession.code, newLines, turnText);
   };
 
   return (
@@ -2443,6 +2627,48 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   <span>APK</span>
                 </button>
               )}
+            </div>
+          )}
+
+          {/* .NET Subtype Live Switcher */}
+          {isDotnet && (
+            <div className="flex items-center bg-slate-100/90 p-0.5 sm:p-1 rounded-xl border border-slate-200/80 shadow-xs">
+              <button
+                type="button"
+                onClick={() => handleRequestSubtypeSwitch('console')}
+                disabled={isSwitchingSubtype || isRunning}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  currentSubtype === 'console'
+                    ? 'bg-white text-red-600 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                } ${isSwitchingSubtype || isRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                title={currentSubtype === 'console' ? 'Console App Active' : 'Switch to .NET Console App'}
+              >
+                {isSwitchingSubtype && pendingSubtype === 'console' ? (
+                  <RotateCw size={13} className="animate-spin text-red-600" />
+                ) : (
+                  <TerminalIcon size={13} className={currentSubtype === 'console' ? 'text-red-600' : 'text-slate-500'} />
+                )}
+                <span>Console</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRequestSubtypeSwitch('mvc')}
+                disabled={isSwitchingSubtype || isRunning}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  currentSubtype === 'mvc'
+                    ? 'bg-white text-indigo-600 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                } ${isSwitchingSubtype || isRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                title={currentSubtype === 'mvc' ? 'MVC Web App Active' : 'Switch to .NET MVC Web App'}
+              >
+                {isSwitchingSubtype && pendingSubtype === 'mvc' ? (
+                  <RotateCw size={13} className="animate-spin text-indigo-600" />
+                ) : (
+                  <Globe size={13} className={currentSubtype === 'mvc' ? 'text-indigo-600' : 'text-slate-500'} />
+                )}
+                <span>MVC</span>
+              </button>
             </div>
           )}
 
@@ -2891,16 +3117,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                       {/* Console / Terminal output content */}
                       {consoleSession?.active ? (
                         <div>
-                          {consoleSession.stdinLines.length > 0 && (
-                            <div className="mb-2 space-y-0.5 select-text">
-                              {consoleSession.stdinLines.map((inp, idx) => (
-                                <div key={idx} className="font-mono text-xs sm:text-sm text-yellow-300">
-                                  &gt; {inp}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
                           {consoleSession.output && (
                             <pre className="font-mono text-xs sm:text-sm whitespace-pre overflow-x-auto leading-relaxed select-text text-slate-100 m-0 font-normal">
                               {consoleSession.output}
@@ -2999,6 +3215,66 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           </div>
         </div>
       </div>
+
+      {/* .NET Subtype Switch Confirmation Modal */}
+      {showSwitchConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-100 flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                pendingSubtype === 'mvc' ? 'bg-indigo-50 text-indigo-600' : 'bg-red-50 text-red-600'
+              }`}>
+                {pendingSubtype === 'mvc' ? <Globe size={22} /> : <TerminalIcon size={22} />}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Switch to .NET {pendingSubtype === 'mvc' ? 'MVC Web App' : 'Console App'}?
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Keep container running without restart or token loss.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-3.5 text-xs text-slate-600 leading-relaxed">
+              <p>
+                Switching will load the starter template for{' '}
+                <strong className="text-slate-800">
+                  {pendingSubtype === 'mvc' ? 'MVC Web Application' : 'Console Application'}
+                </strong>{' '}
+                into your workspace.
+              </p>
+              <p className="mt-1 text-slate-500">
+                Your container session remains active without waiting for stop/start cycles.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSwitchConfirmModal(false);
+                  setPendingSubtype(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSubtypeSwitch}
+                className={`flex items-center gap-2 px-5 py-2 text-xs font-bold text-white rounded-xl shadow-sm transition-all cursor-pointer active:scale-95 ${
+                  pendingSubtype === 'mvc'
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-indigo-500/20'
+                    : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-red-500/20'
+                }`}
+              >
+                <span>Confirm Switch</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <SeleniumExecutionDialog
         open={isSeleniumDialogOpen}

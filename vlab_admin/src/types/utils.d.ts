@@ -26,6 +26,7 @@ declare module '*PostApiHandler' {
   export const startLabSession: (params?: { labId?: string; sessionBlocks?: number; duration?: number; dotnetSubtype?: string; idempotencyKey?: string; userCredits?: number; practicalCredit?: number; academicCtx?: any }) => Promise<any>;
   export const extendLabSession: (sessionId?: string, params?: { sessionBlocks?: number; idempotencyKey?: string }) => Promise<any>;
   export const stopLabSession: (sessionId?: string) => Promise<any>;
+  export const switchDotnetSubtype: (sessionId?: string, subtype?: string) => Promise<any>;
   export const updateLabCredits: (labId?: string, credits?: number) => Promise<any>;
   export const ssoLogin: (payload?: any, token?: string) => Promise<any>;
   export const updateUserProfile: (payload?: any) => Promise<any>;

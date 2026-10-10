@@ -51,6 +51,7 @@ export const API_PATHS = {
     GET_ACTIVE_SESSION: '/lab-sessions/active',
     EXTEND_SESSION: (sessionId) => `/lab-sessions/${sessionId}/extend`,
     STOP_SESSION: (sessionId) => `/lab-sessions/${sessionId}/stop`,
+    SWITCH_SUBTYPE: (sessionId) => `/lab-sessions/${sessionId}/switch-subtype`,
   },
   IDE: {
     GET_FILES: '/files',

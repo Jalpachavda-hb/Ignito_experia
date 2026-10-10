@@ -11,6 +11,10 @@ export class SessionManager {
       throw new Error("You do not own this session");
     }
 
+    if (!session.dotnetSubtype && (session.subtype || session.Subtype)) {
+      session.dotnetSubtype = session.subtype || session.Subtype;
+    }
+
     const isLocalMock = !session.taskArn || process.env.FORCE_MOCK_EXECUTION === "true";
 
     if (session.status !== "running" && !isLocalMock) {

@@ -161,7 +161,7 @@ export const runCommandInContainer = async (session, commandValue, options = {})
 /**
  * SSM bridge payload executor mapping path/content/language directly to Fargate execute-command shell writes.
  */
-export const executeViaSsm = async (session, { path: filePath, content, language, labType, action, stdin }) => {
+export const executeViaSsm = async (session, { path: filePath, content, language, labType, action, stdin, dotnetSubtype }) => {
   const b64 = Buffer.from(content || "").toString("base64");
   
   let containerPath = filePath.replace(/\\/g, "/");
@@ -178,9 +178,28 @@ export const executeViaSsm = async (session, { path: filePath, content, language
   const fileName = path.basename(containerPath);
   const currentLabType = labType || session?.labType || "";
   const isDotnet = language === "csharp" || filePath.endsWith(".cs") || currentLabType === "dotnet";
-  const isMvcProject = String(session?.dotnetSubtype || "").toLowerCase() === "mvc" ||
+
+  const resolvedDotnetSubtype = String(
+    dotnetSubtype || session?.dotnetSubtype || session?.subtype || session?.Subtype || ""
+  ).toLowerCase().trim();
+
+  const hasMvcSignatures = typeof content === "string" && (
+    content.includes("WebApplication") ||
+    content.includes("AddControllersWithViews") ||
+    content.includes("Microsoft.AspNetCore") ||
+    content.includes("MapControllerRoute") ||
+    content.includes("MapControllers") ||
+    content.includes("ControllerBase") ||
+    content.includes("IActionResult") ||
+    content.includes("ErrorViewModel")
+  );
+
+  const isMvcProject =
+    resolvedDotnetSubtype === "mvc" ||
+    hasMvcSignatures ||
     containerPath.includes("/MyWebApp/") ||
     containerPath.toLowerCase().includes("/controllers/") ||
+    containerPath.toLowerCase().includes("/views/") ||
     containerPath.toLowerCase().endsWith(".cshtml");
 
   let runCmd = "";
@@ -230,16 +249,46 @@ fi
 
 cd "${parentDir}"
 ${isDotnet ? `
-# Check if a .NET project file exists in current folder or parent workspace
+# Ensure workspace write permissions for NuGet restore & build outputs
+chmod -R 777 /workspace /tmp/workspace "${parentDir}" 2>/dev/null || true
+
 PROJECT_ARG=""
 if [ "${isMvcProject ? "1" : "0"}" = "1" ]; then
-  if ! find . -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-    if find /workspace -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-      PROJECT_ARG="--project /workspace"
-    elif find /tmp/workspace/workspace -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-      PROJECT_ARG="--project /tmp/workspace/workspace"
-    fi
+  # Find the directory containing the .csproj file (e.g. /tmp/workspace/workspace/MyWebApp)
+  PROJ_FILE=$(find /tmp/workspace/workspace /workspace "${parentDir}" . -maxdepth 3 -name "*.csproj" 2>/dev/null | grep -v "/opt/" | head -n 1)
+  if [ -n "$PROJ_FILE" ]; then
+    PROJ_DIR=$(dirname "$PROJ_FILE")
+  elif [ -d "/tmp/workspace/workspace/MyWebApp" ]; then
+    PROJ_DIR="/tmp/workspace/workspace/MyWebApp"
+  elif [ -d "/workspace/MyWebApp" ]; then
+    PROJ_DIR="/workspace/MyWebApp"
+  else
+    PROJ_DIR="${parentDir}"
   fi
+
+  chmod -R 777 "$PROJ_DIR" 2>/dev/null || true
+  rm -f "$PROJ_DIR/obj/"*.tmp 2>/dev/null || true
+
+  # Ensure the active file or Program.cs is synced into the MVC project directory
+  if [ -f "${containerPath}" ] && [ "$(basename "${containerPath}")" = "Program.cs" ]; then
+    cp -f "${containerPath}" "$PROJ_DIR/Program.cs" 2>/dev/null || true
+  fi
+  if [ -f "/tmp/workspace/workspace/Program.cs" ] && [ "$PROJ_DIR" != "/tmp/workspace/workspace" ]; then
+    cp -f "/tmp/workspace/workspace/Program.cs" "$PROJ_DIR/Program.cs" 2>/dev/null || true
+  elif [ -f "/workspace/Program.cs" ] && [ "$PROJ_DIR" != "/workspace" ]; then
+    cp -f "/workspace/Program.cs" "$PROJ_DIR/Program.cs" 2>/dev/null || true
+  fi
+
+  for sub in Controllers Models Views wwwroot; do
+    if [ -d "/tmp/workspace/workspace/$sub" ] && [ "$PROJ_DIR" != "/tmp/workspace/workspace" ]; then
+      cp -ru "/tmp/workspace/workspace/$sub" "$PROJ_DIR/" 2>/dev/null || true
+    elif [ -d "/workspace/$sub" ] && [ "$PROJ_DIR" != "/workspace" ]; then
+      cp -ru "/workspace/$sub" "$PROJ_DIR/" 2>/dev/null || true
+    fi
+  done
+
+  cd "$PROJ_DIR"
+  PROJECT_ARG="--project \"$PROJ_DIR\""
 fi
 ` : ""}
 ${isPython ? `
@@ -256,7 +305,19 @@ if [ $? -ne 0 ]; then
 fi
 chmod +x "${containerPath}"
 ` : ""}
+
+${isMvcProject ? `
+# For MVC projects, sync active edited file into project directory and stay in PROJ_DIR
+if [ -n "$PROJ_DIR" ] && [ -d "$PROJ_DIR" ]; then
+  if [ -f "${containerPath}" ] && [ "$(basename "${containerPath}")" = "Program.cs" ]; then
+    cp -f "${containerPath}" "$PROJ_DIR/Program.cs" 2>/dev/null || true
+  fi
+  cd "$PROJ_DIR"
+fi
+` : `
 cd "${parentDir}"
+`}
+
 ${isDotnet && !isMvcProject ? `
 # Isolated console snippet runner:
 # Copy the active file into /opt/dotnet-snippet/Program.cs so that multiple .cs files in the workspace
@@ -283,7 +344,37 @@ PROJECT_ARG="--project $SNIP_DIR"
 ` : ""}
 
 # Execute target command with optional stdin
-${hasStdin ? `
+${isDotnet && isMvcProject && action !== "build" ? `
+# MVC Run execution: Build first to catch any errors, then start server and capture startup logs
+kill $(pgrep -f "MyWebApp") 2>/dev/null || true
+kill $(pgrep -f "dotnet") 2>/dev/null || true
+pkill -f "MyWebApp.dll" 2>/dev/null || true
+pkill -f "dotnet run" 2>/dev/null || true
+
+dotnet build --nologo
+BUILD_EXIT=$?
+if [ $BUILD_EXIT -ne 0 ]; then
+  echo "###EXIT_CODE:$BUILD_EXIT"
+  exit $BUILD_EXIT
+fi
+
+(dotnet run --no-build --nologo > /tmp/mvc_app.log 2>&1 &)
+MVC_PID=$!
+sleep 4
+if ps -p $MVC_PID > /dev/null 2>&1; then
+  cat /tmp/mvc_app.log
+  echo ""
+  echo "Application started successfully."
+  echo "###EXIT_CODE:0"
+  exit 0
+else
+  cat /tmp/mvc_app.log
+  WAIT_EXIT=0
+  wait $MVC_PID 2>/dev/null || WAIT_EXIT=$?
+  echo "###EXIT_CODE:\${WAIT_EXIT:-1}"
+  exit \${WAIT_EXIT:-1}
+fi
+` : hasStdin ? `
 echo "${stdinB64}" | base64 -d > /tmp/vlab_stdin.txt
 (${runCmd} \${PROJECT_ARG:-}) < /tmp/vlab_stdin.txt
 EXEC_EXIT=$?
