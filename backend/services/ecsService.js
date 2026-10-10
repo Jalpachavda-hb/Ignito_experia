@@ -206,6 +206,10 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubty
     environment.push({ name: "DOTNET_SUBTYPE", value: String(dotnetSubtype) });
   }
 
+  if (labId === 'dotnet-lab' || labType === 'dotnet') {
+    environment.push({ name: "DOTNET_SNIPPET_DIR", value: "/opt/dotnet-snippet" });
+  }
+
   const rt = (lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "ide").toLowerCase();
   if (rt === "jupyter" || rt === "datascience") {
     environment.push({

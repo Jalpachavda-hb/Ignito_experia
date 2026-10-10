@@ -110,6 +110,24 @@ export const executeCode = async (session, payload, options = {}) => {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
+      let parsedJson = null;
+      try {
+        parsedJson = JSON.parse(errorText);
+      } catch (_) {}
+
+      if (parsedJson && typeof parsedJson === "object" && (parsedJson.output !== undefined || parsedJson.error !== undefined || parsedJson.runtimeError !== undefined)) {
+        return {
+          success: false,
+          status: "FAILED",
+          runId,
+          output: parsedJson.output || "",
+          plotHtml: null,
+          error: parsedJson.error || parsedJson.runtimeError || parsedJson.syntaxError || `Execution error (HTTP ${response.status})`,
+          syntaxError: parsedJson.syntaxError || "",
+          runtimeError: parsedJson.runtimeError || "",
+        };
+      }
+
       throw new Error(`HTTP ${response.status}: ${errorText || "Container error"}`);
     }
 

@@ -194,6 +194,40 @@ if [ -f "$TMP_TAR" ]; then
         fi
     fi
 
+    # Ensure /workspace has csproj and obj from DEST_DIR if they exist
+    if [ -d "/workspace" ] && [ "$DEST_DIR" != "/workspace" ]; then
+        for proj in "$DEST_DIR"/*.csproj; do
+            if [ -f "$proj" ]; then
+                cp "$proj" /workspace/ 2>/dev/null || true
+            fi
+        done
+        if [ -d "$DEST_DIR/obj" ]; then
+            cp -r "$DEST_DIR/obj" /workspace/ 2>/dev/null || true
+        fi
+        if [ -f "$DEST_DIR/Program.cs" ] && [ ! -f "/workspace/Program.cs" ]; then
+            cp "$DEST_DIR/Program.cs" /workspace/ 2>/dev/null || true
+        fi
+    fi
+
+    # Ensure /opt/dotnet-snippet and /opt/dotnet_snippet directories have project file & obj assets
+    for snip_dir in /opt/dotnet-snippet /opt/dotnet_snippet; do
+        mkdir -p "$snip_dir" 2>/dev/null || true
+        for csproj in "$DEST_DIR"/*.csproj "/workspace"/*.csproj; do
+            if [ -f "$csproj" ]; then
+                cp "$csproj" "$snip_dir/" 2>/dev/null || true
+            fi
+        done
+        if [ -d "$DEST_DIR/obj" ]; then
+            cp -r "$DEST_DIR/obj" "$snip_dir/" 2>/dev/null || true
+        elif [ -d "/workspace/obj" ]; then
+            cp -r "/workspace/obj" "$snip_dir/" 2>/dev/null || true
+        fi
+        if ! find "$snip_dir" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+            (cd "$snip_dir" && dotnet new console --force 2>/dev/null || true)
+        fi
+        chown -R labuser:labuser "$snip_dir" 2>/dev/null || true
+    done
+
     # Change ownership back to container's non-root user
     if [ -f "/app/lab_server.py" ]; then
         chown -R $(stat -c '%U:%G' /app/lab_server.py) /tmp/workspace

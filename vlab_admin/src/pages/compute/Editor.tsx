@@ -2747,20 +2747,6 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   </button>
                 )}
 
-                {(webPreviewCode || activeFile?.language === 'html') && (
-                  <button
-                    onClick={() => {
-                      setOutputTab('preview');
-                      if (isOutputCollapsed) setIsOutputCollapsed(false);
-                    }}
-                    className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
-                      outputTab === 'preview' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Globe size={14} className={outputTab === 'preview' ? 'text-rose-600' : 'text-slate-400'} />
-                    <span>Web Preview</span>
-                  </button>
-                )}
 
                 {isAndroid && (
                   <button

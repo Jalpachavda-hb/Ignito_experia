@@ -178,6 +178,10 @@ export const executeViaSsm = async (session, { path: filePath, content, language
   const fileName = path.basename(containerPath);
   const currentLabType = labType || session?.labType || "";
   const isDotnet = language === "csharp" || filePath.endsWith(".cs") || currentLabType === "dotnet";
+  const isMvcProject = String(session?.dotnetSubtype || "").toLowerCase() === "mvc" ||
+    containerPath.includes("/MyWebApp/") ||
+    containerPath.toLowerCase().includes("/controllers/") ||
+    containerPath.toLowerCase().endsWith(".cshtml");
 
   let runCmd = "";
   let interpreter = "";
@@ -228,11 +232,13 @@ cd "${parentDir}"
 ${isDotnet ? `
 # Check if a .NET project file exists in current folder or parent workspace
 PROJECT_ARG=""
-if ! find . -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-  if find /tmp/workspace/workspace -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-    PROJECT_ARG="--project /tmp/workspace/workspace"
-  else
-    dotnet new console --force 2>/dev/null || dotnet new console
+if [ "${isMvcProject ? "1" : "0"}" = "1" ]; then
+  if ! find . -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+    if find /workspace -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+      PROJECT_ARG="--project /workspace"
+    elif find /tmp/workspace/workspace -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+      PROJECT_ARG="--project /tmp/workspace/workspace"
+    fi
   fi
 fi
 ` : ""}
@@ -251,6 +257,30 @@ fi
 chmod +x "${containerPath}"
 ` : ""}
 cd "${parentDir}"
+${isDotnet && !isMvcProject ? `
+# Isolated console snippet runner:
+# Copy the active file into /opt/dotnet-snippet/Program.cs so that multiple .cs files in the workspace
+# (e.g., Program.cs and Program1.cs each declaring 'class Program' or 'Main()') do not conflict.
+SNIP_DIR="/opt/dotnet-snippet"
+mkdir -p "$SNIP_DIR" 2>/dev/null || true
+if ! find "$SNIP_DIR" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
+  if [ -f "${parentDir}/dotnet-snippet.csproj" ]; then
+    cp "${parentDir}/dotnet-snippet.csproj" "$SNIP_DIR/" 2>/dev/null || true
+  elif [ -f "/workspace/dotnet-snippet.csproj" ]; then
+    cp "/workspace/dotnet-snippet.csproj" "$SNIP_DIR/" 2>/dev/null || true
+  else
+    (cd "$SNIP_DIR" && dotnet new console --force 2>/dev/null || true)
+  fi
+fi
+if [ -d "${parentDir}/obj" ]; then
+  cp -r "${parentDir}/obj" "$SNIP_DIR/" 2>/dev/null || true
+elif [ -d "/workspace/obj" ]; then
+  cp -r "/workspace/obj" "$SNIP_DIR/" 2>/dev/null || true
+fi
+cp "${containerPath}" "$SNIP_DIR/Program.cs"
+cd "$SNIP_DIR"
+PROJECT_ARG="--project $SNIP_DIR"
+` : ""}
 
 # Execute target command with optional stdin
 ${hasStdin ? `
