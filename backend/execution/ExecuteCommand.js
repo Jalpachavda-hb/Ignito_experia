@@ -1,5 +1,5 @@
 import { executeCode } from "../services/ExecutionService.js";
-import { executeViaSsm } from "../services/executeCommandService.js";
+import { executeViaSsm, cleanDotnetOutput } from "../services/executeCommandService.js";
 import { LogStreamer } from "./LogStreamer.js";
 import { getContainerHost, isDirectContainerMode } from "../lib/labTools.js";
 import { BrowserManager } from "./BrowserManager.js";
@@ -207,14 +207,20 @@ export class ExecuteCommand {
       }
 
       if (result.output) {
+        result.output = cleanDotnetOutput(result.output);
         const lines = result.output.split("\n");
         for (const line of lines) {
-          LogStreamer.sendRunLog(runId, line, "stdout");
+          if (line.trim()) {
+            LogStreamer.sendRunLog(runId, line, "stdout");
+          }
         }
       }
 
       if (result.error) {
-        LogStreamer.sendRunLog(runId, result.error, "stderr");
+        result.error = cleanDotnetOutput(result.error);
+        if (result.error) {
+          LogStreamer.sendRunLog(runId, result.error, "stderr");
+        }
       }
 
       if (result.success !== false) {

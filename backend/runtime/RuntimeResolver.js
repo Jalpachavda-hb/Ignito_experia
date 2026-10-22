@@ -7,6 +7,9 @@ import { SeleniumRuntime } from "./SeleniumRuntime.js";
 export class RuntimeResolver {
   static resolve(labType, language) {
     if (labType === "testing") {
+      if (language === "python") {
+        return PythonRuntime;
+      }
       return SeleniumRuntime;
     }
     if (labType === "dotnet" || (labType === "code" && language === "csharp")) {

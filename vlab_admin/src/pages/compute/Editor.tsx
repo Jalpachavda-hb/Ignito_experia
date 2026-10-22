@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { fetchFileContent, fetchFiles, runFile, saveFile, deleteFile, renamePath, startAndroidBuild, fetchAndroidBuildStatus, switchDotnetSubtype } from '../../services/ideService';
 import {
   File, Code2, Plus, Upload, Play, Save,
-  Trash2, X, FileJson, FileText, ChevronRight, ChevronDown, ChevronUp, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
+  Trash2, X, FileJson, FileText, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Download, ArrowLeft, Power, MonitorPlay, Database, Terminal as TerminalIcon,
   Folder, FolderOpen, RotateCw, RotateCcw, Globe, Pencil, Copy, Check, CheckCircle2, XCircle, Coins, Clock, Sparkles, ExternalLink, MoreVertical, LineChart, Maximize2, Minimize2
 } from 'lucide-react';
 import { useLabStore } from '@/stores/labStore';
@@ -221,15 +221,33 @@ const countConsoleReads = (code: string) => {
   return readLine + readChar + pyInput + javaScanner;
 };
 
+export const cleanDotnetOutput = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/An issue was encountered verifying workloads\.?\s*(?:For more information,?\s*run\s*["']?dotnet workload update["']?\.?)?/gi, '')
+    .replace(/For more information,?\s*run\s*["']?dotnet workload update["']?\.?/gi, '')
+    .split(/\r?\n/)
+    .filter((line) => {
+      const lower = line.toLowerCase();
+      return !lower.includes('verifying workloads') && !lower.includes('dotnet workload update');
+    })
+    .join('\n')
+    .replace(/^[\r\n]+/, '')
+    .trimEnd();
+};
+
 const extractConsoleOutput = (raw: string) => {
   const marker = '--- PROGRAM OUTPUT ---';
   const idx = raw.indexOf(marker);
+  let res = '';
   if (idx === -1) {
-    return raw.replace(/\r?\nRUN_EXIT:\d+\s*$/i, '').replace(/^[\r\n]+/, '').trimEnd();
+    res = raw.replace(/\r?\nRUN_EXIT:\d+\s*$/i, '').replace(/^[\r\n]+/, '').trimEnd();
+  } else {
+    const body = raw.slice(idx + marker.length);
+    const end = body.search(/\r?\nRUN_EXIT:/i);
+    res = (end === -1 ? body : body.slice(0, end)).replace(/^[\r\n]+/, '').trimEnd();
   }
-  const body = raw.slice(idx + marker.length);
-  const end = body.search(/\r?\nRUN_EXIT:/i);
-  return (end === -1 ? body : body.slice(0, end)).replace(/^[\r\n]+/, '').trimEnd();
+  return cleanDotnetOutput(res);
 };
 
 const isDotnetMvcPath = (filePath: string, content?: string) => {
@@ -347,14 +365,14 @@ const ConsoleInteractivePreview = ({
         ref={outputRef}
         className="flex-1 overflow-auto p-4 font-mono text-[13px] text-[#f8f8f2] whitespace-pre-wrap leading-relaxed"
       >
-        {session.output}
-        {session.error && (
-          <div className="text-[#ff5555] mt-2">{session.error}</div>
+        {cleanDotnetOutput(session.output)}
+        {cleanDotnetOutput(session.error || '') && (
+          <div className="text-[#ff5555] mt-2">{cleanDotnetOutput(session.error || '')}</div>
         )}
         {session.isRunning && (
           <span className="block mt-2 text-white/40 animate-pulse">Running...</span>
         )}
-        {!session.output && !session.error && !session.isRunning && (
+        {!cleanDotnetOutput(session.output) && !cleanDotnetOutput(session.error || '') && !session.isRunning && (
           <span className="text-white/40">(No output)</span>
         )}
       </div>
@@ -442,7 +460,15 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const labType = propSession?.labType || '';
   const isAndroid = labType === 'android' || labId === 'android' || labId === 'mobile-app-lab';
   const isDotnet = labType === 'dotnet' || labId === 'dotnet-lab' || labId.includes('dotnet');
-  const isSelenium = labType === 'testing';
+  const isSelenium =
+    labType === 'testing' ||
+    labType === 'selenium' ||
+    labId === 'testing-lab' ||
+    labId === 'testing' ||
+    labId.includes('testing') ||
+    labId.includes('selenium') ||
+    (propSession?.labId || '').toLowerCase().includes('testing') ||
+    (propSession?.labId || '').toLowerCase().includes('selenium');
   const isJava = labType === 'java' || labId === 'java-lab' || labId.includes('java') || (propSession?.labId || '').toLowerCase().includes('java');
 
   const [seleniumRunState, setSeleniumRunState] = useState<{
@@ -489,32 +515,48 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   });
   const [outputTab, setOutputTab] = useState<'output' | 'plot' | 'preview' | 'logs'>('output');
   const [consoleInputValue, setConsoleInputValue] = useState('');
-  const [outputHeight, setOutputHeight] = useState<number>(270);
+  const [outputWidth, setOutputWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('vlab.ide.outputWidth'));
+      return Number.isFinite(saved) && saved >= 260 ? saved : 420;
+    } catch (_) {
+      return 420;
+    }
+  });
   const [isOutputCollapsed, setIsOutputCollapsed] = useState<boolean>(false);
   const [isOutputMaximized, setIsOutputMaximized] = useState<boolean>(false);
   const isDraggingOutputRef = useRef<boolean>(false);
-  const dragStartYRef = useRef<number>(0);
-  const dragStartHeightRef = useRef<number>(270);
+  const dragStartXRef = useRef<number>(0);
+  const dragStartWidthRef = useRef<number>(420);
 
   const handleSplitterMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingOutputRef.current = true;
-    dragStartYRef.current = e.clientY;
-    dragStartHeightRef.current = isOutputCollapsed ? 42 : outputHeight;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = isOutputCollapsed ? 48 : outputWidth;
     setIsOutputCollapsed(false);
     setIsOutputMaximized(false);
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       if (!isDraggingOutputRef.current) return;
-      const deltaY = dragStartYRef.current - moveEvent.clientY;
-      const newHeight = Math.max(100, Math.min(window.innerHeight - 160, dragStartHeightRef.current + deltaY));
-      setOutputHeight(newHeight);
+      // Moving mouse left increases output width, moving right decreases output width
+      const deltaX = dragStartXRef.current - moveEvent.clientX;
+      const minW = 260;
+      const maxW = Math.max(300, window.innerWidth - 380);
+      const newWidth = Math.max(minW, Math.min(maxW, dragStartWidthRef.current + deltaX));
+      setOutputWidth(newWidth);
     };
 
     const onMouseUp = () => {
       isDraggingOutputRef.current = false;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      setOutputWidth((w) => {
+        try {
+          localStorage.setItem('vlab.ide.outputWidth', String(w));
+        } catch (_) {}
+        return w;
+      });
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -525,8 +567,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     const touch = e.touches[0];
     if (!touch) return;
     isDraggingOutputRef.current = true;
-    dragStartYRef.current = touch.clientY;
-    dragStartHeightRef.current = isOutputCollapsed ? 42 : outputHeight;
+    dragStartXRef.current = touch.clientX;
+    dragStartWidthRef.current = isOutputCollapsed ? 48 : outputWidth;
     setIsOutputCollapsed(false);
     setIsOutputMaximized(false);
 
@@ -534,15 +576,23 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       if (!isDraggingOutputRef.current) return;
       const t = moveEvent.touches[0];
       if (!t) return;
-      const deltaY = dragStartYRef.current - t.clientY;
-      const newHeight = Math.max(100, Math.min(window.innerHeight - 160, dragStartHeightRef.current + deltaY));
-      setOutputHeight(newHeight);
+      const deltaX = dragStartXRef.current - t.clientX;
+      const minW = 260;
+      const maxW = Math.max(300, window.innerWidth - 380);
+      const newWidth = Math.max(minW, Math.min(maxW, dragStartWidthRef.current + deltaX));
+      setOutputWidth(newWidth);
     };
 
     const onTouchEnd = () => {
       isDraggingOutputRef.current = false;
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onTouchEnd);
+      setOutputWidth((w) => {
+        try {
+          localStorage.setItem('vlab.ide.outputWidth', String(w));
+        } catch (_) {}
+        return w;
+      });
     };
 
     window.addEventListener('touchmove', onTouchMove);
@@ -556,30 +606,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     };
   }, []);
 
-  // Automatically close chrome-preview tab and return to the code file after successful run / disconnect
+  // Keep chrome-preview tab open after test run so user can inspect browser preview and logs
   useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    if (
-      seleniumRunState.status === 'PASSED' ||
-      seleniumRunState.status === 'FAILED' ||
-      seleniumRunState.status === 'ERROR' ||
-      seleniumRunState.status === 'DISCONNECTED'
-    ) {
-      timeoutId = setTimeout(() => {
-        handleCloseFile({ stopPropagation: () => { } } as any, 'chrome-preview');
-        setSeleniumRunState({
-          status: 'IDLE',
-          browserUrl: null,
-          logStreamUrl: null,
-          runId: null,
-          errorMsg: null
-        });
-      }, 5000);
-    }
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+    // Tab remains open until user explicitly closes it
   }, [seleniumRunState.status]);
 
   // Auto-expand all folders when files load for Android
@@ -1373,6 +1402,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   const activeFile = files[activeFileIndex];
   const activeFilePath = activeFile?.path;
   const activeFileContent = activeFile?.content;
+  const hasSeleniumInActiveFile = Boolean(
+    activeFileContent &&
+    typeof activeFileContent === 'string' &&
+    (activeFileContent.includes('selenium') || activeFileContent.includes('webdriver'))
+  );
+  const effectiveIsSelenium = isSelenium || hasSeleniumInActiveFile;
   const isContentReady = !!activeFilePath && (loadedPaths.has(activeFilePath) || typeof activeFileContent === 'string');
   const isContentLoading = !!activeFilePath && contentLoadingPath === activeFilePath && !isContentReady;
 
@@ -1423,10 +1458,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         .replace(/'/g, '&#039;');
 
     const cleanAnsi = (text: string) =>
-      (text || '')
-        .replace(/\x1b\[[0-9;?]*[a-zA-Z=]/g, '')
-        .replace(/\x1b[=>]/g, '')
-        .replace(/\+\[[0-9;?]*[a-zA-Z=]/g, '');
+      cleanDotnetOutput(
+        (text || '')
+          .replace(/\x1b\[[0-9;?]*[a-zA-Z=]/g, '')
+          .replace(/\x1b[=>]/g, '')
+          .replace(/\+\[[0-9;?]*[a-zA-Z=]/g, '')
+      );
 
     const formattedOutput = escapeHtml(cleanAnsi(rawOutput));
     const formattedError = escapeHtml(cleanAnsi(rawError));
@@ -1689,8 +1726,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         sessionId,
       );
 
-      const rawOutput = response?.output != null ? String(response.output) : '';
-      const rawError = response?.error || response?.runtimeError || response?.syntaxError || '';
+      const rawOutput = cleanDotnetOutput(response?.output != null ? String(response.output) : '');
+      const rawError = cleanDotnetOutput(response?.error || response?.runtimeError || response?.syntaxError || '');
       const runSuccess = Boolean(response?.success || response?.status === 'COMPLETED');
 
       let plotHtml: string | null = response?.plotHtml || null;
@@ -1825,9 +1862,40 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   });
 
   const executeCode = async (dotnetAction?: 'build' | 'run') => {
-    if (!sessionId || (!isAndroid && !activeFile)) return;
+    if (!sessionId) return;
 
-    if (isSelenium) {
+    // Resolve target file: if on preview tab or activeFile is missing, find the target code file
+    let targetFile = activeFile;
+    if (!targetFile || targetFile.path === 'chrome-preview') {
+      const codePath = openFilePaths.find(p => p !== 'chrome-preview');
+      targetFile = files.find(f => f.path === codePath) || files[0];
+    }
+    if (!isAndroid && !targetFile) return;
+
+    // Capture the latest editor content directly from Monaco
+    let currentCode = '';
+    if (editorRef.current && (!isPreviewTabActive || activeFile?.path === targetFile?.path)) {
+      try {
+        currentCode = editorRef.current.getValue();
+      } catch {}
+    }
+    if (!currentCode) {
+      currentCode = targetFile?.content || (targetFile?.path ? lastSavedContentRef.current.get(targetFile.path) : '') || '';
+    }
+
+    // Save dirty code to backend immediately so the file is synced on disk and in database
+    if (targetFile?.path && (dirtyPathsRef.current.has(targetFile.path) || !targetFile.content)) {
+      try {
+        await saveFile({ ...targetFile, content: currentCode }, sessionId);
+        lastSavedContentRef.current.set(targetFile.path, currentCode);
+        dirtyPathsRef.current.delete(targetFile.path);
+        setFiles(prev => prev.map(f => f.path === targetFile!.path ? { ...f, content: currentCode } : f));
+      } catch (err) {
+        console.warn('Failed to pre-save file before run:', err);
+      }
+    }
+
+    if (effectiveIsSelenium) {
       setRunningAction('run');
       try {
         const mode = await getExecutionMode();
@@ -1848,9 +1916,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         });
 
         const runPayload = {
-          path: activeFile.path,
-          language: activeFile.language,
-          content: activeFile.content,
+          path: targetFile.path,
+          language: targetFile.language,
+          content: currentCode,
           labType: 'testing',
           executionMode: mode
         };
@@ -1861,7 +1929,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             setBrowserTitle(response.browser.title);
           }
           // Dynamically pass the browserUrl to the TestingWorkspace component
-          const browserUrl = response.viewerUrl || response.browser?.url || null;
+          const host = propSession?.publicIp || propSession?.taskPrivateIp || (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
+          const fallbackBrowserUrl = `http://${host}:6080/vnc.html?autoconnect=true&resize=scale`;
+          const browserUrl = response.viewerUrl || response.browser?.url || (mode === 'gui' ? fallbackBrowserUrl : null);
           setSeleniumRunState(prev => ({
             ...prev,
             browserUrl,
@@ -1937,12 +2007,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
     setConsoleSession(null);
 
-    const fileName = activeFile?.name || (isJava ? 'Main.java' : 'main.py');
+    const fileName = targetFile?.name || (isJava ? 'Main.java' : 'main.py');
     const commandText = isAndroid
       ? './build.sh'
       : isDotnet
         ? (dotnetAction === 'build' ? 'dotnet build' : 'dotnet run')
-        : isJava || activeFile?.language === 'java' || fileName.endsWith('.java')
+        : isJava || targetFile?.language === 'java' || fileName.endsWith('.java')
           ? `java ${fileName}`
           : `python ${fileName}`;
 
@@ -1957,21 +2027,15 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     try {
       showRunningPreview(previewMode);
 
-      const editorCode = editorRef.current ? editorRef.current.getValue() : (activeFile?.content || '');
-      // If dirty, immediately save to backend so container has latest code
-      if (activeFile?.path && dirtyPathsRef.current.has(activeFile.path)) {
-        saveFile({ ...activeFile, content: editorCode }, sessionId).catch(() => {});
-        lastSavedContentRef.current.set(activeFile.path, editorCode);
-        dirtyPathsRef.current.delete(activeFile.path);
-      }
+      const editorCode = currentCode || (editorRef.current ? editorRef.current.getValue() : (targetFile?.content || ''));
 
       const resolvedLabType = isAndroid
         ? 'android'
         : isDotnet
           ? 'dotnet'
-          : isSelenium
+          : effectiveIsSelenium
             ? 'testing'
-            : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
+            : isJava || targetFile?.language === 'java' || targetFile?.name?.endsWith('.java')
               ? 'java'
               : (labType || (labId?.includes('python') ? 'python' : labId || 'python'));
 
@@ -1981,7 +2045,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
         ? { path: '/workspace/build.sh', language: 'shell', content: '', labType: 'android' }
         : isDotnet
           ? {
-            path: activeFile.path,
+            path: targetFile?.path,
             language: 'csharp',
             content: editorCode,
             labType: 'dotnet',
@@ -1989,8 +2053,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             ...(dotnetAction ? { action: dotnetAction } : {}),
           }
           : {
-            path: activeFile.path,
-            language: activeFile.language || (isJava ? 'java' : 'python'),
+            path: targetFile?.path,
+            language: targetFile?.language || (isJava ? 'java' : 'python'),
             content: editorCode,
             labType: resolvedLabType,
           };
@@ -1999,8 +2063,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
       if (response) {
         const runSuccess = Boolean(response.success || response.status === 'COMPLETED');
-        const rawOutput = response.output != null ? String(response.output) : '';
-        const rawError = response.error || response.runtimeError || response.syntaxError || '';
+        const rawOutput = cleanDotnetOutput(response.output != null ? String(response.output) : '');
+        const rawError = cleanDotnetOutput(response.error || response.runtimeError || response.syntaxError || '');
 
         // Extract plot HTML if present in response or output
         let plotHtml: string | null = response.plotHtml || null;
@@ -2011,10 +2075,12 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             plotHtml = plotMatch[1].trim();
           }
         }
-        textOnly = textOnly.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, '').replace(/^[\r\n]+/, '').trimEnd();
+        textOnly = cleanDotnetOutput(
+          textOnly.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, '').replace(/^[\r\n]+/, '').trimEnd()
+        );
 
         const cleanOutput = extractConsoleOutput(textOnly);
-        const finalOutput = cleanOutput !== undefined && cleanOutput !== '' ? cleanOutput : textOnly;
+        const finalOutput = cleanDotnetOutput(cleanOutput !== undefined && cleanOutput !== '' ? cleanOutput : textOnly);
         const isMissingInput = !runSuccess && /NoSuchElementException|EOFError|End of stream|EndOfStreamException|No line found/i.test(rawError || rawOutput);
         if (isMissingInput) {
           const promptCandidate = (cleanOutput || rawOutput || rawError)
@@ -2110,7 +2176,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       }
     }
 
-    if (isSelenium) {
+    if (effectiveIsSelenium) {
       let initialUrl = 'http://localhost:5173/login';
       if (currentActive && currentActive.content) {
         // Try direct get/navigate matches first
@@ -2133,6 +2199,25 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   };
   const handleBuild = () => executeCode('build');
   const handleDotnetRun = () => executeCode('run');
+
+  const handleToggleBrowserPreview = () => {
+    if (isPreviewTabActive) {
+      setIsPreviewTabActive(false);
+    } else {
+      if (!openFilePaths.includes('chrome-preview')) {
+        setOpenFilePaths(prev => [...prev, 'chrome-preview']);
+      }
+      setIsPreviewTabActive(true);
+      if (!seleniumRunState.browserUrl) {
+        const host = propSession?.publicIp || propSession?.taskPrivateIp || (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
+        setSeleniumRunState(prev => ({
+          ...prev,
+          browserUrl: `http://${host}:6080/vnc.html?autoconnect=true&resize=scale`,
+          status: prev.status === 'IDLE' ? 'RUNNING' : prev.status
+        }));
+      }
+    }
+  };
 
   const handleOpenPreviewNewTab = () => {
     if (!webPreviewCode) {
@@ -2672,6 +2757,23 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             </div>
           )}
 
+          {/* Web Preview Toggle for Testing / Selenium */}
+          {effectiveIsSelenium && (
+            <button
+              type="button"
+              onClick={handleToggleBrowserPreview}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer border ${
+                isPreviewTabActive
+                  ? 'bg-sky-50 text-sky-600 border-sky-300 shadow-sky-500/10'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200/90'
+              }`}
+              title={isPreviewTabActive ? 'Currently Viewing Web Preview' : 'Open Browser Web Preview'}
+            >
+              <Globe size={14} className={isPreviewTabActive ? 'text-sky-600' : 'text-slate-500'} />
+              <span>Web Preview</span>
+            </button>
+          )}
+
           <button
             onClick={handleRun}
             disabled={isRunning}
@@ -2703,7 +2805,7 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       {/* Main Workspace: Files on Left, Editor + Output on Right */}
       <div className="flex-1 flex gap-3.5 min-h-0 min-w-0 z-10">
         {/* Left Files Sidebar */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between shrink-0 w-60 sm:w-64 md:w-72 h-full overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3.5 sm:p-4 flex flex-col justify-between shrink-0 w-52 sm:w-56 md:w-60 lg:w-64 h-full overflow-hidden">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
             <span className="text-sm font-bold text-slate-800 tracking-tight">Files</span>
             <div className="flex items-center gap-1">
@@ -2752,10 +2854,16 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
           </div>
         </div>
 
-        {/* Right Area: Top Editor Card & Bottom Output Card */}
-        <div className="flex-1 flex flex-col gap-3.5 min-w-0 h-full overflow-hidden">
-          {/* Top: Code Editor Card */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col overflow-hidden flex-1 min-h-[220px]">
+        {/* Workspace Center & Right: Code Editor & Vertical Output Card */}
+        <div className="flex-1 flex flex-col md:flex-row gap-2.5 sm:gap-3.5 min-w-0 h-full overflow-hidden">
+          {/* Code Editor Card */}
+          <div
+            className={`bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col overflow-hidden transition-all duration-150 min-h-[200px] ${
+              isOutputMaximized
+                ? 'hidden md:hidden'
+                : 'flex-1 h-full min-w-0'
+            }`}
+          >
             {/* Tab Bar */}
             <div className="bg-slate-50/70 border-b border-slate-200/80 px-3 pt-2.5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-1.5 overflow-x-auto min-w-0">
@@ -2909,165 +3017,192 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             </div>
           </div>
 
-          {/* Draggable Vertical Splitter Bar */}
-          <div
-            onMouseDown={handleSplitterMouseDown}
-            onTouchStart={handleSplitterTouchStart}
-            onDoubleClick={() => {
-              setIsOutputCollapsed(false);
-              setIsOutputMaximized(false);
-              setOutputHeight(270);
-            }}
-            className="group relative flex items-center justify-center h-3 -my-1 cursor-row-resize z-20 select-none transition-colors"
-            title="Drag up or down to stretch/resize Output panel (Double-click to reset)"
-          >
-            <div className="w-full h-[2px] rounded-full bg-slate-200/90 group-hover:bg-rose-400 group-active:bg-rose-600 transition-colors flex items-center justify-center">
-              <div className="px-3 py-0.5 bg-white group-hover:bg-rose-50 border border-slate-300 group-hover:border-rose-400 rounded-full shadow-xs flex items-center gap-1 transition-all">
-                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
-                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
-                <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
+          {/* Draggable Vertical Splitter Bar (between Editor and Output) */}
+          {!isOutputMaximized && !isOutputCollapsed && (
+            <div
+              onMouseDown={handleSplitterMouseDown}
+              onTouchStart={handleSplitterTouchStart}
+              onDoubleClick={() => {
+                setIsOutputCollapsed(false);
+                setIsOutputMaximized(false);
+                setOutputWidth(420);
+                try {
+                  localStorage.setItem('vlab.ide.outputWidth', '420');
+                } catch (_) {}
+              }}
+              className="group relative hidden md:flex items-center justify-center w-3 -mx-1 cursor-col-resize z-20 select-none transition-colors"
+              title="Drag left or right to resize Output panel (Double-click to reset to 420px)"
+            >
+              <div className="h-full w-[2px] rounded-full bg-slate-200/90 group-hover:bg-rose-400 group-active:bg-rose-600 transition-colors flex items-center justify-center">
+                <div className="py-3 px-0.5 bg-white group-hover:bg-rose-50 border border-slate-300 group-hover:border-rose-400 rounded-full shadow-xs flex flex-col items-center gap-1 transition-all">
+                  <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-slate-400 group-hover:bg-rose-500" />
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Bottom: Output Card */}
-          <div
-            style={{
-              height: isOutputCollapsed
-                ? '42px'
-                : isOutputMaximized
-                  ? '75vh'
-                  : `${outputTab === 'plot' && outputHeight === 270 ? 420 : outputHeight}px`
-            }}
-            className="bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col overflow-hidden transition-[height] duration-150 shrink-0"
-          >
-            {/* Output Header */}
-            <div className="bg-slate-50/70 border-b border-slate-200/80 px-4 flex items-center justify-between shrink-0 h-10">
-              <div className="flex items-center gap-4 h-full">
-                <button
-                  onClick={() => {
-                    setOutputTab('output');
-                    if (isOutputCollapsed) setIsOutputCollapsed(false);
-                  }}
-                  className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
-                    outputTab === 'output' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <FileText size={14} className={outputTab === 'output' ? 'text-rose-600' : 'text-slate-400'} />
-                  <span>Output</span>
-                </button>
-
-                {terminalOutput.plotHtml && (
+          {/* Right: Output Card (Vertical) */}
+          {isOutputCollapsed ? (
+            <div
+              onClick={() => setIsOutputCollapsed(false)}
+              className="h-10 md:h-full w-full md:w-11 bg-white rounded-2xl shadow-sm border border-slate-200/90 flex md:flex-col items-center justify-between p-2 cursor-pointer hover:bg-slate-50 hover:border-rose-300 transition-all shrink-0 group select-none"
+              title="Click to expand Output panel"
+            >
+              <div className="flex md:flex-col items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-rose-50 text-rose-600 group-hover:bg-rose-100 transition-colors">
+                  <FileText size={15} />
+                </div>
+                <span className="text-[11px] font-bold text-slate-700 tracking-wider md:[writing-mode:vertical-rl] md:rotate-180 uppercase">
+                  Output
+                </span>
+                {terminalOutput.status === 'running' && (
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                )}
+              </div>
+              <div className="p-1 rounded-md text-slate-400 group-hover:text-rose-600 transition-colors">
+                <ChevronLeft size={15} className="hidden md:block" />
+                <ChevronDown size={15} className="block md:hidden" />
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                ['--output-w' as any]: `${outputWidth}px`,
+              }}
+              className={`bg-white rounded-2xl shadow-sm border border-slate-200/90 flex flex-col overflow-hidden transition-all duration-150 shrink-0 ${
+                isOutputMaximized
+                  ? 'w-full h-full flex-1'
+                  : 'w-full md:w-[var(--output-w)] md:min-w-[280px] md:max-w-[70%] h-[320px] md:h-full'
+              }`}
+            >
+              {/* Output Header */}
+              <div className="bg-slate-50/70 border-b border-slate-200/80 px-3 sm:px-4 flex items-center justify-between shrink-0 h-10">
+                <div className="flex items-center gap-3 sm:gap-4 h-full">
                   <button
                     onClick={() => {
-                      setOutputTab('plot');
+                      setOutputTab('output');
                       if (isOutputCollapsed) setIsOutputCollapsed(false);
                     }}
                     className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
-                      outputTab === 'plot' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                      outputTab === 'output' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
                     }`}
                   >
-                    <LineChart size={14} className={outputTab === 'plot' ? 'text-rose-600' : 'text-slate-400'} />
-                    <span>Graph / Plot</span>
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <FileText size={14} className={outputTab === 'output' ? 'text-rose-600' : 'text-slate-400'} />
+                    <span>Output</span>
                   </button>
-                )}
 
+                  {terminalOutput.plotHtml && (
+                    <button
+                      onClick={() => {
+                        setOutputTab('plot');
+                        if (isOutputCollapsed) setIsOutputCollapsed(false);
+                      }}
+                      className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
+                        outputTab === 'plot' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <LineChart size={14} className={outputTab === 'plot' ? 'text-rose-600' : 'text-slate-400'} />
+                      <span>Graph / Plot</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    </button>
+                  )}
 
-                {isAndroid && (
+                  {isAndroid && (
+                    <button
+                      onClick={() => {
+                        setOutputTab('logs');
+                        if (isOutputCollapsed) setIsOutputCollapsed(false);
+                      }}
+                      className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
+                        outputTab === 'logs' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <TerminalIcon size={14} className={outputTab === 'logs' ? 'text-rose-600' : 'text-slate-400'} />
+                      <span>Build Logs</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                  {outputTab === 'plot' && terminalOutput.plotHtml && (
+                    <button
+                      onClick={() => {
+                        const blob = new Blob([terminalOutput.plotHtml!], { type: 'text/html' });
+                        const url = URL.createObjectURL(blob);
+                        window.open(url, '_blank');
+                      }}
+                      className="text-slate-500 hover:text-slate-800 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                      title="Open graph in full new window"
+                    >
+                      <ExternalLink size={12} />
+                      <span className="hidden sm:inline">Full Window</span>
+                    </button>
+                  )}
+                  {outputTab === 'logs' && (
+                    <button
+                      onClick={handleCopyLogs}
+                      className="text-slate-500 hover:text-slate-800 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors"
+                    >
+                      {copiedLogs ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                      <span>{copiedLogs ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => {
-                      setOutputTab('logs');
-                      if (isOutputCollapsed) setIsOutputCollapsed(false);
+                      setTerminalOutput({
+                        command: isAndroid
+                          ? './build.sh'
+                          : isDotnet
+                            ? 'dotnet run'
+                            : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
+                              ? `java ${activeFile?.name || 'Main.java'}`
+                              : `python ${activeFile?.name || 'main.py'}`,
+                        output: '',
+                        plotHtml: null,
+                        status: 'idle'
+                      });
+                      setOutputTab('output');
+                      setConsoleSession(null);
                     }}
-                    className={`border-b-2 h-full px-2 flex items-center gap-2 text-xs font-bold transition-colors -mb-[1px] cursor-pointer ${
-                      outputTab === 'logs' ? 'border-rose-600 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
-                    }`}
+                    className="text-slate-400 hover:text-slate-700 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Clear Terminal Output"
                   >
-                    <TerminalIcon size={14} className={outputTab === 'logs' ? 'text-rose-600' : 'text-slate-400'} />
-                    <span>Build Logs</span>
+                    <RotateCcw size={12} />
+                    <span>Clear</span>
                   </button>
-                )}
-              </div>
 
-              <div className="flex items-center gap-1 sm:gap-2">
-                {outputTab === 'plot' && terminalOutput.plotHtml && (
+                  <div className="h-4 w-[1px] bg-slate-300 mx-0.5" />
+
+                  {/* Maximize / Restore Toggle */}
                   <button
                     onClick={() => {
-                      const blob = new Blob([terminalOutput.plotHtml!], { type: 'text/html' });
-                      const url = URL.createObjectURL(blob);
-                      window.open(url, '_blank');
+                      setIsOutputCollapsed(false);
+                      setIsOutputMaximized((prev) => !prev);
                     }}
-                    className="text-slate-500 hover:text-slate-800 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                    title="Open graph in full new window"
+                    className="text-slate-500 hover:text-slate-800 text-xs p-1.5 rounded hover:bg-slate-200/70 transition-colors cursor-pointer"
+                    title={isOutputMaximized ? "Restore size" : "Maximize size"}
                   >
-                    <ExternalLink size={12} />
-                    <span>Full Window</span>
+                    {isOutputMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                   </button>
-                )}
-                {outputTab === 'logs' && (
+
+                  {/* Collapse / Expand Toggle */}
                   <button
-                    onClick={handleCopyLogs}
-                    className="text-slate-500 hover:text-slate-800 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors"
+                    onClick={() => {
+                      setIsOutputMaximized(false);
+                      setIsOutputCollapsed((prev) => !prev);
+                    }}
+                    className="text-slate-500 hover:text-slate-800 text-xs p-1.5 rounded hover:bg-slate-200/70 transition-colors cursor-pointer"
+                    title={isOutputCollapsed ? "Expand output" : "Collapse output"}
                   >
-                    {copiedLogs ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                    <span>{copiedLogs ? 'Copied' : 'Copy'}</span>
+                    <ChevronRight size={14} className="hidden md:block" />
+                    <ChevronDown size={14} className="block md:hidden" />
                   </button>
-                )}
-                <button
-                  onClick={() => {
-                    setTerminalOutput({
-                      command: isAndroid
-                        ? './build.sh'
-                        : isDotnet
-                          ? 'dotnet run'
-                          : isJava || activeFile?.language === 'java' || activeFile?.name?.endsWith('.java')
-                            ? `java ${activeFile?.name || 'Main.java'}`
-                            : `python ${activeFile?.name || 'main.py'}`,
-                      output: '',
-                      plotHtml: null,
-                      status: 'idle'
-                    });
-                    setOutputTab('output');
-                    setConsoleSession(null);
-                  }}
-                  className="text-slate-400 hover:text-slate-700 text-xs flex items-center gap-1 py-1 px-2 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                  title="Clear Terminal Output"
-                >
-                  <RotateCcw size={12} />
-                  <span>Clear</span>
-                </button>
-
-                <div className="h-4 w-[1px] bg-slate-300 mx-0.5" />
-
-                {/* Stretch Maximize / Restore Toggle */}
-                <button
-                  onClick={() => {
-                    setIsOutputCollapsed(false);
-                    setIsOutputMaximized((prev) => !prev);
-                  }}
-                  className="text-slate-500 hover:text-slate-800 text-xs p-1.5 rounded hover:bg-slate-200/70 transition-colors cursor-pointer"
-                  title={isOutputMaximized ? "Restore height (Stretch down)" : "Maximize height (Stretch up)"}
-                >
-                  {isOutputMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                </button>
-
-                {/* Collapse / Expand Toggle */}
-                <button
-                  onClick={() => {
-                    setIsOutputMaximized(false);
-                    setIsOutputCollapsed((prev) => !prev);
-                  }}
-                  className="text-slate-500 hover:text-slate-800 text-xs p-1.5 rounded hover:bg-slate-200/70 transition-colors cursor-pointer"
-                  title={isOutputCollapsed ? "Expand output" : "Collapse output"}
-                >
-                  {isOutputCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </button>
+                </div>
               </div>
-            </div>
 
-            {/* Output Screen */}
-            {!isOutputCollapsed && (
+              {/* Output Screen */}
               <div className={`bg-[#131722] flex-1 ${outputTab === 'plot' ? 'p-2' : 'p-4'} font-mono text-xs sm:text-sm text-slate-100 overflow-y-auto flex flex-col justify-between rounded-b-2xl select-text`}>
                 {outputTab === 'plot' && terminalOutput.plotHtml ? (
                   <div className="relative w-full h-full min-h-[300px] flex flex-col bg-white rounded-xl overflow-hidden shadow-inner">
@@ -3157,21 +3292,21 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                         </div>
                       ) : (
                         <div>
-                          {terminalOutput.output ? (
+                          {cleanDotnetOutput(terminalOutput.output) ? (
                             <pre className="font-mono text-xs sm:text-sm whitespace-pre overflow-x-auto leading-relaxed select-text text-slate-100 m-0 font-normal">
-                              {terminalOutput.output}
+                              {cleanDotnetOutput(terminalOutput.output)}
                             </pre>
                           ) : terminalOutput.status === 'success' ? (
                             <div className="text-slate-500 text-xs italic select-text">
                               (Program finished with no output)
                             </div>
                           ) : null}
-                          {terminalOutput.error && (
+                          {cleanDotnetOutput(terminalOutput.error || '') && (
                             <pre className="font-mono text-xs sm:text-sm whitespace-pre-wrap overflow-x-auto leading-relaxed select-text text-rose-400 mt-2 m-0 font-normal">
-                              {terminalOutput.error}
+                              {cleanDotnetOutput(terminalOutput.error || '')}
                             </pre>
                           )}
-                          {terminalOutput.status === 'idle' && !terminalOutput.output && !terminalOutput.error && !isRunning && (
+                          {terminalOutput.status === 'idle' && !cleanDotnetOutput(terminalOutput.output) && !cleanDotnetOutput(terminalOutput.error || '') && !isRunning && (
                             <div className="text-slate-500 text-xs italic mt-1">
                               Click &quot;Run&quot; to execute your program.
                             </div>
@@ -3211,8 +3346,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
                   </div>
                 )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 

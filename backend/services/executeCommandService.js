@@ -213,7 +213,11 @@ export const executeViaSsm = async (session, { path: filePath, content, language
     }
     interpreter = "sh";
   } else if (language === "python" || filePath.endsWith(".py")) {
-    runCmd = `python3 ${containerPath}`;
+    if (currentLabType === "testing") {
+      runCmd = `(pgrep x11vnc >/dev/null || (killall -9 x11vnc 2>/dev/null; x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -bg -noshm)) && export DISPLAY=:99 && python3 ${containerPath}`;
+    } else {
+      runCmd = `python3 ${containerPath}`;
+    }
     interpreter = "python3";
   } else if (language === "javascript" || filePath.endsWith(".js")) {
     runCmd = `node ${containerPath}`;
@@ -249,6 +253,12 @@ fi
 
 cd "${parentDir}"
 ${isDotnet ? `
+# Suppress .NET telemetry, banner, and workload update checks/notifications
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_NOLOGO=1
+export DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1
+export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+
 # Ensure workspace write permissions for NuGet restore & build outputs
 chmod -R 777 /workspace /tmp/workspace "${parentDir}" 2>/dev/null || true
 
@@ -408,23 +418,51 @@ echo "###EXIT_CODE:$?"
     .replace(/\x1b[=>]/g, "")
     .replace(/\+\[[0-9;?]*[a-zA-Z=]/g, "")
     .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/^\n+/, "")
-    .trimEnd();
+    .replace(/\r/g, "\n");
+
+  cleanOutput = cleanDotnetOutput(cleanOutput);
 
   // Extract plot HTML if present
   let plotHtml = null;
   const plotMatch = cleanOutput.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
   if (plotMatch) {
     plotHtml = plotMatch[1].trim();
-    cleanOutput = cleanOutput.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, "").replace(/^\n+/, "").trimEnd();
+    cleanOutput = cleanDotnetOutput(
+      cleanOutput.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, "")
+    );
   }
 
   const success = (exitCode === 0);
+  let cleanError = success ? null : (cleanOutput || "Execution failed");
+  if (cleanError) {
+    cleanError = cleanDotnetOutput(cleanError);
+    if (!cleanError && !success) {
+      cleanError = "Execution failed";
+    }
+  }
+
   return {
     success,
     output: cleanOutput,
     plotHtml,
-    error: success ? null : (cleanOutput || "Execution failed"),
+    error: cleanError,
   };
+};
+
+/**
+ * Remove .NET workload update warnings and SDK noise from all outputs
+ */
+export const cleanDotnetOutput = (text) => {
+  if (!text) return "";
+  return String(text)
+    .replace(/An issue was encountered verifying workloads\.?\s*(?:For more information,?\s*run\s*["']?dotnet workload update["']?\.?)?/gi, "")
+    .replace(/For more information,?\s*run\s*["']?dotnet workload update["']?\.?/gi, "")
+    .split(/\r?\n/)
+    .filter((line) => {
+      const lower = line.toLowerCase();
+      return !lower.includes("verifying workloads") && !lower.includes("dotnet workload update");
+    })
+    .join("\n")
+    .replace(/^\n+/, "")
+    .trimEnd();
 };

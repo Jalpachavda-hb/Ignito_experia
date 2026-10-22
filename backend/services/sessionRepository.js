@@ -3,6 +3,7 @@ import { ENV, useDynamoDb } from "../config/env.js";
 import { ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { ddbGet, ddbPut, ddbUpdate, ddbDelete, getDocClient } from "../lib/dynamodb.js";
 import { enrichSession } from "../lib/labTools.js";
+import { canonicalLabType } from "../lib/labTypeMapper.js";
 
 const memorySessions = new Map();
 
@@ -32,6 +33,7 @@ export const getSession = async (sessionId) => {
           item = {
             sessionId: sqlRow.SessionId,
             labId: sqlRow.LabId,
+            labType: canonicalLabType(sqlRow.LabId),
             userId: sqlRow.UserId,
             status: (sqlRow.Status || "STARTING").toLowerCase(),
             taskArn: sqlRow.TaskArn,
@@ -42,6 +44,7 @@ export const getSession = async (sessionId) => {
           };
         } else {
           if (!item.labId && sqlRow.LabId) item.labId = sqlRow.LabId;
+          if (!item.labType && sqlRow.LabId) item.labType = canonicalLabType(sqlRow.LabId);
           if (!item.userId && sqlRow.UserId) item.userId = sqlRow.UserId;
           if (!item.taskArn && sqlRow.TaskArn) item.taskArn = sqlRow.TaskArn;
           if (!item.dotnetSubtype && sqlRow.Subtype) {
@@ -53,6 +56,10 @@ export const getSession = async (sessionId) => {
     } catch (e) {
       console.warn("[sessionRepository getSession] Fallback hydration error:", e.message);
     }
+  }
+
+  if (item && !item.labType && item.labId) {
+    item.labType = canonicalLabType(item.labId);
   }
 
   if (item && !item.dotnetSubtype && (item.subtype || item.Subtype)) {

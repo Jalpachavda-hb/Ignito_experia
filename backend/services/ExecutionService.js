@@ -1,6 +1,7 @@
 import { getContainerPort, getContainerHost } from "../lib/labTools.js";
 import { ENV } from "../config/env.js";
 import { PYTHON_PLOT_HOOK_CODE } from "../lib/pythonPlotHook.js";
+import { cleanDotnetOutput } from "./executeCommandService.js";
 
 const EXECUTION_TIMEOUT_MS = ENV.executeCommandTimeout || 120000;
 
@@ -195,13 +196,19 @@ export const executeCode = async (session, payload, options = {}) => {
       };
     }
 
-    let cleanOutput = data.output || "";
+    let cleanOutput = cleanDotnetOutput(data.output || "");
     let plotHtml = null;
     const plotMatch = cleanOutput.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
     if (plotMatch) {
       plotHtml = plotMatch[1].trim();
-      cleanOutput = cleanOutput.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, "").replace(/^\n+/, "").trimEnd();
+      cleanOutput = cleanDotnetOutput(
+        cleanOutput.replace(/<!-- VLAB_PLOT_START -->[\s\S]*?<!-- VLAB_PLOT_END -->/g, "")
+      );
     }
+
+    const cleanErr = data.error ? cleanDotnetOutput(data.error) : null;
+    const cleanSyntaxErr = data.syntaxError ? cleanDotnetOutput(data.syntaxError) : "";
+    const cleanRuntimeErr = data.runtimeError ? cleanDotnetOutput(data.runtimeError) : "";
 
     return {
       success: data.success !== false,
@@ -209,9 +216,9 @@ export const executeCode = async (session, payload, options = {}) => {
       runId,
       output: cleanOutput,
       plotHtml,
-      error: data.error || null,
-      syntaxError: data.syntaxError || "",
-      runtimeError: data.runtimeError || "",
+      error: cleanErr || null,
+      syntaxError: cleanSyntaxErr,
+      runtimeError: cleanRuntimeErr,
     };
 
   } catch (err) {
