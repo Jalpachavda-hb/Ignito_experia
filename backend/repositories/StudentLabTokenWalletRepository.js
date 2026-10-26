@@ -122,18 +122,44 @@ class StudentLabTokenWalletRepository {
     const tokens = Number(tokensToAdd) || 0;
     const effTenantId = tenantId || userTenant || 'DEFAULT';
 
-    await db.query(
-      `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
-       VALUES (?, ?, ?, ?, 0, ?, 1)
-       ON DUPLICATE KEY UPDATE 
-         TotalPurchasedTokens = TotalPurchasedTokens + VALUES(TotalPurchasedTokens), 
-         RemainingTokens = CASE WHEN (CAST(TotalPurchasedTokens AS SIGNED) + CAST(VALUES(TotalPurchasedTokens) AS SIGNED)) >= CAST(ConsumedTokens AS SIGNED)
-                                THEN (CAST(TotalPurchasedTokens AS SIGNED) + CAST(VALUES(TotalPurchasedTokens) AS SIGNED)) - CAST(ConsumedTokens AS SIGNED)
-                                ELSE 0 END,
-         Version = Version + 1, 
-         UpdatedAt = CURRENT_TIMESTAMP`,
-      [effTenantId, canonicalStudentId, cleanLabId, tokens, tokens]
+    // A student has one balance per lab. Credit the row that already exists (university
+    // allocation rows may live under another tenant key) instead of opening a parallel row,
+    // otherwise summaries and billing see two disconnected balances for the same lab.
+    const [existingRows] = await db.query(
+      `SELECT Id FROM student_lab_token_wallets
+       WHERE StudentId IN (?, ?)
+         AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)
+       ORDER BY (TenantId = ?) DESC, Id ASC
+       LIMIT 1 FOR UPDATE`,
+      [canonicalStudentId, String(studentId), rawLabId, cleanLabId, cleanLabId, effTenantId]
     );
+
+    if (existingRows.length > 0) {
+      await db.query(
+        `UPDATE student_lab_token_wallets
+         SET TotalPurchasedTokens = TotalPurchasedTokens + ?,
+             RemainingTokens = CASE WHEN (CAST(TotalPurchasedTokens AS SIGNED) + ?) >= CAST(ConsumedTokens AS SIGNED)
+                                    THEN (CAST(TotalPurchasedTokens AS SIGNED) + ?) - CAST(ConsumedTokens AS SIGNED)
+                                    ELSE 0 END,
+             Version = Version + 1,
+             UpdatedAt = CURRENT_TIMESTAMP
+         WHERE Id = ?`,
+        [tokens, tokens, tokens, existingRows[0].Id]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+         VALUES (?, ?, ?, ?, 0, ?, 1)
+         ON DUPLICATE KEY UPDATE 
+           TotalPurchasedTokens = TotalPurchasedTokens + VALUES(TotalPurchasedTokens), 
+           RemainingTokens = CASE WHEN (CAST(TotalPurchasedTokens AS SIGNED) + CAST(VALUES(TotalPurchasedTokens) AS SIGNED)) >= CAST(ConsumedTokens AS SIGNED)
+                                  THEN (CAST(TotalPurchasedTokens AS SIGNED) + CAST(VALUES(TotalPurchasedTokens) AS SIGNED)) - CAST(ConsumedTokens AS SIGNED)
+                                  ELSE 0 END,
+           Version = Version + 1, 
+           UpdatedAt = CURRENT_TIMESTAMP`,
+        [effTenantId, canonicalStudentId, cleanLabId, tokens, tokens]
+      );
+    }
 
     // Also update credit_wallets to keep total balance in sync
     if (userId) {

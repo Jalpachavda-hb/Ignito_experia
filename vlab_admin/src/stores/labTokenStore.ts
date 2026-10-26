@@ -5,8 +5,12 @@ import { API_PATHS } from '../Utils/Api_path';
 export interface LabTokenWallet {
   id: number;
   labId: string;
+  labTitle?: string;
+  /** Total entitlement: university allocation + every purchase. */
   purchasedTokens: number;
   allocatedTokens?: number;
+  /** Tokens the student bought with their own money (excludes the university allocation). */
+  extraPurchasedTokens?: number;
   usedTokens: number;
   remainingTokens: number;
   runtimeRemainingMinutes: number;

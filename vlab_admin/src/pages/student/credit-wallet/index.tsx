@@ -8,7 +8,8 @@ import { useLabStore } from '@/stores/labStore';
 import { useAuthStore } from '@/stores/auth-store';
 import { useTransactionStore } from '@/stores/transactionStore';
 import { useLabTokenStore } from '@/stores/labTokenStore';
-import { initiateRazorpayPayment, detectPaymentMethod } from '@/Utils/razorpayHandler';
+import { initiateRazorpayPayment, detectPaymentMethod, verifyRazorpayPaymentOnServer } from '@/Utils/razorpayHandler';
+import { toast } from 'sonner';
 import { LabCreditCard, LabTokenInfo } from './components/lab-credit-card';
 import { RazorpayCheckoutModal } from './components/razorpay-checkout-modal';
 import { isUniversityStudent } from '@/lib/student-kind';
@@ -27,7 +28,7 @@ export default function CreditWallet() {
   const { auth } = useAuthStore();
   const { user } = auth;
   const isUniversity = isUniversityStudent(user);
-  const { addTransaction, fetchTransactions } = useTransactionStore();
+  const { fetchTransactions } = useTransactionStore();
   const { labWallets, courseAllocations, fetchStudentLabTokens } = useLabTokenStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,16 +58,7 @@ export default function CreditWallet() {
     (labWallets || []).forEach((w) => {
       const rawId = String(w.labId || '').toLowerCase().trim();
       const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
-      const matchedCa = (courseAllocations || []).find((ca: any) => {
-        const caId = String(ca.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-        return caId === cleanId;
-      });
-      const defaultCred = (cleanId.includes('dbms')) ? 90 : ((cleanId.includes('dotnet')) ? 80 : 0);
-      const allocated = Number(matchedCa?.allocatedTokens || (isUniversity ? defaultCred : 0));
-      const purchased = Number(w.purchasedTokens || 0);
-      const used = Number(w.usedTokens || 0);
-      const totalQuota = Math.max(allocated, purchased);
-      const remaining = Number(w.remainingTokens ?? Math.max(0, totalQuota - used));
+      const remaining = Number(w.remainingTokens ?? Math.max(0, Number(w.purchasedTokens || 0) - Number(w.usedTokens || 0)));
 
       const info = { availableTokens: remaining, reservedTokens: 0 };
       map[cleanId] = info;
@@ -79,7 +71,8 @@ export default function CreditWallet() {
       const rawId = String(ca.labId || '').toLowerCase().trim();
       const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
       const defaultCred = (cleanId.includes('dbms')) ? 90 : ((cleanId.includes('dotnet')) ? 80 : 60);
-      if (!map[cleanId] || map[cleanId].availableTokens === 0) {
+      // Only for labs the server has not provisioned a wallet for yet; a drained wallet must show 0.
+      if (!map[cleanId]) {
         const info = { availableTokens: Number(ca.allocatedTokens || defaultCred), reservedTokens: 0 };
         map[cleanId] = info;
         map[rawId] = info;
@@ -174,34 +167,16 @@ export default function CreditWallet() {
         setIsCheckoutProcessing(false);
         setIsCheckoutModalOpen(false);
 
-        await fetchStudentLabTokens();
+        await Promise.all([fetchStudentLabTokens(), fetchTransactions()]);
 
         const method = detectPaymentMethod(details);
-        purchaseItems.forEach((item) => {
-          addTransaction({
-            id: `${paymentId}-${item.labId}`,
-            razorpayPaymentId: paymentId,
-            description: item.labName,
-            labName: item.labName,
-            labId: item.labId,
-            type: 'Credit',
-            amount: item.tokens,
-            amountRupees: item.amountRupees,
-            paymentMethod: method,
-            studentEmail: user?.email || '',
-            studentPhone: user?.phoneNumber || user?.mobile || '',
-            studentName: user?.fullName || user?.name || 'Student User',
-            status: 'Completed',
-          });
-        });
-        await fetchTransactions();
-
         setCartItems({});
         setPaymentSuccessMessage(`Payment of ₹${totalCombinedPaymentRupees} via ${method} completed successfully. Tokens were added to each lab.`);
         setTimeout(() => setPaymentSuccessMessage(''), 6000);
       },
-      onFailure: (_err) => {
+      onFailure: (err) => {
         setIsCheckoutProcessing(false);
+        if (err?.message) toast.error(err.message, { duration: 12000 });
       },
       onDismiss: () => {
         setIsCheckoutProcessing(false);
@@ -220,58 +195,21 @@ export default function CreditWallet() {
       amountRupees: item.amountRupees,
     }));
 
-    // Send to backend verification endpoint to credit user's database wallet
-    try {
-      const apiBaseUrl = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8080/api';
-      const token = auth?.accessToken || '';
-      const currentUserId = user?.userId || (user as any)?.id || user?.email || '1';
-      const currentTenantId = user?.tenantId || (user as any)?.universityId || 'TEN000001';
+    const verification = await verifyRazorpayPaymentOnServer({
+      razorpay_payment_id: paymentId,
+      credits: totalCombinedTokens,
+      amount: totalCombinedPaymentRupees,
+      labId: purchaseItems.map((item) => item.labId).join(','),
+      labName: purchaseItems.length === 1 ? purchaseItems[0].labName : `${purchaseItems.length} Labs`,
+      items: purchaseItems,
+    });
 
-      await fetch(`${apiBaseUrl}/payments/razorpay/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          razorpay_order_id: `order_direct_${Date.now()}`,
-          razorpay_payment_id: paymentId,
-          razorpay_signature: 'verified_direct_qr',
-          credits: totalCombinedTokens,
-          amount: totalCombinedPaymentRupees,
-          labId: purchaseItems.map((item) => item.labId).join(','),
-          labName: purchaseItems.length === 1 ? purchaseItems[0].labName : `${purchaseItems.length} Labs`,
-          items: purchaseItems,
-          userId: currentUserId,
-          userEmail: user?.email || '',
-          userName: user?.fullName || user?.name || 'Student User',
-          tenantId: currentTenantId,
-        }),
-      });
-    } catch (err) {
-      console.warn('Backend verification call warning:', err);
+    if (!verification.ok) {
+      toast.error(verification.message, { duration: 12000 });
+      return;
     }
 
-    await fetchStudentLabTokens();
-
-    purchaseItems.forEach((item) => {
-      addTransaction({
-        id: `${paymentId}-${item.labId}`,
-        razorpayPaymentId: paymentId,
-        description: item.labName,
-        labName: item.labName,
-        labId: item.labId,
-        type: 'Credit',
-        amount: item.tokens,
-        amountRupees: item.amountRupees,
-        paymentMethod: method,
-        studentEmail: user?.email || '',
-        studentPhone: user?.phoneNumber || user?.mobile || '',
-        studentName: user?.fullName || user?.name || 'Student User',
-        status: 'Completed',
-      });
-    });
-    await fetchTransactions();
+    await Promise.all([fetchStudentLabTokens(), fetchTransactions()]);
 
     setCartItems({});
     setPaymentSuccessMessage(`Payment of ₹${totalCombinedPaymentRupees} via ${method} completed successfully! Tokens added to your lab balance.`);

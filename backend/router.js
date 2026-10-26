@@ -133,8 +133,8 @@ export const ROUTES = [
   { method: "GET", path: "/credits/transactions", handler: getTransactionHistoryHandler, auth: true },
 
   // Razorpay Payment Gateway (Order Creation & Cryptographic Signature Verification)
-  { method: "POST", path: "/payments/razorpay/create-order", handler: createRazorpayOrderHandler, auth: false },
-  { method: "POST", path: "/payments/razorpay/verify", handler: verifyRazorpaySignatureHandler, auth: false },
+  { method: "POST", path: "/payments/razorpay/create-order", handler: createRazorpayOrderHandler, auth: true },
+  { method: "POST", path: "/payments/razorpay/verify", handler: verifyRazorpaySignatureHandler, auth: true },
 
   // Secure Internal Owner Reporting
   { method: "GET", path: "/internal/owner/students", handler: internalOwnerStudentsHandler, auth: false },

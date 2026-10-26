@@ -124,6 +124,48 @@ const getApiBaseUrl = (): string => {
   return url || 'http://localhost:8080/api';
 };
 
+const authHeaders = (): Record<string, string> => {
+  const token = useAuthStore.getState()?.auth?.accessToken || '';
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+export interface RazorpayVerifyPayload {
+  razorpay_order_id?: string;
+  razorpay_payment_id: string;
+  razorpay_signature?: string;
+  credits: number;
+  amount: number;
+  labId: string;
+  labName: string;
+  items?: RazorpayCartItem[];
+}
+
+export type RazorpayVerifyResult = { ok: true } | { ok: false; message: string };
+
+/** Confirms the payment server-side; tokens exist only once this resolves with ok: true. */
+export const verifyRazorpayPaymentOnServer = async (payload: RazorpayVerifyPayload): Promise<RazorpayVerifyResult> => {
+  const supportHint = `Please contact support with payment ID ${payload.razorpay_payment_id}.`;
+  // The endpoint is idempotent per payment ID, so a retry after a dropped connection cannot double-credit.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/payments/razorpay/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success && data?.verified) return { ok: true };
+      return { ok: false, message: data?.message || `Payment could not be verified. ${supportHint}` };
+    } catch (err) {
+      if (attempt === 2) {
+        console.error('Razorpay verification request failed:', err);
+        return { ok: false, message: `Could not confirm your payment with the server. ${supportHint}` };
+      }
+    }
+  }
+  return { ok: false, message: `Could not confirm your payment with the server. ${supportHint}` };
+};
+
 export const initiateRazorpayPayment = async ({
   amountInRupees,
   labName,
@@ -152,7 +194,7 @@ export const initiateRazorpayPayment = async ({
   try {
     const orderRes = await fetch(`${apiBaseUrl}/payments/razorpay/create-order`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
         amountInRupees,
         labId,
@@ -206,42 +248,24 @@ export const initiateRazorpayPayment = async ({
       const orderId = response.razorpay_order_id || realBackendOrderId;
       const signature = response.razorpay_signature;
 
-      // Calculate exact tokens to credit
       const calculatedTokens = Array.isArray(items) && items.length > 0
         ? items.reduce((sum: number, it: any) => sum + Number(it.tokens || 0), 0)
         : Number((options as any).tokens || amountInRupees);
 
-      // Send to Backend for Verification and DB Wallet Crediting
-      try {
-        const authState = useAuthStore.getState()?.auth;
-        const token = authState?.accessToken || '';
-        const currentUserId = authState?.user?.userId || (authState?.user as any)?.id;
-        
-        const currentTenantId = authState?.user?.tenantId || (authState?.user as any)?.universityId || 'TEN000001';
-        
-        await fetch(`${apiBaseUrl}/payments/razorpay/verify`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
-          },
-          body: JSON.stringify({
-            razorpay_order_id: orderId || `order_${paymentId}`,
-            razorpay_payment_id: paymentId,
-            razorpay_signature: signature || 'verified_test',
-            credits: calculatedTokens,
-            amount: amountInRupees,
-            labId,
-            labName,
-            items: Array.isArray(items) ? items : undefined,
-            userId: currentUserId || userEmail,
-            userEmail,
-            userName,
-            tenantId: currentTenantId,
-          }),
-        });
-      } catch (verifyErr) {
-        console.warn('Backend verification call warning:', verifyErr);
+      const verification = await verifyRazorpayPaymentOnServer({
+        razorpay_order_id: orderId || undefined,
+        razorpay_payment_id: paymentId,
+        razorpay_signature: signature || undefined,
+        credits: calculatedTokens,
+        amount: amountInRupees,
+        labId,
+        labName,
+        items: Array.isArray(items) ? items : undefined,
+      });
+
+      if (!verification.ok) {
+        onFailure?.({ paymentId, message: verification.message });
+        return;
       }
 
       onSuccess(paymentId, response);

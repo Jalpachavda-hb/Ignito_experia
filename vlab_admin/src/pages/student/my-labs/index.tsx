@@ -211,10 +211,7 @@ export default function MyLabs() {
                     const wId = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
                     return wId === cleanMId || wId === mId.toLowerCase();
                   });
-                  const usedTokens = Number(matchedW?.usedTokens || 0);
-                  const purchasedTokens = Number(matchedW?.purchasedTokens || 0);
-                  const totalQuota = Math.max(practicalCredit, purchasedTokens);
-                  const finalTokens = Math.max(0, totalQuota - usedTokens);
+                  const finalTokens = matchedW ? Math.max(0, Number(matchedW.remainingTokens || 0)) : practicalCredit;
 
                   if (labMatch) {
                     allMapped.push({
@@ -284,10 +281,7 @@ export default function MyLabs() {
                         const wId = String(w.labId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
                         return wId === cleanAId;
                       });
-                      const usedTokens = Number(matchedW?.usedTokens || 0);
-                      const purchasedTokens = Number(matchedW?.purchasedTokens || 0);
-                      const totalQuota = Math.max(practicalCredit, purchasedTokens);
-                      const finalTokens = Math.max(0, totalQuota - usedTokens);
+                      const finalTokens = matchedW ? Math.max(0, Number(matchedW.remainingTokens || 0)) : practicalCredit;
                       allMapped.push({
                         ...autoMatch,
                         title: cName,
@@ -322,14 +316,7 @@ export default function MyLabs() {
     loadEnrolledLabs();
   }, [user?.userId, labs.length, isDirectUser]);
 
-  // 1. Check Active Session on mount
-  useEffect(() => {
-    if (!user?.userId && !user?.email) return;
-    const userId = String(user.userId ?? user.email);
-    loadActiveSession(userId);
-  }, [user, loadActiveSession]);
-
-  // 3. Live Token Wallet & Session Dynamic Sync (1 token per 1 minute runtime)
+  // Live Token Wallet & Session Dynamic Sync (1 token per 1 minute runtime)
   useEffect(() => {
     if (!user) return;
     if (!activeSession || activeSession.status !== 'running' || !activeSession.startedAt) return;
@@ -623,20 +610,16 @@ export default function MyLabs() {
       const lTitle = String(labItem.title || labItem.name || '').toLowerCase().trim();
       const cCode = String(labItem.courseCode || '').toUpperCase();
 
-      // Find token info in labWallets
-      const walletMatch = (labWallets || []).find((w) => {
-        const wId = String(w.labId || '').toLowerCase().trim();
-        const cleanWId = wId.replace(/^lab-/, '').replace(/-lab$/, '');
-
-        return (
-          wId === lId ||
-          cleanWId === cleanLId ||
-          (
-            lTitle &&
-            (lTitle.includes(cleanWId) || cleanWId.includes(lTitle))
-          )
-        );
-      });
+      const cleanWalletId = (w: { labId?: string }) => String(w.labId || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
+      const walletMatch =
+        (labWallets || []).find((w) => {
+          const wId = String(w.labId || '').toLowerCase().trim();
+          return wId === lId || cleanWalletId(w) === cleanLId;
+        }) ||
+        (labWallets || []).find((w) => {
+          const cleanWId = cleanWalletId(w);
+          return Boolean(lTitle && cleanWId && (lTitle.includes(cleanWId) || cleanWId.includes(lTitle)));
+        });
 
       const fallbackCred = (cleanLId.includes('dbms') || cCode.includes('4031')) ? 90 : ((cleanLId.includes('dotnet') || cCode.includes('4011')) ? 80 : 60);
 
@@ -689,10 +672,9 @@ export default function MyLabs() {
 
       let effectiveRemainingTokens = 0;
       if (isUniversity) {
-        // University allocation is assigned once (e.g. 80 for C, 90 for DBMS).
-        // Total available quota is practicalCredit + extra purchased tokens.
-        const totalQuota = Math.max(assignedUniTokens, walletPurchased);
-        effectiveRemainingTokens = Math.max(0, totalQuota - usedTokens);
+        // The server reconciles allocation + every purchase - consumption into remainingTokens.
+        // The course allocation is only a placeholder until the wallet has been provisioned.
+        effectiveRemainingTokens = walletMatch ? Math.max(0, walletRemainingTokens) : assignedUniTokens;
       } else if (walletMatch) {
         effectiveRemainingTokens = Number(walletMatch.remainingTokens ?? Math.max(0, walletPurchased - usedTokens));
       } else if (txCredits > 0) {
@@ -871,12 +853,12 @@ export default function MyLabs() {
     // Main My Labs page view for LMS Students:
     // Combine assigned labs for enrolled programs + any extra labs purchased by the student!
     const combined: any[] = [...allEnrolledMappedLabs];
-    const existingIds = new Set(
-      allEnrolledMappedLabs.map((l) => String(l.id || l.labId || l.title || '').toLowerCase())
-    );
+    const labKey = (l: any) => String(l.id || l.labId || l.title || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+    const existingIds = new Set(allEnrolledMappedLabs.map(labKey));
 
+    // Tokens bought for a university-assigned lab top up that course card instead of adding a duplicate card.
     purchasedLabsList.forEach((pLab) => {
-      const pId = String(pLab.id || pLab.labId || pLab.title || '').toLowerCase();
+      const pId = labKey(pLab);
       if (!existingIds.has(pId)) {
         existingIds.add(pId);
         combined.push(pLab);
@@ -884,7 +866,7 @@ export default function MyLabs() {
     });
 
     return combined.map(tagLabWithAccess);
-  }, [labs, isDirectUser, hasCourseFilter, semesterCourses, allEnrolledMappedLabs, purchasedLabsList, transactions, user]);
+  }, [labs, labWallets, isDirectUser, hasCourseFilter, semesterCourses, allEnrolledMappedLabs, purchasedLabsList, transactions, user]);
 
   // Split displayLabs into purchased/unlocked labs vs available/unpurchased catalogue labs
   const { purchasedLabs, otherLabs } = useMemo(() => {

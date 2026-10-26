@@ -3,6 +3,8 @@ import { ENV } from "../config/env.js";
 
 let client = null;
 let connecting = null;
+let unavailableUntil = 0;
+const REDIS_COOLDOWN_MS = 60000;
 
 function redisUrl() {
   if (process.env.REDIS_URL) return process.env.REDIS_URL;
@@ -17,12 +19,13 @@ function redisUrl() {
 export async function getRedis() {
   if (client?.isOpen) return client;
   if (connecting) return connecting;
+  if (Date.now() < unavailableUntil) return null;
 
   connecting = (async () => {
     const next = createClient({
       url: redisUrl(),
       socket: {
-        connectTimeout: 2000,
+        connectTimeout: 400,
         reconnectStrategy: false,
       },
     });
@@ -32,9 +35,11 @@ export async function getRedis() {
     try {
       await next.connect();
       client = next;
+      unavailableUntil = 0;
       console.log("[Redis] Connected for LMS cache");
       return next;
     } catch (err) {
+      unavailableUntil = Date.now() + REDIS_COOLDOWN_MS;
       console.warn("[Redis] Unavailable, LMS cache will use process memory:", err.message);
       try {
         await next.disconnect();

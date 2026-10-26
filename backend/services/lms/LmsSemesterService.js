@@ -148,11 +148,28 @@ class LmsSemesterService {
     });
 
     const courses = scoped.courseList || [];
+    const labIds = courses.map((course) => course?.mappedLab?.labId).filter(Boolean);
+    const records = await labRepository.getByCodes(labIds).catch(() => []);
+    const recordByKey = new Map();
+    for (const record of records) {
+      const aliases = [record?.LabCode, record?.labCode, record?.LabId, record?.labId, record?.Title, record?.title];
+      for (const alias of aliases) {
+        if (alias == null || alias === "") continue;
+        const value = String(alias).toLowerCase();
+        const clean = value.replace(/-lab$/, "").replace(/^lab-/, "");
+        recordByKey.set(value, record);
+        recordByKey.set(clean, record);
+        recordByKey.set(`${clean}-lab`, record);
+        recordByKey.set(`lab-${clean}`, record);
+      }
+    }
     const labs = [];
     for (const course of courses) {
       const mapped = course?.mappedLab;
       if (!mapped?.labId) continue;
-      const record = await labRepository.getById(mapped.labId).catch(() => null);
+      const labKey = String(mapped.labId).toLowerCase();
+      const cleanLabKey = labKey.replace(/-lab$/, "").replace(/^lab-/, "");
+      const record = recordByKey.get(labKey) || recordByKey.get(cleanLabKey) || null;
       const title = labTitle(record, mapped.title);
       const practicalCredit = Number(course.practicalCredit || mapped.practicalCredit || 60);
       labs.push({

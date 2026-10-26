@@ -76,6 +76,20 @@ class StudentLabTokenTransactionRepository {
     return rows;
   }
 
+  /** Total tokens bought per lab (keyed by clean lab id) across every identity the student is known by. */
+  async getPurchasedTokensByLab(studentIds, db = pool) {
+    const ids = [...new Set((studentIds || []).filter(Boolean).map(String))];
+    if (!ids.length) return new Map();
+    const [rows] = await db.query(
+      `SELECT LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) AS CleanLabId, COALESCE(SUM(Tokens), 0) AS Tokens
+       FROM student_lab_token_transactions
+       WHERE StudentId IN (?) AND TransactionType = 'PURCHASE'
+       GROUP BY CleanLabId`,
+      [ids]
+    );
+    return new Map(rows.map((r) => [String(r.CleanLabId), Number(r.Tokens) || 0]));
+  }
+
   async getByReferenceIds(referenceIds, db = pool) {
     const ids = [...new Set((referenceIds || []).filter(Boolean).map(String))];
     if (!ids.length) return [];

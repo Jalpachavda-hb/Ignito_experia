@@ -2,10 +2,13 @@ import { ok } from "../lib/apigw.js";
 import { unauthorized, notFound } from "../lib/errors.js";
 import pool from "../lib/mysql.js";
 import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWalletRepository.js";
+import studentLabTokenTransactionRepository from "../repositories/StudentLabTokenTransactionRepository.js";
 import labTokenPackageRepository from "../repositories/LabTokenPackageRepository.js";
 import labTokenUsageRepository from "../repositories/LabTokenUsageRepository.js";
 import { loadStudentLmsContext, loadOwnedProgrammes } from "../services/lms/studentLmsContext.js";
 import { lmsCourseService } from "../services/lms/LmsCourseService.js";
+
+const toCleanLabId = (labId) => String(labId || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
 
 export const studentLabTokensSummaryHandler = async ({ auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
@@ -13,36 +16,44 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
   const studentId = auth.userId;
 
   const wallets = await studentLabTokenWalletRepository.getAllWalletsForStudent(tenantId, studentId, auth.email);
+  const { canonicalStudentId } = await studentLabTokenWalletRepository.resolveCanonicalStudent(studentId, auth.email);
+  const purchasedByLab = await studentLabTokenTransactionRepository
+    .getPurchasedTokensByLab([canonicalStudentId, String(studentId), auth.email])
+    .catch((err) => {
+      console.warn("[studentLabTokensSummaryHandler] purchase ledger unavailable:", err.message);
+      return new Map();
+    });
 
-  // Group & deduplicate by clean lab identifier (consolidating any dual UserId/Email rows)
+  // A lab balance can be spread over several wallet rows (different tenant / identity keys).
+  // Each billing tick lands on exactly one row, so consumption is summed across rows.
+  // Rows may already include purchases, so entitlement is reconciled against the purchase
+  // ledger later (max of largest row vs. allocation + purchases) instead of summing totals.
   const groupedWallets = new Map();
   wallets.forEach(w => {
-    const rawId = String(w.LabId || '').toLowerCase().trim();
-    const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
-    const purchased = Number(w.TotalPurchasedTokens || 0);
+    const cleanId = toCleanLabId(w.LabId);
+    const total = Number(w.TotalPurchasedTokens || 0);
     const used = Number(w.ConsumedTokens || 0);
-
-    if (!groupedWallets.has(cleanId)) {
+    const group = groupedWallets.get(cleanId);
+    if (!group) {
       groupedWallets.set(cleanId, {
         id: w.Id,
         labId: cleanId,
-        purchasedTokens: purchased,
-        allocatedTokens: purchased,
+        rows: [w],
+        maxRowTotal: total,
         usedTokens: used,
-        remainingTokens: Math.max(0, purchased - used),
-        runtimeRemainingMinutes: Math.max(0, purchased - used),
+        allocation: 0,
         updatedAt: w.UpdatedAt
       });
     } else {
-      const existing = groupedWallets.get(cleanId);
-      // Consolidate duplicate records for same student (do not double count)
-      existing.purchasedTokens = Math.max(existing.purchasedTokens, purchased);
-      existing.allocatedTokens = Math.max(existing.allocatedTokens || 0, existing.purchasedTokens);
-      existing.usedTokens = Math.max(existing.usedTokens, used);
-      existing.remainingTokens = Math.max(0, existing.purchasedTokens - existing.usedTokens);
-      existing.runtimeRemainingMinutes = existing.remainingTokens;
+      group.rows.push(w);
+      group.maxRowTotal = Math.max(group.maxRowTotal, total);
+      group.usedTokens += used;
+      if (w.UpdatedAt && (!group.updatedAt || w.UpdatedAt > group.updatedAt)) group.updatedAt = w.UpdatedAt;
     }
   });
+
+  const entitlementFor = (group) =>
+    Math.max(group.maxRowTotal, (group.allocation || 0) + (purchasedByLab.get(group.labId) || 0));
 
   // Check if student is an LMS / University student and enrich with their assigned course practical tokens
   let isUniversityStudent = false;
@@ -124,7 +135,7 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
       // If no allocations found from external LMS API, fallback to course_lab_mappings in database
       if (courseAllocations.length === 0) {
         const [dbMappings] = await pool.query(
-          `SELECT course_code, lab_id, practical_credit FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
+          `SELECT * FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
           [tenantId || 'PLATFORM']
         ).catch(() => [[]]);
 
@@ -161,59 +172,52 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
       // Auto-provision and enrich wallets with university allocations
       const assignedLabIds = new Set(courseAllocations.map(ca => ca.labId));
 
+      const walletTenantKey = tenantId || 'DEFAULT';
+
       for (const ca of courseAllocations) {
         const cleanLabId = ca.labId;
         const practicalCredit = Number(ca.allocatedTokens || 60);
 
-        // Fetch direct purchased tokens for this lab by the student
-        let directPurchased = 0;
-        try {
-          const [purchaseRows] = await pool.query(
-            `SELECT COALESCE(SUM(Credits), 0) AS DirectPurchased
-             FROM credit_transactions
-             WHERE (UserId = ? OR (? != '' AND LOWER(CAST(UserId AS CHAR)) = ?) OR UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = ? OR CAST(UserId AS CHAR) = ?))
-               AND Status = 'SUCCESS' AND Type = 'PURCHASE'
-               AND (LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)`,
-            [String(studentId), auth?.email || '', auth?.email || '', auth?.email || '', String(studentId), cleanLabId, cleanLabId]
-          );
-          directPurchased = Number(purchaseRows?.[0]?.DirectPurchased || 0);
-        } catch (e) {}
-
-        const totalLabTokens = practicalCredit + directPurchased;
-
-        if (groupedWallets.has(cleanLabId)) {
-          const existing = groupedWallets.get(cleanLabId);
-          existing.allocatedTokens = practicalCredit;
-          existing.purchasedTokens = totalLabTokens;
-          existing.remainingTokens = Math.max(0, totalLabTokens - existing.usedTokens);
-          existing.runtimeRemainingMinutes = existing.remainingTokens;
-          if (!existing.labTitle || existing.labTitle === `${cleanLabId.toUpperCase()} Lab`) {
-            existing.labTitle = ca.labTitle;
-          }
-        } else {
-          groupedWallets.set(cleanLabId, {
+        let group = groupedWallets.get(cleanLabId);
+        if (!group) {
+          group = {
             id: `uni-${cleanLabId}`,
             labId: cleanLabId,
-            labTitle: ca.labTitle,
-            purchasedTokens: totalLabTokens,
-            allocatedTokens: practicalCredit,
+            rows: [],
+            maxRowTotal: 0,
             usedTokens: 0,
-            remainingTokens: totalLabTokens,
-            runtimeRemainingMinutes: totalLabTokens,
+            allocation: 0,
             updatedAt: new Date().toISOString()
-          });
+          };
+          groupedWallets.set(cleanLabId, group);
+        }
+        group.allocation = Math.max(group.allocation || 0, practicalCredit);
+        if (!group.labTitle || group.labTitle === `${cleanLabId.toUpperCase()} Lab`) {
+          group.labTitle = ca.labTitle;
         }
 
-        // Persist/ensure wallet in student_lab_token_wallets table so session start & billing succeed
+        // Make sure the allocation row holds whatever part of the entitlement the student's other
+        // wallet rows for this lab do not already cover. Raise-only, so purchases are never folded in twice.
+        const isAllocationRow = (r) =>
+          String(r.TenantId) === String(walletTenantKey) &&
+          String(r.StudentId) === String(studentId) &&
+          String(r.LabId).toLowerCase() === cleanLabId;
+        const otherRowsTotal = group.rows
+          .filter((r) => !isAllocationRow(r))
+          .reduce((sum, r) => sum + Number(r.TotalPurchasedTokens || 0), 0);
+        const allocationRowTarget = Math.max(0, entitlementFor(group) - otherRowsTotal);
+
         try {
-          await pool.query(
-            `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
-             VALUES (?, ?, ?, ?, 0, ?, 1)
-             ON DUPLICATE KEY UPDATE
-               TotalPurchasedTokens = IF(TotalPurchasedTokens < VALUES(TotalPurchasedTokens), VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
-               RemainingTokens = CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) THEN CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED) ELSE 0 END`,
-            [tenantId || 'DEFAULT', String(studentId), cleanLabId, totalLabTokens, totalLabTokens]
-          );
+          if (allocationRowTarget > 0) {
+            await pool.query(
+              `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
+               VALUES (?, ?, ?, ?, 0, ?, 1)
+               ON DUPLICATE KEY UPDATE
+                 TotalPurchasedTokens = IF(TotalPurchasedTokens < VALUES(TotalPurchasedTokens), VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
+                 RemainingTokens = CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) THEN CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED) ELSE 0 END`,
+              [walletTenantKey, String(studentId), cleanLabId, allocationRowTarget, allocationRowTarget]
+            );
+          }
 
           // Record ALLOCATION ledger entry idempotently
           const allocKey = `ALLOC-SSO-${studentId}-${cleanLabId}`;
@@ -274,8 +278,9 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
         ...(tokenPurchases || []).map(p => String(p.LabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, ''))
       ].filter(Boolean));
 
-      // For university students, filter out any wallet that is neither assigned by university nor purchased
-      for (const [key] of groupedWallets.entries()) {
+      // For university students, filter out any wallet that is neither assigned by university nor purchased.
+      // Only safe once allocations actually resolved; an LMS outage must never hide or delete wallets.
+      for (const [key] of (courseAllocations.length > 0 ? groupedWallets.entries() : [])) {
         const cleanKey = key.toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
         const isAssigned = assignedLabIds.has(cleanKey);
         const isPurchased = purchasedLabIds.has(cleanKey);
@@ -298,7 +303,22 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
     console.warn("[studentLabTokensSummaryHandler] LMS enrichment skipped:", err.message);
   }
 
-  const labWallets = Array.from(groupedWallets.values());
+  const labWallets = Array.from(groupedWallets.values()).map((group) => {
+    const entitled = entitlementFor(group);
+    const remaining = Math.max(0, entitled - group.usedTokens);
+    return {
+      id: group.id,
+      labId: group.labId,
+      ...(group.labTitle ? { labTitle: group.labTitle } : {}),
+      purchasedTokens: entitled,
+      allocatedTokens: group.allocation || entitled,
+      extraPurchasedTokens: purchasedByLab.get(group.labId) || 0,
+      usedTokens: group.usedTokens,
+      remainingTokens: remaining,
+      runtimeRemainingMinutes: remaining,
+      updatedAt: group.updatedAt
+    };
+  });
   let totalPurchased = 0;
   let totalAllocated = 0;
   let totalUsed = 0;

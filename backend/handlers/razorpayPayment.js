@@ -2,7 +2,7 @@ import crypto from "crypto";
 import axios from "axios";
 import pool from "../lib/mysql.js";
 import { ok } from "../lib/apigw.js";
-import { unauthorized, badRequest } from "../lib/errors.js";
+import { unauthorized, badRequest, HttpError } from "../lib/errors.js";
 import creditWalletService from "../services/CreditWalletService.js";
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || "rzp_test_1DP5mmOlF5G5ag";
@@ -69,10 +69,57 @@ export const createRazorpayOrderHandler = async ({ auth, body = {} }) => {
   }
 };
 
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+function hasValidSignature(orderId, paymentId, signature) {
+  if (!orderId || !paymentId || !signature) return false;
+  const expected = Buffer.from(
+    crypto.createHmac("sha256", RAZORPAY_KEY_SECRET).update(`${orderId}|${paymentId}`).digest("hex")
+  );
+  const received = Buffer.from(String(signature));
+  return expected.length === received.length && crypto.timingSafeEqual(expected, received);
+}
+
+async function fetchRazorpayPayment(paymentId) {
+  try {
+    const authHeader = Buffer.from(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`).toString("base64");
+    const { data } = await axios.get(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+      headers: { Authorization: `Basic ${authHeader}` },
+      timeout: 10000,
+    });
+    return data;
+  } catch (error) {
+    console.warn("[RazorpayVerify] Payment lookup failed:", error?.response?.data || error.message);
+    return null;
+  }
+}
+
 /**
- * 2. VERIFY RAZORPAY CRYPTOGRAPHIC SIGNATURE & CREDIT USER (POST /api/payments/razorpay/verify)
+ * Returns how the payment was proven genuine, or null when it could not be.
+ * Checkouts opened without a server order carry no signature, so those are confirmed
+ * directly against the Razorpay Payments API (status + paid amount).
+ */
+async function verifyPayment({ orderId, paymentId, signature, expectedRupees }) {
+  if (hasValidSignature(orderId, paymentId, signature)) return "signature";
+
+  const payment = await fetchRazorpayPayment(paymentId);
+  if (payment && ["captured", "authorized"].includes(payment.status)) {
+    const expectedPaise = Math.round(Number(expectedRupees || 0) * 100);
+    if (expectedPaise > 0 && Number(payment.amount) < expectedPaise) {
+      throw badRequest("The paid amount does not match the order total. No tokens were added.");
+    }
+    return "gateway";
+  }
+
+  return IS_PRODUCTION ? null : "development";
+}
+
+/**
+ * 2. VERIFY RAZORPAY PAYMENT & CREDIT LAB TOKENS (POST /api/payments/razorpay/verify)
  */
 export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
+  if (!auth?.userId) throw unauthorized("Authentication required");
+
   const {
     razorpay_order_id,
     razorpay_payment_id,
@@ -82,110 +129,88 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
     labId,
     labName,
     items,
-    userId: bodyUserId,
-    userEmail: bodyUserEmail,
-    tenantId: bodyTenantId,
   } = body;
 
   if (!razorpay_payment_id) {
     throw badRequest("Razorpay Payment ID is required for verification");
   }
 
-  let isValidSignature = false;
-
-  if (razorpay_order_id && razorpay_signature) {
-    // Generate expected HMAC-SHA256 Signature
-    const expectedSignature = crypto
-      .createHmac("sha256", RAZORPAY_KEY_SECRET)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest("hex");
-
-    if (expectedSignature === razorpay_signature) {
-      isValidSignature = true;
-    }
+  const purchaseItems = Array.isArray(items) ? items : null;
+  const creditsToAdd = purchaseItems
+    ? purchaseItems.reduce((sum, item) => sum + Number(item?.tokens ?? item?.tokenAmount ?? item?.credits ?? 0), 0)
+    : Number(credits || 0);
+  if (!Number.isFinite(creditsToAdd) || creditsToAdd <= 0) {
+    throw badRequest("Token quantity must be greater than zero.");
+  }
+  if (!purchaseItems && !labId) {
+    throw badRequest("A lab must be selected for this token purchase.");
   }
 
-  // Gracefully allow valid test payments in development/test environment
-  if (!isValidSignature && (process.env.NODE_ENV !== "production" || razorpay_payment_id.startsWith("pay_") || razorpay_order_id?.startsWith("order_test_"))) {
-    isValidSignature = true;
+  // Tokens always go to the authenticated student; client-supplied user/tenant ids are ignored.
+  const [userRows] = await pool.query(
+    `SELECT UserId, TenantId FROM Users WHERE CAST(UserId AS CHAR) = ? OR (? != '' AND LOWER(Email) = LOWER(?)) LIMIT 1`,
+    [String(auth.userId), auth.email || "", auth.email || ""]
+  );
+  const student = userRows?.[0];
+  if (!student) throw unauthorized("Student account not found for this session");
+  const tenantId = auth.tenantId || auth.universityId || student.TenantId || null;
+
+  const [alreadyCredited] = await pool.query(
+    `SELECT TransactionId FROM credit_transactions
+     WHERE PaymentReference = ? AND Type = 'PURCHASE' AND Status = 'SUCCESS' LIMIT 1`,
+    [razorpay_payment_id]
+  );
+  if (alreadyCredited.length > 0) {
+    return ok({ verified: true, alreadyProcessed: true, paymentId: razorpay_payment_id, creditsAdded: 0 });
   }
 
-  if (!isValidSignature) {
-    throw badRequest("Invalid Razorpay payment signature. Verification failed.");
+  const verifiedBy = await verifyPayment({
+    orderId: razorpay_order_id,
+    paymentId: razorpay_payment_id,
+    signature: razorpay_signature,
+    expectedRupees: amount,
+  });
+  if (!verifiedBy) {
+    throw badRequest("Payment could not be verified with Razorpay. No tokens were added.");
   }
 
-  // Credit user wallet in database
-  let targetUserId = auth?.userId || bodyUserId || bodyUserEmail || "1";
-  let tenantId = auth?.tenantId || auth?.universityId || bodyTenantId;
-  const creditsToAdd = Number(credits || amount || 0);
-
-  // Resolve true integer UserId and TenantId from Users database table
+  let result;
   try {
-    const rawTarget = String(targetUserId).trim();
-    const isTargetNumeric = /^\d+$/.test(rawTarget);
-    const queryUserId = isTargetNumeric ? parseInt(rawTarget, 10) : -1;
-    const lookupEmail = (bodyUserEmail || auth?.email || (rawTarget.includes('@') ? rawTarget : '')).trim().toLowerCase();
-
-    const [uRows] = await pool.query(
-      `SELECT UserId, TenantId, Email FROM Users 
-       WHERE (UserId = ? AND ? > 0) 
-          OR (LOWER(Email) = LOWER(?) AND ? != '') 
-          OR (ExternalStudentId = ? AND ? != '')
-       LIMIT 1`,
-      [queryUserId, queryUserId, lookupEmail, lookupEmail, rawTarget, rawTarget]
+    result = await creditWalletService.processPurchase({
+      userId: student.UserId,
+      tenantId,
+      credits: creditsToAdd,
+      amount: Number(amount || 0),
+      currency: "INR",
+      paymentReference: razorpay_payment_id,
+      idempotencyKey: `rzp_${razorpay_payment_id}`,
+      labId: labId || null,
+      labName: labName || null,
+      items: purchaseItems,
+    });
+  } catch (error) {
+    if (error?.code === "ER_DUP_ENTRY") {
+      return ok({ verified: true, alreadyProcessed: true, paymentId: razorpay_payment_id, creditsAdded: 0 });
+    }
+    console.error("[RazorpayVerify] Token credit failed", {
+      userId: student.UserId,
+      paymentId: razorpay_payment_id,
+      error: error.message,
+    });
+    throw new HttpError(
+      `Payment ${razorpay_payment_id} was received but tokens could not be added. Please contact support with this payment ID.`,
+      500,
+      { paymentId: razorpay_payment_id }
     );
-
-    if (uRows && uRows.length > 0) {
-      targetUserId = uRows[0].UserId;
-      if (!tenantId) tenantId = uRows[0].TenantId;
-    } else {
-      // Auto-provision user in Users so FK constraints on credit_wallets do not fail
-      const fallbackEmail = lookupEmail || `student_${rawTarget.replace(/[^a-zA-Z0-9]/g, '_')}@experia.ignitolearn.com`;
-      const fallbackName = auth?.name || auth?.fullName || bodyUserEmail || `Student ${rawTarget}`;
-      const effectiveTenant = tenantId || 'TEN000001';
-
-      const [insRes] = await pool.query(
-        `INSERT INTO Users (FullName, Email, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId)
-         VALUES (?, ?, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?)
-         ON DUPLICATE KEY UPDATE UserId = LAST_INSERT_ID(UserId), TenantId = COALESCE(VALUES(TenantId), TenantId)`,
-        [fallbackName, fallbackEmail.toLowerCase(), effectiveTenant, rawTarget]
-      );
-      if (insRes && insRes.insertId) {
-        targetUserId = insRes.insertId;
-      }
-    }
-  } catch (e) {
-    console.warn("User lookup warning in payment verification:", e);
-  }
-
-  if (!tenantId) tenantId = "TEN000001";
-  if (!targetUserId || isNaN(Number(targetUserId))) targetUserId = 1;
-
-  if (creditsToAdd > 0 && targetUserId) {
-    try {
-      await creditWalletService.processPurchase({
-        userId: targetUserId,
-        tenantId,
-        credits: creditsToAdd,
-        amount: Number(amount || creditsToAdd),
-        currency: "INR",
-        paymentReference: razorpay_payment_id,
-        idempotencyKey: razorpay_order_id || `IDEM-${razorpay_payment_id}`,
-        labId: labId || null,
-        labName: labName || null,
-        items: Array.isArray(items) ? items : null,
-      });
-    } catch (e) {
-      console.warn("Wallet database credit warning for userId:", targetUserId, e.message);
-    }
   }
 
   return ok({
-    success: true,
     verified: true,
+    verifiedBy,
+    alreadyProcessed: Boolean(result?.duplicate),
     paymentId: razorpay_payment_id,
     orderId: razorpay_order_id,
-    creditsAdded: creditsToAdd,
-    message: "Payment signature verified successfully and wallet updated.",
+    creditsAdded: result?.duplicate ? 0 : creditsToAdd,
+    message: "Payment verified and lab tokens added.",
   });
 };
