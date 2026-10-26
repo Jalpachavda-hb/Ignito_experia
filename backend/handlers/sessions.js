@@ -3,6 +3,7 @@ import { ok } from "../lib/apigw.js";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors.js";
 import { canonicalLabType } from "../lib/labTypeMapper.js";
 import { getLabById } from "../config/labs.js";
+import { canonicalLabKey } from "../lib/labIdentity.js";
 import labSessionRepository from "../repositories/LabSessionRepository.js";
 import creditWalletService from "../services/CreditWalletService.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
@@ -155,8 +156,19 @@ export const sessionsStartHandler = async ({ body, auth }) => {
       throw badRequest("You already have an active lab session. Please stop or complete the current session before starting another lab.");
     }
 
-    // Lock lab-specific token wallet FOR UPDATE
-    let labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, auth?.email, connection);
+    // Lock the wallet for this lab. Course purchases are stored under the lab family
+    // (dotnet, dbms, ...) even when the card id is a catalog code.
+    const cleanLabId = canonicalLabKey(
+      labId,
+      `${lab?.title || ""} ${lab?.labCode || ""} ${body?.academicCtx?.courseCode || ""}`
+    );
+    let labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(
+      tenantId,
+      userId,
+      cleanLabId || labId,
+      auth?.email,
+      connection
+    );
     let remainingTokens = Number(labWallet?.RemainingTokens || 0);
 
     const isAdmin = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';
@@ -169,7 +181,6 @@ export const sessionsStartHandler = async ({ body, auth }) => {
         Boolean(body?.academicCtx && (body.academicCtx.programId || body.academicCtx.semesterId || body.academicCtx.courseCode));
 
       if (isLmsCandidate) {
-        const rawLabId = String(labId).toLowerCase().trim();
         const defaultCredit = (cleanLabId.includes('dbms') || String(body?.academicCtx?.courseCode || '').includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || String(body?.academicCtx?.courseCode || '').includes('4011')) ? 80 : 60);
         const practicalCredit = Number(body?.practicalCredit || body?.academicCtx?.practicalCredit || defaultCredit);
 

@@ -1,4 +1,5 @@
 import pool from "../lib/mysql.js";
+import { canonicalLabKey } from "../lib/labIdentity.js";
 
 class StudentLabTokenTransactionRepository {
   async createTransaction({
@@ -81,13 +82,42 @@ class StudentLabTokenTransactionRepository {
     const ids = [...new Set((studentIds || []).filter(Boolean).map(String))];
     if (!ids.length) return new Map();
     const [rows] = await db.query(
-      `SELECT LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) AS CleanLabId, COALESCE(SUM(Tokens), 0) AS Tokens
+      `SELECT LabId, Description, COALESCE(SUM(Tokens), 0) AS Tokens
        FROM student_lab_token_transactions
        WHERE StudentId IN (?) AND TransactionType = 'PURCHASE'
-       GROUP BY CleanLabId`,
+       GROUP BY LabId, Description`,
       [ids]
     );
-    return new Map(rows.map((r) => [String(r.CleanLabId), Number(r.Tokens) || 0]));
+    const totals = new Map();
+    for (const row of rows) {
+      const key = canonicalLabKey(row.LabId, row.Description);
+      if (!key) continue;
+      totals.set(key, (totals.get(key) || 0) + (Number(row.Tokens) || 0));
+    }
+    return totals;
+  }
+
+  /** Maps every stored purchase lab id onto the lab family used by course cards. */
+  async getPurchaseAliases(studentIds, db = pool) {
+    const ids = [...new Set((studentIds || []).filter(Boolean).map(String))];
+    const aliasToKey = new Map();
+    if (!ids.length) return aliasToKey;
+    const [rows] = await db.query(
+      `SELECT LabId, Description
+       FROM student_lab_token_transactions
+       WHERE StudentId IN (?) AND TransactionType = 'PURCHASE'`,
+      [ids]
+    );
+    for (const row of rows) {
+      const key = canonicalLabKey(row.LabId, row.Description);
+      if (!key) continue;
+      const raw = String(row.LabId || "").toLowerCase().trim();
+      const clean = raw.replace(/^lab-/, "").replace(/-lab$/, "");
+      if (raw) aliasToKey.set(raw, key);
+      if (clean) aliasToKey.set(clean, key);
+      aliasToKey.set(key, key);
+    }
+    return aliasToKey;
   }
 
   async getByReferenceIds(referenceIds, db = pool) {

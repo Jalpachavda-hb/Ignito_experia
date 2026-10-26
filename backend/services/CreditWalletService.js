@@ -3,6 +3,7 @@ import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWalletRepository.js";
 import studentLabTokenTransactionRepository from "../repositories/StudentLabTokenTransactionRepository.js";
 import { badRequest, forbidden } from "../lib/errors.js";
+import { canonicalLabKey } from "../lib/labIdentity.js";
 
 export function displayLabName(labId, labName) {
   const given = String(labName || "").trim();
@@ -159,21 +160,23 @@ class CreditWalletService {
       }, connection);
 
       for (const line of lines) {
+        const storedLabId = canonicalLabKey(line.labId, line.labName);
         await studentLabTokenWalletRepository.creditWalletTokens(
           effectiveTenantId,
           userId,
-          line.labId,
+          storedLabId,
           line.tokens,
-          connection
+          connection,
+          line.labName
         );
 
         const ledgerKey = idempotencyKey
-          ? `purchase_${idempotencyKey}_lab_${line.labId}`
-          : `purchase_tx_${txnId}_lab_${line.labId}`;
+          ? `purchase_${idempotencyKey}_lab_${storedLabId}`
+          : `purchase_tx_${txnId}_lab_${storedLabId}`;
         await studentLabTokenTransactionRepository.createTransaction({
           tenantId,
           studentId: userId,
-          labId: line.labId,
+          labId: storedLabId,
           transactionType: 'PURCHASE',
           tokens: line.tokens,
           referenceType: 'PURCHASE',

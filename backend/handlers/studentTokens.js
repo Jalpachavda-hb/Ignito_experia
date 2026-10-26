@@ -5,10 +5,11 @@ import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWall
 import studentLabTokenTransactionRepository from "../repositories/StudentLabTokenTransactionRepository.js";
 import labTokenPackageRepository from "../repositories/LabTokenPackageRepository.js";
 import labTokenUsageRepository from "../repositories/LabTokenUsageRepository.js";
+import { canonicalLabKey } from "../lib/labIdentity.js";
 import { loadStudentLmsContext, loadOwnedProgrammes } from "../services/lms/studentLmsContext.js";
 import { lmsCourseService } from "../services/lms/LmsCourseService.js";
 
-const toCleanLabId = (labId) => String(labId || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
+const toCleanLabId = (labId, hint = "") => canonicalLabKey(labId, hint);
 
 export const studentLabTokensSummaryHandler = async ({ auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
@@ -17,12 +18,16 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
 
   const wallets = await studentLabTokenWalletRepository.getAllWalletsForStudent(tenantId, studentId, auth.email);
   const { canonicalStudentId } = await studentLabTokenWalletRepository.resolveCanonicalStudent(studentId, auth.email);
+  const identityKeys = [canonicalStudentId, String(studentId), auth.email];
   const purchasedByLab = await studentLabTokenTransactionRepository
-    .getPurchasedTokensByLab([canonicalStudentId, String(studentId), auth.email])
+    .getPurchasedTokensByLab(identityKeys)
     .catch((err) => {
       console.warn("[studentLabTokensSummaryHandler] purchase ledger unavailable:", err.message);
       return new Map();
     });
+  const purchaseAliases = await studentLabTokenTransactionRepository
+    .getPurchaseAliases(identityKeys)
+    .catch(() => new Map());
 
   // A lab balance can be spread over several wallet rows (different tenant / identity keys).
   // Each billing tick lands on exactly one row, so consumption is summed across rows.
@@ -30,7 +35,9 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
   // ledger later (max of largest row vs. allocation + purchases) instead of summing totals.
   const groupedWallets = new Map();
   wallets.forEach(w => {
-    const cleanId = toCleanLabId(w.LabId);
+    const rawLabId = String(w.LabId || "").toLowerCase().trim();
+    const strippedLabId = rawLabId.replace(/^lab-/, "").replace(/-lab$/, "");
+    const cleanId = purchaseAliases.get(rawLabId) || purchaseAliases.get(strippedLabId) || toCleanLabId(w.LabId);
     const total = Number(w.TotalPurchasedTokens || 0);
     const used = Number(w.ConsumedTokens || 0);
     const group = groupedWallets.get(cleanId);
@@ -89,23 +96,10 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
           const courses = courseRes?.courseList || [];
           for (const course of courses) {
             const mappedLabObj = course.mappedLab || (course.labId ? { labId: course.labId, title: course.labTitle } : null);
-            let rawLabId = String(mappedLabObj?.labId || mappedLabObj?.LabId || course.labId || '').toLowerCase().trim();
-            let cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
-
+            const rawLabId = String(mappedLabObj?.labId || mappedLabObj?.LabId || course.labId || '').toLowerCase().trim();
             const codeStr = String(course.courseCode || course.code || '').toUpperCase();
             const courseNameLower = String(course.courseName || course.name || '').toLowerCase();
-
-            if (!cleanLabId) {
-              if (codeStr.includes('4031') || courseNameLower.includes('database') || courseNameLower.includes('dbms') || courseNameLower.includes('sql')) {
-                cleanLabId = 'dbms';
-              } else if (codeStr.includes('4011') || courseNameLower.includes('programming with c') || courseNameLower.includes('dotnet') || courseNameLower.includes('.net')) {
-                cleanLabId = 'dotnet';
-              } else if (courseNameLower.includes('python')) {
-                cleanLabId = 'python';
-              } else if (courseNameLower.includes('java')) {
-                cleanLabId = 'java';
-              }
-            }
+            const cleanLabId = canonicalLabKey(rawLabId, `${mappedLabObj?.title || ""} ${courseNameLower} ${codeStr}`);
 
             const defaultCredit = (cleanLabId.includes('dbms') || codeStr.includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || codeStr.includes('4011')) ? 80 : 60);
             const practicalCredit = Number(
@@ -273,17 +267,21 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
         [String(studentId), auth?.email || '', auth?.email || '', String(studentId)]
       ).catch(() => [[]]);
 
-      const purchasedLabIds = new Set([
-        ...(creditPurchases || []).map(p => String(p.LabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '')),
-        ...(tokenPurchases || []).map(p => String(p.LabId || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, ''))
-      ].filter(Boolean));
+      const purchasedLabIds = new Set();
+      for (const p of [...(creditPurchases || []), ...(tokenPurchases || [])]) {
+        const raw = String(p.LabId || "").toLowerCase().trim();
+        const clean = raw.replace(/^lab-/, "").replace(/-lab$/, "");
+        const canonical = purchaseAliases.get(raw) || purchaseAliases.get(clean) || toCleanLabId(raw);
+        if (canonical) purchasedLabIds.add(canonical);
+        if (clean) purchasedLabIds.add(clean);
+      }
 
       // For university students, filter out any wallet that is neither assigned by university nor purchased.
       // Only safe once allocations actually resolved; an LMS outage must never hide or delete wallets.
       for (const [key] of (courseAllocations.length > 0 ? groupedWallets.entries() : [])) {
         const cleanKey = key.toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
         const isAssigned = assignedLabIds.has(cleanKey);
-        const isPurchased = purchasedLabIds.has(cleanKey);
+        const isPurchased = purchasedLabIds.has(cleanKey) || (purchasedByLab.get(cleanKey) || 0) > 0;
         if (!isAssigned && !isPurchased) {
           groupedWallets.delete(key);
           // Also clean up zero-consumed orphan row from database so it never returns
@@ -292,7 +290,8 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
               `DELETE FROM student_lab_token_wallets 
                WHERE (StudentId = ? OR StudentId = ?) 
                  AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?) 
-                 AND ConsumedTokens = 0`,
+                 AND ConsumedTokens = 0
+                 AND TotalPurchasedTokens = 0`,
               [String(studentId), auth?.email || '', cleanKey, `lab-${cleanKey}`, cleanKey]
             );
           } catch (e) {}

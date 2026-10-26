@@ -25,6 +25,34 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { isDirectStudent } from '@/lib/student-kind';
 
+/** Same lab identity the server uses, so a .NET purchase lands on the Programming with C card. */
+function labFamily(...parts: Array<string | number | null | undefined>) {
+  const blob = parts.filter((part) => part != null && String(part).trim() !== '').join(' ').toLowerCase();
+  if (
+    blob.includes('4011') ||
+    blob.includes('dotnet') ||
+    blob.includes('.net') ||
+    blob.includes('c#') ||
+    blob.includes('programming with c') ||
+    blob.includes('web technology')
+  ) return 'dotnet';
+  if (
+    blob.includes('4031') ||
+    blob.includes('dbms') ||
+    blob.includes('sql') ||
+    blob.includes('relational database') ||
+    blob.includes('database management')
+  ) return 'dbms';
+  if (blob.includes('python')) return 'python';
+  if (blob.includes('java') && !blob.includes('javascript')) return 'java';
+  if (blob.includes('linux')) return 'linux';
+  if (blob.includes('android') || blob.includes('mobile')) return 'android';
+  if (blob.includes('data science') || blob.includes('data-science')) return 'data-science';
+  if (blob.includes('big data') || blob.includes('big-data')) return 'big-data';
+  const id = String(parts[0] || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
+  return id;
+}
+
 export default function MyLabs() {
   const { labs, isLoading, error, loadLabs } = useLabStore();
   const { auth } = useAuthStore();
@@ -610,16 +638,8 @@ export default function MyLabs() {
       const lTitle = String(labItem.title || labItem.name || '').toLowerCase().trim();
       const cCode = String(labItem.courseCode || '').toUpperCase();
 
-      const cleanWalletId = (w: { labId?: string }) => String(w.labId || '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
-      const walletMatch =
-        (labWallets || []).find((w) => {
-          const wId = String(w.labId || '').toLowerCase().trim();
-          return wId === lId || cleanWalletId(w) === cleanLId;
-        }) ||
-        (labWallets || []).find((w) => {
-          const cleanWId = cleanWalletId(w);
-          return Boolean(lTitle && cleanWId && (lTitle.includes(cleanWId) || cleanWId.includes(lTitle)));
-        });
+      const family = labFamily(lId, lTitle, labItem.courseName, labItem.mappedLabTitle, cCode);
+      const walletMatch = (labWallets || []).find((w) => labFamily(w.labId, w.labTitle) === family);
 
       const fallbackCred = (cleanLId.includes('dbms') || cCode.includes('4031')) ? 90 : ((cleanLId.includes('dotnet') || cCode.includes('4011')) ? 80 : 60);
 
@@ -648,22 +668,18 @@ export default function MyLabs() {
           )
         : 0;
 
-      // Specific credits purchased for this lab from transactions
+      // Completed Razorpay purchases for this lab. University allocations are not purchases.
       const txCredits = (transactions || []).reduce((sum, tx) => {
         const isSuccess = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
         if (!isSuccess || tx.type !== 'Credit') return sum;
+        const method = String(tx.paymentMethod || '').toLowerCase();
+        const description = String(tx.description || '').toLowerCase();
+        if (method === 'university allocation' || description.includes('university course allocation')) return sum;
         const isOwner = !currentStudentEmail || !tx.studentEmail || tx.studentEmail.toLowerCase() === currentStudentEmail;
         if (!isOwner) return sum;
 
-        const tLabIds = String(tx.labId || '').toLowerCase().split(',').map(s => s.trim());
-        const tLabName = String(tx.labName || tx.description || '').toLowerCase();
-
-        const isMatch = (
-          tLabIds.some(id => id === cleanLId || id === lId || id.replace(/^lab-/, '').replace(/-lab$/, '') === cleanLId) ||
-          (tLabName && lTitle && (tLabName.includes(lTitle) || lTitle.includes(tLabName)))
-        );
-
-        return isMatch ? sum + (Number(tx.amount) || 0) : sum;
+        const txFamily = labFamily(tx.labId, tx.labName, tx.description);
+        return txFamily === family ? sum + (Number(tx.tokens ?? tx.amount) || 0) : sum;
       }, 0);
 
       const assignedUniTokens = coursePracticalTokens || (isUniversity ? fallbackCred : 0);
@@ -672,9 +688,12 @@ export default function MyLabs() {
 
       let effectiveRemainingTokens = 0;
       if (isUniversity) {
-        // The server reconciles allocation + every purchase - consumption into remainingTokens.
-        // The course allocation is only a placeholder until the wallet has been provisioned.
-        effectiveRemainingTokens = walletMatch ? Math.max(0, walletRemainingTokens) : assignedUniTokens;
+        const allocationLeft = walletMatch ? Math.max(0, walletRemainingTokens) : assignedUniTokens;
+        const purchaseAlreadyInWallet = Number(walletMatch?.extraPurchasedTokens || 0) > 0;
+        // A completed purchase must show on this lab even when the university minutes are already used.
+        effectiveRemainingTokens = (!purchaseAlreadyInWallet && txCredits > 0)
+          ? allocationLeft + txCredits
+          : allocationLeft;
       } else if (walletMatch) {
         effectiveRemainingTokens = Number(walletMatch.remainingTokens ?? Math.max(0, walletPurchased - usedTokens));
       } else if (txCredits > 0) {
@@ -855,10 +874,15 @@ export default function MyLabs() {
     const combined: any[] = [...allEnrolledMappedLabs];
     const labKey = (l: any) => String(l.id || l.labId || l.title || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
     const existingIds = new Set(allEnrolledMappedLabs.map(labKey));
+    const existingFamilies = new Set(
+      allEnrolledMappedLabs.map((lab) => labFamily(lab.id || lab.labId, lab.title, lab.courseName, lab.courseCode, lab.mappedLabTitle))
+    );
 
     // Tokens bought for a university-assigned lab top up that course card instead of adding a duplicate card.
     purchasedLabsList.forEach((pLab) => {
       const pId = labKey(pLab);
+      const pFamily = labFamily(pLab.id || pLab.labId, pLab.title, pLab.courseName);
+      if (existingFamilies.has(pFamily)) return;
       if (!existingIds.has(pId)) {
         existingIds.add(pId);
         combined.push(pLab);
