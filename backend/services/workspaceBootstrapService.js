@@ -252,7 +252,7 @@ if [ -f "$TMP_TAR" ]; then
     else
         chown -R labuser:labuser /tmp/workspace /workspace 2>/dev/null || true
     fi
-    chmod -R 777 /tmp/workspace /workspace 2>/dev/null || true
+    chmod -R u+rwX,g+rX,o-rwx /tmp/workspace /workspace 2>/dev/null || true
 
     echo "SUCCESS"
 else
@@ -664,7 +664,7 @@ if [ -f "$TMP_TAR" ]; then
     else
         chown -R labuser:labuser /tmp/workspace /workspace 2>/dev/null || true
     fi
-    chmod -R 777 /tmp/workspace /workspace 2>/dev/null || true
+    chmod -R u+rwX,g+rX,o-rwx /tmp/workspace /workspace 2>/dev/null || true
     echo "SUCCESS"
 else
     echo "ERROR: Failed to download archive"

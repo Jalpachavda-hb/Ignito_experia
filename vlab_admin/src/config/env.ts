@@ -23,7 +23,7 @@ export const APP_ENV = {
   apiPort: defaultApiPort,
 };
 
-/** API server origin without the /api path (e.g. http://localhost:8080). */
+/** API server origin without the /api path (e.g. http://localhost:8080).   */
 export const getApiOrigin = (): string => {
   if (APP_ENV.apiBaseUrl) {
     try {

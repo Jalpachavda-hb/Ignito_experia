@@ -260,7 +260,7 @@ export DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1
 export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 
 # Ensure workspace write permissions for NuGet restore & build outputs
-chmod -R 777 /workspace /tmp/workspace "${parentDir}" 2>/dev/null || true
+chmod -R u+rwX,g+rX,o-rwx /workspace /tmp/workspace "${parentDir}" 2>/dev/null || true
 
 PROJECT_ARG=""
 if [ "${isMvcProject ? "1" : "0"}" = "1" ]; then
@@ -276,7 +276,7 @@ if [ "${isMvcProject ? "1" : "0"}" = "1" ]; then
     PROJ_DIR="${parentDir}"
   fi
 
-  chmod -R 777 "$PROJ_DIR" 2>/dev/null || true
+  chmod -R u+rwX,g+rX,o-rwx "$PROJ_DIR" 2>/dev/null || true
   rm -f "$PROJ_DIR/obj/"*.tmp 2>/dev/null || true
 
   # Ensure the active file or Program.cs is synced into the MVC project directory

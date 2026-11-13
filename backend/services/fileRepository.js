@@ -14,6 +14,7 @@ import {
 import labSessionRepository from "../repositories/LabSessionRepository.js";
 import { ENV } from "../config/env.js";
 import userWorkspaceService from "./UserWorkspaceService.js";
+import { resolveInsideWorkspace } from "../lib/workspacePath.js";
 
 // Dynamically resolve the parent directory of backend as the local workspace root
 const getLocalWorkspaceRoot = () => {
@@ -24,8 +25,7 @@ const getLocalWorkspaceRoot = () => {
 };
 
 const getLocalFilePath = (filePath) => {
-  const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-  return path.join(getLocalWorkspaceRoot(), cleanPath);
+  return resolveInsideWorkspace(getLocalWorkspaceRoot(), filePath).absolute;
 };
 
 

@@ -1,7 +1,8 @@
 import path from "path";
 import { ok } from "../lib/apigw.js";
-import { badRequest, forbidden, notFound } from "../lib/errors.js";
-import { getSession } from "../services/sessionRepository.js";
+import { badRequest, notFound } from "../lib/errors.js";
+import { authorizeLabSession } from "../lib/sessionAccess.js";
+import { toWorkspacePath } from "../lib/workspacePath.js";
 import {
   listFiles,
   getFile,
@@ -36,18 +37,12 @@ const getSessionId = (event) =>
 
 const assertSessionAccess = async (event) => {
   const sessionId = getSessionId(event);
-  if (!sessionId) throw badRequest("Session ID required (x-session-id header)");
-  const session = await getSession(sessionId);
+  const { session } = await authorizeLabSession(event.auth, sessionId);
   if (!session) throw notFound("Session not found");
-  if (
-    event.auth &&
-    String(session.userId) !== String(event.auth.userId) &&
-    event.auth.role !== "Super Admin"
-  ) {
-    throw forbidden("You do not own this session");
-  }
   return { sessionId, session };
 };
+
+const requireWorkspacePath = (filePath) => toWorkspacePath(filePath).workspacePath;
 
 export const filesListHandler = async (event) => {
   console.log("[filesListHandler] Request received for session verification and file listing.");
@@ -76,8 +71,7 @@ export const filesListHandler = async (event) => {
 
 export const filesContentHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
-  const filePath = event.queryStringParameters?.path;
-  if (!filePath) throw badRequest("path is required");
+  const filePath = requireWorkspacePath(event.queryStringParameters?.path);
   const forceFresh = event.queryStringParameters?.fresh === "1" || event.queryStringParameters?.fresh === "true";
 
   const NO_CACHE_HEADERS = {
@@ -138,8 +132,8 @@ export const filesContentHandler = async (event) => {
 
 export const filesSaveHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
-  const { path: filePath, content, name, language } = event.body || {};
-  if (!filePath) throw badRequest("path is required");
+  const { path: rawPath, content, name, language } = event.body || {};
+  const filePath = requireWorkspacePath(rawPath);
   if (content === undefined || content === null) {
     throw badRequest("content is required (refusing to overwrite with undefined)");
   }
@@ -166,7 +160,7 @@ export const filesSaveHandler = async (event) => {
 
 export const filesDeleteHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
-  const filePath = event.queryStringParameters?.path;
+  const filePath = requireWorkspacePath(event.queryStringParameters?.path);
 
   console.log(`[filesDeleteHandler] Deleting file: sessionId=${sessionId}, filePath=${filePath}`);
 
@@ -192,18 +186,9 @@ export const filesRenameHandler = async (event) => {
   const { oldPath, newPath } = event.body || {};
 
   if (!oldPath || !newPath) throw badRequest("oldPath and newPath are required");
-  if (oldPath === newPath) return ok({ message: "No change", oldPath, newPath });
-
-  const sanitize = (p) => String(p).replace(/\\/g, "/");
-  const from = sanitize(oldPath);
-  const to = sanitize(newPath);
-
-  if (!from.startsWith("/workspace/") || !to.startsWith("/workspace/")) {
-    throw badRequest("Paths must be under /workspace/");
-  }
-  if (to.includes("..") || /\/\/|\/\.|\.$/.test(to)) {
-    throw badRequest("Invalid destination path");
-  }
+  const from = requireWorkspacePath(oldPath);
+  const to = requireWorkspacePath(newPath);
+  if (from === to) return ok({ message: "No change", oldPath: from, newPath: to });
   const newName = to.split("/").pop();
   if (!newName || /[<>:"|?*\u0000-\u001f]/.test(newName)) {
     throw badRequest("Invalid file or folder name");
@@ -220,9 +205,7 @@ export const filesRenameHandler = async (event) => {
 
 export const filesDownloadHandler = async (event) => {
   const { sessionId, session } = await assertSessionAccess(event);
-  const filePath = event.queryStringParameters?.path;
-
-  if (!filePath) throw badRequest("path query parameter is required");
+  const filePath = requireWorkspacePath(event.queryStringParameters?.path);
 
   if (session?.status === "running") {
     try {
