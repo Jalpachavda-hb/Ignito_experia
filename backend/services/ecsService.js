@@ -2,6 +2,7 @@ import {
   ECSClient,
   RunTaskCommand,
   DescribeTasksCommand,
+  DescribeTaskDefinitionCommand,
   StopTaskCommand,
 } from "@aws-sdk/client-ecs";
 import {
@@ -12,6 +13,8 @@ import { ENV } from "../config/env.js";
 import { getLabById } from "../config/labs.js";
 import { canonicalLabType } from "../lib/labTypeMapper.js";
 import { getContainerPort } from "../lib/labTools.js";
+import { getLabSecurityGroups } from "../config/labStartup.js";
+import { getCatalogInfra } from "./labCatalog.js";
 import fs from "fs";
 
 
@@ -104,7 +107,10 @@ export const logFargateTaskMetadata = (task) => {
       CpuUtilized: parseFloat(cpuUtilized.toFixed(14)),
       CpuReserved: cpuReserved,
       MemoryUtilized: memoryUtilized,
-      TaskDetails: task // Include the full task details for complete visibility
+      // Never log task.overrides: it holds SESSION_TOKEN / JUPYTER_TOKEN / VNC_PASSWORD.
+      LastStatus: task.lastStatus,
+      HealthStatus: task.healthStatus,
+      StoppedReason: task.stoppedReason,
     };
 
     console.log(JSON.stringify(metadataLog, null, 2));
@@ -113,24 +119,65 @@ export const logFargateTaskMetadata = (task) => {
   }
 };
 
+// Whether a task definition revision defines a container health check. Revisions are
+// immutable, so the answer is cached for the life of the process.
+const healthCheckCache = new Map();
+export const taskDefinitionHasHealthCheck = async (taskDefinitionArn) => {
+  if (!taskDefinitionArn) return false;
+  if (healthCheckCache.has(taskDefinitionArn)) return healthCheckCache.get(taskDefinitionArn);
+  try {
+    const res = await ecsClient.send(new DescribeTaskDefinitionCommand({ taskDefinition: taskDefinitionArn }));
+    const has = (res.taskDefinition?.containerDefinitions || []).some((c) => Boolean(c.healthCheck?.command?.length));
+    healthCheckCache.set(taskDefinitionArn, has);
+    return has;
+  } catch (err) {
+    console.warn("[ecsService] DescribeTaskDefinition failed:", err.message);
+    return false;
+  }
+};
+
+/**
+ * Maps an ECS task to a start stage shown to the student:
+ *   QUEUED → PROVISIONING → PULLING → STARTING → READY
+ * READY requires healthStatus HEALTHY when the task definition has a health check
+ * (otherwise RUNNING is the best signal available).
+ */
+export const computeStartStage = (task, hasHealthCheck) => {
+  if (!task) return "QUEUED";
+  const last = task.lastStatus;
+  if (last === "STOPPED" || last === "DEPROVISIONING" || last === "STOPPING") return "FAILED";
+  if (last === "PROVISIONING") return "PROVISIONING";
+  if (last === "PENDING" || last === "ACTIVATING") {
+    if (task.pullStartedAt && !task.pullStoppedAt) return "PULLING";
+    if (task.pullStoppedAt) return "STARTING";
+    return "PROVISIONING";
+  }
+  if (last === "RUNNING") {
+    if (!hasHealthCheck) return "READY";
+    return task.healthStatus === "HEALTHY" ? "READY" : "STARTING";
+  }
+  return "PROVISIONING";
+};
+
 export const resolveTaskNetworking = async (taskArn, labId) => {
   const task = await describeTask(taskArn);
 
   if (!task) {
-    return { status: "starting" };
+    return { status: "starting", stage: "QUEUED" };
   }
-
-  logFargateTaskMetadata(task);
 
   if (task.lastStatus === "STOPPED") {
     return {
       status: "failed",
+      stage: "FAILED",
       message: task.stoppedReason || "Container stopped",
     };
   }
 
-  if (task.lastStatus !== "RUNNING") {
-    return { status: "starting" };
+  const hasHealthCheck = await taskDefinitionHasHealthCheck(task.taskDefinitionArn);
+  const stage = computeStartStage(task, hasHealthCheck);
+  if (stage !== "READY") {
+    return { status: "starting", stage };
   }
 
   const taskPrivateIp = getEniPrivateIp(task);
@@ -140,11 +187,11 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
 
   if (isPrivateMode) {
     if (!taskPrivateIp) {
-      return { status: "starting" };
+      return { status: "starting", stage: "STARTING" };
     }
   } else {
     if (!publicIp) {
-      return { status: "starting" };
+      return { status: "starting", stage: "STARTING" };
     }
   }
 
@@ -157,11 +204,13 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
    * If we gate readiness on a direct TCP/HTTP probe here, sessions can get stuck
    * in "starting" forever even though the task is RUNNING and has a public IP.
    *
-   * The frontend already handles tool load timing/retries, so we consider the
-   * lab "running" once the task is RUNNING and a public IP exists.
+   * Readiness comes from ECS itself: the container health check (run inside the task)
+   * must report HEALTHY when the task definition defines one.
    */
+  logFargateTaskMetadata(task);
   return {
     status: "running",
+    stage: "READY",
     taskPrivateIp,
     publicIp,
     taskPort: port,
@@ -171,15 +220,20 @@ export const resolveTaskNetworking = async (taskArn, labId) => {
 };
 
 
-export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubtype }) => {
+export const startEcsTask = async ({ labId, sessionId, sessionToken, jupyterToken, vncPassword, dotnetSubtype }) => {
   const lab = await getLabById(labId);
-  const labType = canonicalLabType(labId);
-  const taskDefinition = lab?.taskDefinition?.trim();
-
-  console.log("== DEBUG TASK_DEF == [", taskDefinition, "]");
+  // Use the resolved lab's ID so aliases (e.g. dbms-lab -> mysql-lab) get the right LAB_TYPE.
+  const labType = canonicalLabType(lab?.id || labId);
+  // catalog/labs.json is the source of truth for infra when present; the labs table otherwise.
+  const catalogInfra = getCatalogInfra(lab?.id || labId);
+  const taskDefinition = catalogInfra.taskDefinitionFamily || lab?.taskDefinition?.trim();
 
   if (!taskDefinition) {
     throw new Error(`No ECS task definition for lab: ${labId}`);
+  }
+  // Fail closed: lab_server refuses code execution without SESSION_TOKEN, but never rely on that alone.
+  if (!sessionToken) {
+    throw new Error("Refusing to start a lab task without a session token");
   }
 
   const port = await getContainerPort(labId);
@@ -202,6 +256,18 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubty
     );
   }
 
+  // Jupyter (data-science) and noVNC (testing) lock themselves with a random secret when these
+  // are missing, so a task started without them is safe but unusable.
+  const runtimeTypeForSecrets = (lab.runtime?.type || lab.RuntimeType || lab.runtimeType || "").toLowerCase();
+  if (runtimeTypeForSecrets === "jupyter" || labType === "datascience" || labType === "data-science") {
+    if (!jupyterToken) throw new Error("Refusing to start a Jupyter lab without a JUPYTER_TOKEN");
+    environment.push({ name: "JUPYTER_TOKEN", value: jupyterToken });
+  }
+  if (labType === "testing") {
+    if (!vncPassword) throw new Error("Refusing to start the testing lab without a VNC_PASSWORD");
+    environment.push({ name: "VNC_PASSWORD", value: vncPassword });
+  }
+
   if (dotnetSubtype) {
     environment.push({ name: "DOTNET_SUBTYPE", value: String(dotnetSubtype) });
   }
@@ -216,6 +282,14 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubty
       name: "JUPYTER_BASE_URL",
       value: `${ENV.apiPrefix}/lab/sessions/${sessionId}/jupyter`,
     });
+  }
+
+  // Every variable the catalog says this lab needs must be passed (e.g. SESSION_TOKEN,
+  // JUPYTER_TOKEN, VNC_PASSWORD). Refuse to start a task that would be missing one.
+  const provided = new Set(environment.filter((e) => e.value).map((e) => e.name));
+  const missing = catalogInfra.sessionEnv.filter((name) => !provided.has(name));
+  if (missing.length) {
+    throw new Error(`Refusing to start ${labId}: missing required session variables ${missing.join(", ")}`);
   }
 
   const containerOverride = {
@@ -233,7 +307,7 @@ export const startEcsTask = async ({ labId, sessionId, sessionToken, dotnetSubty
       networkConfiguration: {
         awsvpcConfiguration: {
           subnets: ENV.ecsSubnets,
-          securityGroups: ENV.ecsSecurityGroups,
+          securityGroups: getLabSecurityGroups(catalogInfra.securityGroup || labType, ENV.ecsSecurityGroups),
           assignPublicIp: ENV.containerHostMode === "private" ? "DISABLED" : "ENABLED",
         },
       },
@@ -277,3 +351,66 @@ export const stopEcsTask = async (taskArn) => {
     throw err;
   }
 };
+
+/**
+ * Starts an unassigned warm-pool task (docs/lab-startup-optimization.md §3.1).
+ * No SESSION_TOKEN: lab_server refuses all code execution until POST /claim binds it to a
+ * session with WARM_POOL_CLAIM_SECRET (server-side only, never sent to the browser).
+ */
+export const startWarmPoolTask = async ({ labId, claimSecret }) => {
+  const lab = await getLabById(labId);
+  const labType = canonicalLabType(lab?.id || labId);
+  const catalogInfra = getCatalogInfra(lab?.id || labId);
+  const taskDefinition = catalogInfra.taskDefinitionFamily || lab?.taskDefinition?.trim();
+  if (!taskDefinition) throw new Error(`No ECS task definition for lab: ${labId}`);
+  if (!claimSecret) throw new Error("Refusing to start a warm task without a claim secret");
+
+  const port = await getContainerPort(lab.id || labId);
+  const response = await ecsClient.send(
+    new RunTaskCommand({
+      cluster: ENV.ecsCluster,
+      taskDefinition,
+      launchType: "FARGATE",
+      enableExecuteCommand: true,
+      networkConfiguration: {
+        awsvpcConfiguration: {
+          subnets: ENV.ecsSubnets,
+          securityGroups: getLabSecurityGroups(catalogInfra.securityGroup || labType, ENV.ecsSecurityGroups),
+          assignPublicIp: ENV.containerHostMode === "private" ? "DISABLED" : "ENABLED",
+        },
+      },
+      overrides: {
+        containerOverrides: [
+          {
+            name: "lab-runtime",
+            environment: [
+              { name: "LAB_TYPE", value: labType },
+              { name: "LAB_SERVER_PORT", value: String(port) },
+              { name: "LAB_WORKSPACE", value: "/tmp/workspace" },
+              { name: "EXECUTE_TIMEOUT_MS", value: "360000" },
+              { name: "EXECUTION_TIMEOUT_MS", value: "360000" },
+              { name: "TIMEOUT", value: "3600" },
+              { name: "WARM_POOL_CLAIM_SECRET", value: claimSecret },
+              // Same boot-time settings the cold path passes for these lab types.
+              ...(labType === "oracle"
+                ? [
+                    { name: "APP_USER", value: "" },
+                    { name: "APP_USER_PASSWORD", value: "" },
+                    { name: "ORACLE_PASSWORD", value: "oracle" },
+                  ]
+                : []),
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  const taskArn = response.tasks?.[0]?.taskArn;
+  if (!taskArn) {
+    const failureMsg = response.failures?.map((f) => `${f.reason} (${f.detail || ""})`).join(", ") || "No task ARN returned";
+    throw new Error(`ECS failed to start warm task: ${failureMsg}`);
+  }
+  return { taskArn, labType, taskPort: port };
+};
+
+export const getTaskPrivateIp = (task) => (task ? getEniPrivateIp(task) : null);

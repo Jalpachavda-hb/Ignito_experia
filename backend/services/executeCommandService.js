@@ -202,19 +202,23 @@ export const executeViaSsm = async (session, { path: filePath, content, language
     containerPath.toLowerCase().includes("/views/") ||
     containerPath.toLowerCase().endsWith(".cshtml");
 
+  // Restart x11vnc (if needed) with the task's VNC_PASSWORD. If the variable is missing, lock it
+  // with a random password nobody knows (fail closed), never with -nopw.
+  const X11VNC_START =
+    'x11vnc -display :99 -forever -shared -passwd "${VNC_PASSWORD:-$(head -c 24 /dev/urandom | od -An -tx1 | tr -d \' \\n\')}" -rfbport 5900 -bg -noshm';
   let runCmd = "";
   let interpreter = "";
   if (language === "java" || filePath.endsWith(".java")) {
     const className = fileName.replace(/\.java$/, "");
     if (currentLabType === "testing") {
-      runCmd = `(pgrep x11vnc >/dev/null || (killall -9 x11vnc 2>/dev/null; x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -bg -noshm)) && export DISPLAY=:99 && javac -cp ".:/opt/selenium/lib/*" -d . ${containerPath} && java -Dwebdriver.chrome.driver=/usr/bin/chromedriver -cp ".:/opt/selenium/lib/*" ${className}`;
+      runCmd = `(pgrep x11vnc >/dev/null || (killall -9 x11vnc 2>/dev/null; ${X11VNC_START})) && export DISPLAY=:99 && javac -cp ".:/opt/selenium/lib/*" -d . ${containerPath} && java -Dwebdriver.chrome.driver=/usr/bin/chromedriver -cp ".:/opt/selenium/lib/*" ${className}`;
     } else {
       runCmd = `javac -d . ${containerPath} && java ${className}`;
     }
     interpreter = "sh";
   } else if (language === "python" || filePath.endsWith(".py")) {
     if (currentLabType === "testing") {
-      runCmd = `(pgrep x11vnc >/dev/null || (killall -9 x11vnc 2>/dev/null; x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -bg -noshm)) && export DISPLAY=:99 && python3 ${containerPath}`;
+      runCmd = `(pgrep x11vnc >/dev/null || (killall -9 x11vnc 2>/dev/null; ${X11VNC_START})) && export DISPLAY=:99 && python3 ${containerPath}`;
     } else {
       runCmd = `python3 ${containerPath}`;
     }

@@ -10,7 +10,16 @@ import {
   waitForLabSessionReady,
   fetchJupyterHealth,
   fetchLabDetails,
+  sendLabStartMetrics,
+  rememberLabSession,
+  recallLabSession,
+  forgetLabSession,
+  LabStartTimer,
+  START_STAGE_LABELS,
+  type LabStartStage,
+  type LabSession,
 } from '@/services/labService';
+import { useLabHeartbeat } from '@/hooks/use-lab-heartbeat';
 import { resolveApiRelativeUrl } from '@/config/env';
 import CloudEditor from './Editor';
 import Terminal from './Terminal';
@@ -46,11 +55,8 @@ const getLabToolUrl = (session: any, effectiveRuntimeType?: string) => {
     return null;
   }
 
+  // Use only URLs the backend returns; never build lab URLs from the task IP in the browser.
   if (session.tools?.main?.url) return resolveToolUrl(session.tools.main.url);
-  if (session.publicIp) {
-    const port = session.tools?.main?.port || session.containerPort || 8080;
-    return `http://${session.publicIp}:${port}/`;
-  }
   return null;
 };
 
@@ -69,11 +75,14 @@ interface EmbedProps {
 const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: EmbedProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [iframeSrc, setIframeSrc] = useState('');
+  const [needsReconnect, setNeedsReconnect] = useState(false);
+  const [reconnectKey, setReconnectKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
     setIframeSrc('');
+    setNeedsReconnect(false);
 
     const run = async () => {
       if (sessionId) {
@@ -81,7 +90,14 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: Embe
           if (cancelled) return;
           try {
             const health = await fetchJupyterHealth(sessionId);
-            // Check both backend ready indicator and standard HTTP status code
+            // Jupyter rejected the session secret: show Reconnect instead of a Jupyter login page.
+            if ((health as { status?: string }).status === 'auth_required') {
+              if (!cancelled) {
+                setNeedsReconnect(true);
+                setIsLoading(false);
+              }
+              return;
+            }
             if (health.status === 'ok') {
               // Wait an additional 2 seconds after health passes to ensure proxy is fully bound
               await new Promise((r) => setTimeout(r, 2000));
@@ -99,7 +115,7 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: Embe
     };
     run();
     return () => { cancelled = true; };
-  }, [url, sessionId]);
+  }, [url, sessionId, reconnectKey]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0c0c0c]">
@@ -132,7 +148,21 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: Embe
             <span className="text-white text-sm font-bold uppercase tracking-widest">Starting notebook...</span>
           </div>
         )}
-        {iframeSrc && (
+        {needsReconnect && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[#1e1e1e] px-6 text-center">
+            <span className="text-white text-sm font-bold">The notebook could not confirm this session.</span>
+            <span className="text-white/70 text-xs max-w-md">
+              Reconnect to try again. If it keeps happening, stop the lab and start it again.
+            </span>
+            <button
+              onClick={() => setReconnectKey((k) => k + 1)}
+              className="h-8 px-5 rounded bg-[#f97316] text-white text-xs font-black uppercase tracking-widest"
+            >
+              Reconnect
+            </button>
+          </div>
+        )}
+        {iframeSrc && !needsReconnect && (
           <iframe src={iframeSrc} title="JupyterLab" className="absolute inset-0 h-full w-full border-0" allow="clipboard-read; clipboard-write; fullscreen" onLoad={() => setIsLoading(false)} />
         )}
       </div>
@@ -140,14 +170,29 @@ const JupyterEmbed = ({ url, sessionId, onStopLab, onBack, remainingTime }: Embe
   );
 };
 
+const STAGE_ORDER: LabStartStage[] = ['QUEUED', 'PROVISIONING', 'PULLING', 'STARTING', 'READY'];
+
+const formatSeconds = (total: number) => {
+  const m = Math.floor(total / 60);
+  const sec = Math.max(0, total % 60);
+  return m > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${sec}s`;
+};
+
+const ENDED_STATUSES = ['stopped', 'expired', 'completed', 'failed', 'stopping'];
+
 export const RemoteDesktop = () => {
-    console.log("RemoteDesktop rendered");
   const navigate = useNavigate();
   const location = useLocation();
   const [connecting, setConnecting] = useState(true);
   const [session, setSession] = useState<any>(null);
   const [labRuntimeType, setLabRuntimeType] = useState('');
   const [error, setError] = useState('');
+  const [stage, setStage] = useState<LabStartStage | null>(null);
+  const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null);
+  const [isWarmStart, setIsWarmStart] = useState(false);
+  const [startedAtMs, setStartedAtMs] = useState(() => Date.now());
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [retryKey, setRetryKey] = useState(0);
   const initStartedRef = useRef(false);
   const [showStopModal, setShowStopModal] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
@@ -159,11 +204,15 @@ export const RemoteDesktop = () => {
   const sessionIdParam = search.sessionId || '';
 
   useEffect(() => {
+    const signal = { cancelled: false };
     const initializeSession = async () => {
       if (!labId || initStartedRef.current) return;
       if (!sessionIdParam && !user?.userId) return; // Need user ID to fetch or start session
 
       initStartedRef.current = true;
+      const timer = new LabStartTimer();
+      setStartedAtMs(Date.now());
+      setStage('QUEUED');
 
       try {
         let catalogRuntimeType = '';
@@ -175,23 +224,65 @@ export const RemoteDesktop = () => {
           // Lab catalog is optional for session init; session runtime is fallback.
         }
 
-        let activeSession = null;
-        if (sessionIdParam) {
-          activeSession = await fetchLabSessionStatus(sessionIdParam);
-        } else if (user?.userId) {
+        // Reconnect, don't restart: URL param, then this tab's remembered session, then the
+        // student's active session. Only start a new one when none of those is still alive.
+        let activeSession: (LabSession & { reused?: boolean }) | null = null;
+        let isFreshStart = false;
+        const candidateId = sessionIdParam || recallLabSession(labId);
+        if (candidateId) {
+          try {
+            const existing = await fetchLabSessionStatus(candidateId);
+            if (existing?.sessionId && !ENDED_STATUSES.includes(String(existing.status).toLowerCase())) {
+              activeSession = existing;
+            } else {
+              forgetLabSession(labId);
+            }
+          } catch {
+            forgetLabSession(labId);
+          }
+        }
+        if (!activeSession && user?.userId) {
           const activeRes = await fetchUserActiveSession(String(user.userId), labId);
           if (activeRes.session && activeRes.session.labId === labId) {
             activeSession = activeRes.session;
           } else {
+            // Backend returns the existing session (reused: true) if one is already running.
             activeSession = await startLabSession({ labId });
+            isFreshStart = !activeSession?.reused;
           }
         }
         if (!activeSession?.sessionId) throw new Error('No lab session available');
+        rememberLabSession(labId, activeSession.sessionId);
+
+        setIsWarmStart(Boolean(activeSession.warm));
+        if (activeSession.expectedReadySeconds) setExpectedSeconds(activeSession.expectedReadySeconds);
+        if (activeSession.stage) {
+          setStage(activeSession.stage);
+          timer.observe(activeSession.stage);
+        }
+
         const isAndroid = labId === 'mobile-app-lab' || labId === 'android';
         const readySession = await waitForLabSessionReady(activeSession.sessionId, {
-          maxAttempts: isAndroid ? 300 : 90,
-          intervalMs: 2000
+          maxAttempts: isAndroid ? 300 : 150,
+          intervalMs: 2000,
+          signal,
+          onProgress: (progress) => {
+            if (progress.stage) {
+              setStage(progress.stage);
+              timer.observe(progress.stage);
+            }
+            if (progress.expectedReadySeconds) setExpectedSeconds(progress.expectedReadySeconds);
+            if (typeof progress.warm === 'boolean') setIsWarmStart(progress.warm);
+          },
         });
+        if (signal.cancelled) return;
+
+        if (isFreshStart) {
+          sendLabStartMetrics(readySession.sessionId, timer.finish()).catch(() => {
+            /* analytics are best effort */
+          });
+        }
+
         const sessionWithRuntime = {
           ...readySession,
           runtimeType: getEffectiveRuntimeType(readySession, catalogRuntimeType),
@@ -200,18 +291,44 @@ export const RemoteDesktop = () => {
         setActiveSession(sessionWithRuntime);
         setConnecting(false);
       } catch (err: any) {
+        if (signal.cancelled) return;
         setError(err.message || 'Failed to initialize session');
+        setStage('FAILED');
         initStartedRef.current = false;
       }
     };
     initializeSession();
-  }, [location.search, user?.userId, sessionIdParam]);
+    return () => {
+      signal.cancelled = true;
+      initStartedRef.current = false;
+    };
+  }, [location.search, user?.userId, sessionIdParam, retryKey]);
+
+  // Elapsed time on the start screen.
+  useEffect(() => {
+    if (!connecting || error) return;
+    const handle = setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAtMs) / 1000)), 1000);
+    return () => clearInterval(handle);
+  }, [connecting, error, startedAtMs]);
+
+  const { idleWarning, dismissIdleWarning } = useLabHeartbeat(
+    connecting ? null : session?.sessionId,
+    session?.idleTimeoutMinutes ?? null
+  );
+
+  const handleRetry = () => {
+    setError('');
+    setStage(null);
+    setElapsedSeconds(0);
+    setRetryKey((k) => k + 1);
+  };
 
   const handleStopLab = async () => {
     setIsStopping(true);
     try {
       if (session?.sessionId) {
         await stopLab(session.sessionId, session.labId);
+        forgetLabSession(labId);
         localStorage.removeItem(`lastGrade_${session.sessionId}`);
         const labKey = session.labId || '';
         Object.keys(localStorage).forEach(key => {
@@ -259,6 +376,19 @@ export const RemoteDesktop = () => {
   const isBuiltInEditorSession = rt === 'ide';
   const isEmulatorSession = rt === 'emulator';
 
+  const idleBanner = idleWarning !== null && (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black shadow-lg">
+      <span>
+        {idleWarning <= 0
+          ? 'This lab is about to stop because it looks idle.'
+          : `This lab will stop in about ${idleWarning} min because it looks idle.`}
+      </span>
+      <button onClick={dismissIdleWarning} className="rounded bg-black/80 px-3 py-1 text-xs font-bold text-white">
+        I'm still here
+      </button>
+    </div>
+  );
+
   const stopLabDialog = showStopModal && (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
       <div className="bg-[#1e1e1e] p-6 rounded-2xl max-w-sm w-full border border-white/10 text-center">
@@ -274,34 +404,67 @@ export const RemoteDesktop = () => {
   );
 
   if (connecting) {
-    const isAndroid = labId === 'mobile-app-lab' || labId === 'android';
+    const currentIndex = stage ? STAGE_ORDER.indexOf(stage) : -1;
+    const showLongProgress = !isWarmStart;
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0c0c0c] text-white px-6 text-center">
         {!error && <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mb-4" />}
         <p className="text-lg font-bold tracking-widest uppercase text-slate-300">
-          {error ? 'Unable to Start Lab' : 'Initializing Workspace'}
+          {error ? 'Unable to Start Lab' : isWarmStart ? 'Connecting to your lab' : (stage && START_STAGE_LABELS[stage]) || 'Initializing Workspace'}
         </p>
-        {isAndroid && !error && (
-          <p className="text-xs text-slate-400 mt-2 max-w-md leading-relaxed">
-            Note: The first launch of the Mobile Application Development Lab can take 3–8 minutes as the large Android SDK & Gradle runtime container image is downloaded. Please keep this tab open.
-          </p>
+        {!error && showLongProgress && (
+          <>
+            <ol className="mt-5 flex flex-wrap justify-center gap-2 text-[11px] font-semibold uppercase tracking-wider">
+              {STAGE_ORDER.slice(1).map((s, i) => {
+                const idx = i + 1;
+                const state = idx < currentIndex ? 'done' : idx === currentIndex ? 'active' : 'todo';
+                return (
+                  <li
+                    key={s}
+                    className={
+                      state === 'done'
+                        ? 'rounded px-2 py-1 bg-emerald-600/30 text-emerald-300'
+                        : state === 'active'
+                          ? 'rounded px-2 py-1 bg-red-600/40 text-white'
+                          : 'rounded px-2 py-1 bg-white/5 text-slate-500'
+                    }
+                  >
+                    {state === 'done' ? '✓ ' : ''}{START_STAGE_LABELS[s]}
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="text-xs text-slate-400 mt-4">
+              {formatSeconds(elapsedSeconds)} elapsed
+              {expectedSeconds ? ` · usually ready in about ${formatSeconds(expectedSeconds)}` : ''}
+            </p>
+            {expectedSeconds && elapsedSeconds > expectedSeconds * 1.5 && (
+              <p className="text-xs text-slate-500 mt-1">Taking longer than usual. Keep this tab open.</p>
+            )}
+          </>
         )}
         {error && (
           <div className="mt-4 flex flex-col items-center gap-4">
             <p className="text-red-400 max-w-md text-sm">{error}</p>
-            <button
-              onClick={() => navigate({ to: '/student/my-labs' })}
-              className="bg-red-600 hover:bg-red-700 text-white font-semibold text-xs px-5 py-2.5 rounded-lg shadow-md transition-colors"
-            >
-              Back to My Labs
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handleRetry}
+                className="bg-red-600 hover:bg-red-700 text-white font-semibold text-xs px-5 py-2.5 rounded-lg shadow-md transition-colors"
+              >
+                Retry
+              </button>
+              <button
+                onClick={() => navigate({ to: '/student/my-labs' })}
+                className="bg-white/10 hover:bg-white/20 text-white font-semibold text-xs px-5 py-2.5 rounded-lg transition-colors"
+              >
+                Back to My Labs
+              </button>
+            </div>
           </div>
         )}
       </div>
     );
   }
-
-
 
   if (session && isTerminalSession) {
     return (
@@ -309,6 +472,7 @@ export const RemoteDesktop = () => {
         <Terminal session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
+        {idleBanner}
       </div>
     );
   }
@@ -319,6 +483,7 @@ export const RemoteDesktop = () => {
         <CloudEditor session={session} hideHeader={false} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
+        {idleBanner}
       </div>
     );
   }
@@ -329,6 +494,7 @@ export const RemoteDesktop = () => {
         <AndroidEmulator session={session} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
+        {idleBanner}
       </div>
     );
   }
@@ -340,6 +506,7 @@ export const RemoteDesktop = () => {
         <JupyterEmbed url={labToolUrl} sessionId={session?.sessionId} onStopLab={() => setShowStopModal(true)} onBack={() => navigate({ to: '/student/my-labs' })} remainingTime={remainingTime} />
         <SessionTimeoutModal session={session} />
         {stopLabDialog}
+        {idleBanner}
       </div>
     );
   }

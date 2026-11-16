@@ -2,7 +2,9 @@ import pool from "../lib/mysql.js";
 import { ok } from "../lib/apigw.js";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors.js";
 import { canonicalLabType } from "../lib/labTypeMapper.js";
-import { getLabById } from "../config/labs.js";
+import { getLabById, resolveLabAlias } from "../config/labs.js";
+import { getExpectedReadySeconds } from "../config/labStartup.js";
+import { claimWarmTask, refillSoon } from "../services/warmPoolService.js";
 import labSessionRepository from "../repositories/LabSessionRepository.js";
 import creditWalletService from "../services/CreditWalletService.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
@@ -15,6 +17,8 @@ import {
   saveSession,
   updateSession,
   deleteSession,
+  ensureSessionSecrets,
+  toPublicSession,
 } from "../services/sessionRepository.js";
 import {
   isEcsEnabled,
@@ -152,6 +156,28 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     if (activeSession) {
       await connection.rollback();
       connection.release();
+      // Same lab (e.g. page reload or a second click): hand back the existing session instead
+      // of starting another task.
+      if (String(resolveLabAlias(activeSession.LabId)).toLowerCase() === String(resolveLabAlias(labId)).toLowerCase()) {
+        const existingType = canonicalLabType(resolveLabAlias(activeSession.LabId));
+        const existingStatus = String(activeSession.Status || "STARTING").toUpperCase();
+        return ok({
+          sessionId: activeSession.SessionId,
+          labId: activeSession.LabId,
+          status: existingStatus,
+          reused: true,
+          stage: existingStatus === "STARTING" ? "PROVISIONING" : "READY",
+          expectedReadySeconds: getExpectedReadySeconds(existingType),
+          warm: false,
+          startedAt: activeSession.StartedAt,
+          expiresAt: activeSession.ExpiresAt,
+          remainingSeconds: calculateRemainingSeconds(activeSession.ExpiresAt),
+          allocatedCredits: activeSession.AllocatedCredits,
+          allocatedDurationMinutes: activeSession.AllocatedDurationMinutes,
+          dotnetSubtype: activeSession.Subtype || null,
+          message: "Reconnected to your running lab session.",
+        });
+      }
       throw badRequest("You already have an active lab session. Please stop or complete the current session before starting another lab.");
     }
 
@@ -170,6 +196,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
 
       if (isLmsCandidate) {
         const rawLabId = String(labId).toLowerCase().trim();
+        const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
         const defaultCredit = (cleanLabId.includes('dbms') || String(body?.academicCtx?.courseCode || '').includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || String(body?.academicCtx?.courseCode || '').includes('4011')) ? 80 : 60);
         const practicalCredit = Number(body?.practicalCredit || body?.academicCtx?.practicalCredit || defaultCredit);
 
@@ -340,11 +367,57 @@ export const sessionsStartHandler = async ({ body, auth }) => {
   }
 
   try {
-    const memorySess = await getSession(dbSession.SessionId);
+    // Fail closed: every task gets real per-session secrets. Never start a task with a
+    // missing or shared token (that would expose code execution / Jupyter / noVNC).
+    let memorySess = await getSession(dbSession.SessionId);
+    if (!memorySess) {
+      throw new Error("Runtime session record missing; refusing to start a task without a session token");
+    }
+    if (!memorySess.sessionToken || !memorySess.jupyterToken || !memorySess.vncPassword) {
+      memorySess = await saveSession(ensureSessionSecrets(memorySess));
+    }
+
+    // Warm pool first: a healthy task that only needs to be bound to this session.
+    const startLabType = canonicalLabType(lab?.id || labId);
+    const warm = await claimWarmTask({
+      labType: startLabType,
+      sessionId: dbSession.SessionId,
+      sessionToken: memorySess.sessionToken,
+    }).catch((e) => {
+      console.warn("[sessionsStart] Warm-pool claim failed, starting cold:", e.message);
+      return null;
+    });
+    if (warm) {
+      await labSessionRepository.updateSession(dbSession.SessionId, { TaskArn: warm.taskArn });
+      memorySess.taskArn = warm.taskArn;
+      memorySess.taskPort = warm.taskPort;
+      memorySess.publicIp = warm.publicIp;
+      memorySess.taskPrivateIp = warm.taskPrivateIp;
+      memorySess.warm = true;
+      await saveSession(memorySess);
+      refillSoon();
+      return ok({
+        sessionId: dbSession.SessionId,
+        status: 'STARTING',
+        stage: 'STARTING',
+        warm: true,
+        expectedReadySeconds: 5,
+        startedAt: dbSession.StartedAt,
+        expiresAt: dbSession.ExpiresAt,
+        remainingSeconds: calculateRemainingSeconds(dbSession.ExpiresAt),
+        allocatedCredits: dbSession.AllocatedCredits || 60,
+        allocatedDurationMinutes: dbSession.AllocatedDurationMinutes || 60,
+        dotnetSubtype: dotnetSubtype || null,
+        message: 'Connecting to a ready lab environment...'
+      });
+    }
+
     const { taskArn, taskPort } = await startEcsTask({
       labId,
       sessionId: dbSession.SessionId,
-      sessionToken: memorySess?.sessionToken || 'token',
+      sessionToken: memorySess.sessionToken,
+      jupyterToken: memorySess.jupyterToken,
+      vncPassword: memorySess.vncPassword,
       dotnetSubtype,
     });
 
@@ -358,6 +431,9 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     return ok({
       sessionId: dbSession.SessionId,
       status: 'STARTING',
+      stage: 'QUEUED',
+      warm: false,
+      expectedReadySeconds: getExpectedReadySeconds(canonicalLabType(lab?.id || labId)),
       startedAt: dbSession.StartedAt,
       expiresAt: dbSession.ExpiresAt,
       remainingSeconds: calculateRemainingSeconds(dbSession.ExpiresAt),
@@ -383,7 +459,9 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
   if (!dbSession) {
     const memorySess = await getSession(sessionId);
     if (!memorySess) throw notFound("Session not found");
-    return ok(memorySess);
+    const ownsMemorySession = await verifySessionOwnership({ UserId: memorySess.userId }, auth);
+    if (!ownsMemorySession) throw forbidden("You do not own this session");
+    return ok(toPublicSession(memorySess));
   }
 
   const isOwner = await verifySessionOwnership(dbSession, auth);
@@ -404,6 +482,7 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
   }
 
   const memorySess = await getSession(sessionId);
+  let startStage = null;
   if (isEcsEnabled() && dbSession.TaskArn) {
     try {
       const task = await describeTask(dbSession.TaskArn);
@@ -413,7 +492,9 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
         await deleteSession(sessionId).catch(() => {});
       } else if (currentStatus === 'STARTING' || memorySess?.status === 'starting') {
         const net = await resolveTaskNetworking(dbSession.TaskArn, dbSession.LabId);
-        if (net.status === 'running' || net.publicIp) {
+        startStage = net.stage || null;
+        // Ready only when ECS says so (health check HEALTHY when defined), not merely when an IP exists.
+        if (net.status === 'running') {
           const now = new Date();
           const sessionTokens = Number(dbSession.AllocatedCredits || dbSession.AllocatedDurationMinutes || 60);
           const tokenExpiryAt = new Date(now.getTime() + sessionTokens * 60 * 1000);
@@ -467,12 +548,21 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
   }
 
   const effectiveStatus = (memorySess?.status || currentStatus || 'RUNNING').toLowerCase();
+  if (!startStage) {
+    if (['running', 'expiring_soon'].includes(effectiveStatus)) startStage = 'READY';
+    else if (effectiveStatus === 'starting') startStage = dbSession.TaskArn ? 'PROVISIONING' : 'QUEUED';
+    else if (effectiveStatus === 'failed') startStage = 'FAILED';
+  }
 
   return ok({
     sessionId: dbSession.SessionId,
     labId: dbSession.LabId,
     status: effectiveStatus,
     Status: currentStatus,
+    stage: startStage,
+    warm: Boolean(memorySess?.warm),
+    expectedReadySeconds: getExpectedReadySeconds(canonicalLabType(resolveLabAlias(dbSession.LabId))),
+    idleTimeoutMinutes: IDLE_TIMEOUT_MINUTES || null,
     startedAt: dbSession.StartedAt,
     expiresAt: dbSession.ExpiresAt,
     remainingSeconds,
@@ -817,3 +907,59 @@ export const sessionsSwitchSubtypeHandler = async ({ pathParameters, body, auth 
   return ok(result);
 };
 
+
+
+// Idle stop (docs/lab-startup-optimization.md §3.3). 0 = disabled.
+export const IDLE_TIMEOUT_MINUTES = Number(process.env.LAB_IDLE_TIMEOUT_MINUTES || 0);
+
+/** POST /lab-sessions/:sessionId/heartbeat. Sent by the lab page while the student is active. */
+export const sessionsHeartbeatHandler = async ({ pathParameters, auth }) => {
+  if (!auth?.userId) throw unauthorized("Authentication required");
+  const sessionId = pathParameters?.sessionId;
+  const dbSession = await labSessionRepository.getSessionById(sessionId);
+  if (!dbSession) throw notFound("Session not found");
+  if (!(await verifySessionOwnership(dbSession, auth))) throw forbidden("You do not own this session");
+
+  const now = new Date().toISOString();
+  const memorySess = await getSession(sessionId);
+  if (memorySess) {
+    await updateSession(sessionId, { lastHeartbeatAt: now }).catch(() => {});
+  }
+  return ok({ sessionId, lastHeartbeatAt: now, idleTimeoutMinutes: IDLE_TIMEOUT_MINUTES || null });
+};
+
+const START_STAGES = new Set(["QUEUED", "PROVISIONING", "PULLING", "STARTING", "READY"]);
+
+/**
+ * POST /lab-sessions/:sessionId/start-metrics. Student-side start timing
+ * ({ labType, warm, clickToReadyMs, stageDurations }). Emitted as one structured log line
+ * so it can be turned into a metric/dashboard (compare with ECS task timestamps).
+ */
+export const sessionsStartMetricsHandler = async ({ pathParameters, body, auth }) => {
+  if (!auth?.userId) throw unauthorized("Authentication required");
+  const sessionId = pathParameters?.sessionId;
+  const dbSession = await labSessionRepository.getSessionById(sessionId);
+  if (!dbSession) throw notFound("Session not found");
+  if (!(await verifySessionOwnership(dbSession, auth))) throw forbidden("You do not own this session");
+
+  const clickToReadyMs = Number(body?.clickToReadyMs);
+  if (!Number.isFinite(clickToReadyMs) || clickToReadyMs < 0 || clickToReadyMs > 60 * 60 * 1000) {
+    throw badRequest("clickToReadyMs must be a duration in milliseconds");
+  }
+  const stageDurations = {};
+  for (const [stage, ms] of Object.entries(body?.stageDurations || {})) {
+    const n = Number(ms);
+    if (START_STAGES.has(stage) && Number.isFinite(n) && n >= 0) stageDurations[stage] = Math.round(n);
+  }
+  const memorySess = await getSession(sessionId);
+  console.log(JSON.stringify({
+    metric: "lab_start",
+    labId: dbSession.LabId,
+    labType: canonicalLabType(resolveLabAlias(dbSession.LabId)),
+    warm: Boolean(memorySess?.warm),
+    clickToReadyMs: Math.round(clickToReadyMs),
+    stageDurations,
+    taskArn: dbSession.TaskArn || null,
+  }));
+  return ok({ recorded: true });
+};

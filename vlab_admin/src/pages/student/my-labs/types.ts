@@ -11,6 +11,18 @@ export interface Lab {
   icon?: string;
   status?: 'Not Started' | 'In Progress' | 'Completed' | 'Paused' | 'Expired' | 'active' | 'inactive';
   semester?: string;
+  // Catalog fields (docs/lab-catalog.md), from GET /labs
+  level?: string;
+  levelLabel?: string;
+  levelOrder?: number;
+  levelNote?: string;
+  kind?: 'container' | 'aws-console' | string;
+  topics?: string[];
+  notCovered?: string[];
+  prerequisites?: string[];
+  nextLabs?: string[];
+  durationMinutes?: number;
+  catalogStatus?: 'ready' | 'new' | 'beta' | 'retired' | string;
   [key: string]: any; // Allow other properties from backend
 }
 

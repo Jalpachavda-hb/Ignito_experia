@@ -1929,9 +1929,10 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
             setBrowserTitle(response.browser.title);
           }
           // Dynamically pass the browserUrl to the TestingWorkspace component
-          const host = propSession?.publicIp || propSession?.taskPrivateIp || (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
-          const fallbackBrowserUrl = `http://${host}:6080/vnc.html?autoconnect=true&resize=scale`;
-          const browserUrl = response.viewerUrl || response.browser?.url || (mode === 'gui' ? fallbackBrowserUrl : null);
+          // Desktop URLs come from the backend (they carry the per-session VNC password);
+          // never build them from the task IP in the browser.
+          const desktopUrl = propSession?.tools?.desktop?.url || null;
+          const browserUrl = response.viewerUrl || response.browser?.url || (mode === 'gui' ? desktopUrl : null);
           setSeleniumRunState(prev => ({
             ...prev,
             browserUrl,
@@ -2209,12 +2210,16 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
       }
       setIsPreviewTabActive(true);
       if (!seleniumRunState.browserUrl) {
-        const host = propSession?.publicIp || propSession?.taskPrivateIp || (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
-        setSeleniumRunState(prev => ({
-          ...prev,
-          browserUrl: `http://${host}:6080/vnc.html?autoconnect=true&resize=scale`,
-          status: prev.status === 'IDLE' ? 'RUNNING' : prev.status
-        }));
+        const desktopUrl = propSession?.tools?.desktop?.url || null;
+        if (desktopUrl) {
+          setSeleniumRunState(prev => ({
+            ...prev,
+            browserUrl: desktopUrl,
+            status: prev.status === 'IDLE' ? 'RUNNING' : prev.status
+          }));
+        } else {
+          toast.info('The browser desktop is not ready yet. Try again in a few seconds.');
+        }
       }
     }
   };

@@ -1,4 +1,5 @@
 import { labRepository } from "../repositories/labRepository.js";
+import { legacyIdsFor } from "../lib/labAliases.js";
 
 const OWNER_API_URL = (process.env.OWNER_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 const FETCH_TIMEOUT_MS = parseInt(process.env.OWNER_API_TIMEOUT_MS || "5000", 10);
@@ -103,7 +104,8 @@ class LabService {
       (mappings || []).forEach(m => mapDict.set(String(m.lab_id), m));
 
       labs.forEach(lab => {
-        const m = mapDict.get(String(lab.id)) || mapDict.get(String(lab.labCode));
+        const m = mapDict.get(String(lab.id)) || mapDict.get(String(lab.labCode)) ||
+          legacyIdsFor(lab.id).map((alias) => mapDict.get(alias)).find(Boolean);
         if (m) {
           lab.program = m.program_id === '1' ? 'MBAIBOL' : (m.program_id === '2' ? 'MCAOL' : m.program_id);
           lab.semester = `Semester ${m.semester_id}`;
@@ -146,7 +148,8 @@ class LabService {
       (mappings || []).forEach(m => mapDict.set(String(m.lab_id), m));
 
       labs.forEach(lab => {
-        const m = mapDict.get(String(lab.id)) || mapDict.get(String(lab.labCode));
+        const m = mapDict.get(String(lab.id)) || mapDict.get(String(lab.labCode)) ||
+          legacyIdsFor(lab.id).map((alias) => mapDict.get(alias)).find(Boolean);
         if (m) {
           lab.program = m.program_id === '1' ? 'MBAIBOL' : (m.program_id === '2' ? 'MCAOL' : m.program_id);
           lab.semester = `Semester ${m.semester_id}`;

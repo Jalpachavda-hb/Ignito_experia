@@ -31,9 +31,20 @@ import {
   labsAdminListHandler,
 } from "./handlers/labs.js";
 import {
+  awsLabsListHandler,
+  awsLabsStartHandler,
+  awsLabsGetHandler,
+  awsLabsConsoleUrlHandler,
+  awsLabsValidateHandler,
+  awsLabsExtendHandler,
+  awsLabsEndHandler,
+} from "./handlers/awsLabs.js";
+import {
   sessionsStartHandler,
   sessionsGetHandler,
   sessionsStopHandler,
+  sessionsHeartbeatHandler,
+  sessionsStartMetricsHandler,
   sessionsListByUserHandler,
   sessionsExtendHandler,
   sessionsSwitchSubtypeHandler,
@@ -189,6 +200,14 @@ export const ROUTES = [
   { method: "GET", path: "/admin/labs", handler: labsAdminListHandler, auth: true },
   { method: "GET", path: "/admin/labs/:labId", handler: labsGetHandler, auth: true },
   { method: "GET", path: "/labs", handler: labsListHandler, auth: true },
+  // AWS console labs (docs/aws-console-labs.md)
+  { method: "GET", path: "/aws-labs", handler: awsLabsListHandler, auth: true },
+  { method: "POST", path: "/aws-labs/sessions", handler: awsLabsStartHandler, auth: true },
+  { method: "GET", path: "/aws-labs/sessions/:sessionId", handler: awsLabsGetHandler, auth: true },
+  { method: "POST", path: "/aws-labs/sessions/:sessionId/console-url", handler: awsLabsConsoleUrlHandler, auth: true },
+  { method: "POST", path: "/aws-labs/sessions/:sessionId/validate", handler: awsLabsValidateHandler, auth: true },
+  { method: "POST", path: "/aws-labs/sessions/:sessionId/extend", handler: awsLabsExtendHandler, auth: true },
+  { method: "DELETE", path: "/aws-labs/sessions/:sessionId", handler: awsLabsEndHandler, auth: true },
   { method: "GET", path: "/labs/:labId", handler: labsGetHandler, auth: true },
   { method: "GET", path: "/sub-labs", handler: subLabsHandler, auth: true },
   
@@ -226,6 +245,18 @@ export const ROUTES = [
     method: "POST",
     path: "/lab-sessions/:sessionId/stop",
     handler: sessionsStopHandler,
+    auth: true,
+  },
+  {
+    method: "POST",
+    path: "/lab-sessions/:sessionId/heartbeat",
+    handler: sessionsHeartbeatHandler,
+    auth: true,
+  },
+  {
+    method: "POST",
+    path: "/lab-sessions/:sessionId/start-metrics",
+    handler: sessionsStartMetricsHandler,
     auth: true,
   },
   {

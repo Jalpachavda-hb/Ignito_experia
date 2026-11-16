@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { PlayCircle, BarChart, FileText, MonitorPlay, CheckCircle2, AlertCircle, ArrowRight, GraduationCap, Sparkles, Zap, BookOpen, Coins } from 'lucide-react';
 import { Lab } from '../types';
+import { LabCatalogRibbon, LabLevelBadge } from './lab-catalog-badges';
 
 interface LabCardProps {
   lab: Lab;
@@ -114,6 +115,8 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <p className={`text-xs font-bold uppercase tracking-wider ${theme.text}`}>{lab.category || 'General Lab'}</p>
+                <LabLevelBadge lab={lab} />
+                <LabCatalogRibbon lab={lab} />
                 {accessLabel && (
                   <Badge variant="outline" className={`hidden sm:inline-flex text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                     accessType === 'university' 
@@ -307,9 +310,13 @@ export function LabCard({ lab, viewMode = 'grid', onStart, onResume, onStop, onD
           </div>
         )}
 
-        <p className={`text-[10px] font-bold uppercase tracking-[0.15em] mb-1.5 ${theme.text}`}>
-          {lab.category || 'General Lab'}
-        </p>
+        <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+          <p className={`text-[10px] font-bold uppercase tracking-[0.15em] ${theme.text}`}>
+            {lab.category || 'General Lab'}
+          </p>
+          <LabLevelBadge lab={lab} />
+          <LabCatalogRibbon lab={lab} />
+        </div>
         <h3 className="text-[17px] font-bold text-slate-900 dark:text-white leading-snug mb-2 line-clamp-2" title={name}>
           {name}
         </h3>

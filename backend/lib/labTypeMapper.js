@@ -2,7 +2,11 @@ const LAB_ID_TO_TYPE = {
   "python-lab": "python",
   "java-lab": "java",
   "linux-lab": "linux",
-  "dbms-lab": "dbms",
+  "mysql-lab": "mysql",
+  "postgres-lab": "postgres",
+  "oracle-lab": "oracle",
+  // Legacy ID: dbms-lab is an alias of mysql-lab (see config/labs.js).
+  "dbms-lab": "mysql",
   "datascience-lab": "datascience",
   "bigdata-lab": "bigdata",
   "testing-lab": "testing",
