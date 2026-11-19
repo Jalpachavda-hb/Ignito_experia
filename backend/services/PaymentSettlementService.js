@@ -1,5 +1,5 @@
-import crypto from "crypto";
 import pool from "../lib/mysql.js";
+import { assertPaymentMatches, fetchRazorpayPayment, verifyCheckoutSignature } from "../lib/razorpayClient.js";
 import tokenOrderRepository from "../repositories/TokenOrderRepository.js";
 import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWalletRepository.js";
 import studentLabTokenTransactionRepository from "../repositories/StudentLabTokenTransactionRepository.js";
@@ -39,23 +39,35 @@ class PaymentSettlementService {
         return { success: true, alreadyProcessed: true, orderId: order.Id };
       }
 
-      // 2. Validate Gateway Signature if provided
-      const keySecret = process.env.RAZORPAY_KEY_SECRET || "6gm7L9wLL2mAAfaTZ3IJz8Wj";
-      if (razorpaySignature && order.RazorpayOrderId && !order.RazorpayOrderId.startsWith("rzp_order_mock_")) {
-        const generatedSignature = crypto
-          .createHmac("sha256", keySecret)
-          .update(`${order.RazorpayOrderId}|${razorpayPaymentId}`)
-          .digest("hex");
-
-        if (generatedSignature !== razorpaySignature) {
-          await tokenOrderRepository.markOrderFailed(order.Id, connection);
-          await connection.commit();
-          connection.release();
-          throw badRequest("Payment signature verification failed");
-        }
+      const orderRef = String(order.RazorpayOrderId || "");
+      if (!orderRef.startsWith("order_")) {
+        await connection.rollback();
+        connection.release();
+        throw badRequest("This order is not a Razorpay order");
+      }
+      if (!razorpayPaymentId || !razorpaySignature) {
+        await connection.rollback();
+        connection.release();
+        throw badRequest("Razorpay payment id and signature are required");
       }
 
-      const paymentIdToSave = razorpayPaymentId || `pay_mock_${Date.now()}`;
+      try {
+        verifyCheckoutSignature(orderRef, razorpayPaymentId, razorpaySignature);
+        const payment = await fetchRazorpayPayment(razorpayPaymentId);
+        assertPaymentMatches({
+          payment,
+          orderId: orderRef,
+          amountInPaise: Math.round(Number(order.TotalAmount) * 100),
+        });
+      } catch (verifyErr) {
+        await tokenOrderRepository.markOrderFailed(order.Id, connection);
+        await connection.commit();
+        connection.release();
+        connection = null;
+        throw verifyErr;
+      }
+
+      const paymentIdToSave = razorpayPaymentId;
 
       // 3. Atomically Credit Each Lab Wallet & Write Immutable Ledger Entries
       for (const item of order.items) {

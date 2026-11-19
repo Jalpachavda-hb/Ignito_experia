@@ -10,7 +10,6 @@ import { useTransactionStore } from '@/stores/transactionStore';
 import { useLabTokenStore } from '@/stores/labTokenStore';
 import { initiateRazorpayPayment, detectPaymentMethod } from '@/Utils/razorpayHandler';
 import { LabCreditCard, LabTokenInfo } from './components/lab-credit-card';
-import { RazorpayCheckoutModal } from './components/razorpay-checkout-modal';
 import { isUniversityStudent } from '@/lib/student-kind';
 import { Link } from '@tanstack/react-router';
 import { QrCode, Smartphone } from 'lucide-react';
@@ -36,8 +35,8 @@ export default function CreditWallet() {
   // Multi-Lab Combined Bill Cart State
   const [cartItems, setCartItems] = useState<Record<string, CartItem>>({});
   const [isCheckoutProcessing, setIsCheckoutProcessing] = useState(false);
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState('');
+  const [paymentErrorMessage, setPaymentErrorMessage] = useState('');
 
   useEffect(() => {
     loadLabs();
@@ -144,15 +143,12 @@ export default function CreditWallet() {
   const totalCombinedTokens = useMemo(() => selectedItemsList.reduce((sum, item) => sum + item.tokens, 0), [selectedItemsList]);
   const totalCombinedPaymentRupees = useMemo(() => selectedItemsList.reduce((sum, item) => sum + item.amountRupees, 0), [selectedItemsList]);
 
-  const handleOpenCheckoutModal = () => {
-    if (totalCombinedPaymentRupees <= 0 || selectedItemsList.length === 0) return;
-    setIsCheckoutModalOpen(true);
-  };
-
   const handleExecutePayment = async (preferredMethod?: 'upi_qr' | 'upi' | 'paytm' | 'card' | 'netbanking' | 'wallet' | 'paylater') => {
     if (totalCombinedPaymentRupees <= 0 || selectedItemsList.length === 0) return;
 
     setIsCheckoutProcessing(true);
+    setPaymentErrorMessage('');
+    setPaymentSuccessMessage('');
 
     const purchaseItems = selectedItemsList.map((item) => ({
       labId: String(item.lab.id || item.lab.labId),
@@ -172,7 +168,6 @@ export default function CreditWallet() {
       preferredMethod,
       onSuccess: async (paymentId, details) => {
         setIsCheckoutProcessing(false);
-        setIsCheckoutModalOpen(false);
 
         await fetchStudentLabTokens();
 
@@ -200,82 +195,16 @@ export default function CreditWallet() {
         setPaymentSuccessMessage(`Payment of ₹${totalCombinedPaymentRupees} via ${method} completed successfully. Tokens were added to each lab.`);
         setTimeout(() => setPaymentSuccessMessage(''), 6000);
       },
-      onFailure: (_err) => {
+      onFailure: (err) => {
         setIsCheckoutProcessing(false);
+        const message = err?.error?.description || err?.message || 'Payment was not completed.';
+        setPaymentErrorMessage(message);
+        setTimeout(() => setPaymentErrorMessage(''), 8000);
       },
       onDismiss: () => {
         setIsCheckoutProcessing(false);
       }
     });
-  };
-
-  const handleDirectVerifySuccess = async (paymentId: string, method: string) => {
-    setIsCheckoutProcessing(false);
-    setIsCheckoutModalOpen(false);
-
-    const purchaseItems = selectedItemsList.map((item) => ({
-      labId: String(item.lab.id || item.lab.labId),
-      labName: item.lab.title || item.lab.name || 'Virtual Lab',
-      tokens: item.tokens,
-      amountRupees: item.amountRupees,
-    }));
-
-    // Send to backend verification endpoint to credit user's database wallet
-    try {
-      const apiBaseUrl = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8080/api';
-      const token = auth?.accessToken || '';
-      const currentUserId = user?.userId || (user as any)?.id || user?.email || '1';
-      const currentTenantId = user?.tenantId || (user as any)?.universityId || 'TEN000001';
-
-      await fetch(`${apiBaseUrl}/payments/razorpay/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          razorpay_order_id: `order_direct_${Date.now()}`,
-          razorpay_payment_id: paymentId,
-          razorpay_signature: 'verified_direct_qr',
-          credits: totalCombinedTokens,
-          amount: totalCombinedPaymentRupees,
-          labId: purchaseItems.map((item) => item.labId).join(','),
-          labName: purchaseItems.length === 1 ? purchaseItems[0].labName : `${purchaseItems.length} Labs`,
-          items: purchaseItems,
-          userId: currentUserId,
-          userEmail: user?.email || '',
-          userName: user?.fullName || user?.name || 'Student User',
-          tenantId: currentTenantId,
-        }),
-      });
-    } catch (err) {
-      console.warn('Backend verification call warning:', err);
-    }
-
-    await fetchStudentLabTokens();
-
-    purchaseItems.forEach((item) => {
-      addTransaction({
-        id: `${paymentId}-${item.labId}`,
-        razorpayPaymentId: paymentId,
-        description: item.labName,
-        labName: item.labName,
-        labId: item.labId,
-        type: 'Credit',
-        amount: item.tokens,
-        amountRupees: item.amountRupees,
-        paymentMethod: method,
-        studentEmail: user?.email || '',
-        studentPhone: user?.phoneNumber || user?.mobile || '',
-        studentName: user?.fullName || user?.name || 'Student User',
-        status: 'Completed',
-      });
-    });
-    await fetchTransactions();
-
-    setCartItems({});
-    setPaymentSuccessMessage(`Payment of ₹${totalCombinedPaymentRupees} via ${method} completed successfully! Tokens added to your lab balance.`);
-    setTimeout(() => setPaymentSuccessMessage(''), 7000);
   };
 
   // Filter labs by search query
@@ -354,6 +283,12 @@ export default function CreditWallet() {
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-800 flex items-center gap-3 animate-in fade-in">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
               <span className="text-sm font-bold">{paymentSuccessMessage}</span>
+            </div>
+          )}
+
+          {paymentErrorMessage && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-800 flex items-center gap-3 animate-in fade-in">
+              <span className="text-sm font-bold">{paymentErrorMessage}</span>
             </div>
           )}
 
@@ -480,7 +415,7 @@ export default function CreditWallet() {
 
               <Button
                 size="lg"
-                onClick={handleOpenCheckoutModal}
+                onClick={() => handleExecutePayment()}
                 disabled={isCheckoutProcessing}
                 className="bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 text-white font-extrabold text-sm h-11 px-6 rounded-xl shadow-lg shadow-red-500/25 flex items-center gap-2 active:scale-95 transition-all shrink-0 border-none cursor-pointer"
               >
@@ -489,7 +424,7 @@ export default function CreditWallet() {
                 ) : (
                   <ShieldCheck className="w-4.5 h-4.5 text-white" />
                 )}
-                Proceed to Payment (₹{totalCombinedPaymentRupees})
+                {isCheckoutProcessing ? 'Opening Razorpay...' : `Proceed to Payment (₹${totalCombinedPaymentRupees})`}
               </Button>
 
               <Button
@@ -505,23 +440,6 @@ export default function CreditWallet() {
           </div>
         </div>
       )}
-
-      {/* Razorpay Comprehensive Payment Checkout Modal */}
-      <RazorpayCheckoutModal
-        isOpen={isCheckoutModalOpen}
-        onClose={() => setIsCheckoutModalOpen(false)}
-        items={selectedItemsList.map((item) => ({
-          labId: String(item.lab.id || item.lab.labId),
-          labName: item.lab.title || item.lab.name || 'Virtual Lab',
-          tokens: item.tokens,
-          amountRupees: item.amountRupees,
-        }))}
-        totalTokens={totalCombinedTokens}
-        totalAmountRupees={totalCombinedPaymentRupees}
-        isProcessing={isCheckoutProcessing}
-        onProceedToPay={handleExecutePayment}
-        onDirectVerifySuccess={handleDirectVerifySuccess}
-      />
     </>
   );
 }

@@ -87,20 +87,31 @@ export const TokenPackagesModal: React.FC<TokenPackagesModalProps> = ({
     setCheckoutLoading(true);
     try {
       const orderInfo = await createOrderAndCheckout();
-      
+      if (!orderInfo.gatewayOrderId?.startsWith('order_') || !orderInfo.keyId) {
+        throw new Error('Razorpay did not create an order. Check the server keys.');
+      }
+      if (!window.Razorpay) {
+        throw new Error('Razorpay checkout could not be loaded.');
+      }
+
       const options = {
         key: orderInfo.keyId,
         amount: Math.round(orderInfo.totalAmount * 100),
         currency: 'INR',
         name: 'Ignito Experia Labs',
         description: `Lab Token Package Purchase (${cart.reduce((a, b) => a + b.tokenAmount, 0)} Tokens)`,
-        order_id: orderInfo.gatewayOrderId.startsWith('rzp_order_mock_') ? undefined : orderInfo.gatewayOrderId,
+        order_id: orderInfo.gatewayOrderId,
         handler: async (response: any) => {
+          if (!response?.razorpay_payment_id || !response?.razorpay_order_id || !response?.razorpay_signature) {
+            setCheckoutLoading(false);
+            toast.error('Razorpay did not return a payment signature.');
+            return;
+          }
           setCheckoutLoading(true);
           const success = await verifyPayment(orderInfo.orderId, {
-            razorpayOrderId: response.razorpay_order_id || orderInfo.gatewayOrderId,
-            razorpayPaymentId: response.razorpay_payment_id || `pay_mock_${Date.now()}`,
-            razorpaySignature: response.razorpay_signature || 'mock_sig',
+            razorpayOrderId: response.razorpay_order_id,
+            razorpayPaymentId: response.razorpay_payment_id,
+            razorpaySignature: response.razorpay_signature,
           });
 
           setCheckoutLoading(false);
@@ -122,23 +133,8 @@ export const TokenPackagesModal: React.FC<TokenPackagesModalProps> = ({
         },
       };
 
-      if (window.Razorpay && !orderInfo.gatewayOrderId.startsWith('rzp_order_mock_')) {
-        const rzp = new window.Razorpay(options);
-        rzp.open();
-      } else {
-        // Test environment settlement trigger
-        toast.info('Processing order settlement...');
-        const success = await verifyPayment(orderInfo.orderId, {
-          razorpayOrderId: orderInfo.gatewayOrderId,
-          razorpayPaymentId: `pay_mock_${Date.now()}`,
-          razorpaySignature: 'mock_sig',
-        });
-        setCheckoutLoading(false);
-        if (success) {
-          toast.success('Payment Successful! Tokens credited to lab wallet.');
-          onOpenChange(false);
-        }
-      }
+      const rzp = new window.Razorpay(options);
+      rzp.open();
     } catch (err: any) {
       setCheckoutLoading(false);
       toast.error(err.message || 'Checkout failed.');
