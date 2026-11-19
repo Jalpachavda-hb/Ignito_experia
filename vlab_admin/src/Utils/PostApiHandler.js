@@ -143,6 +143,16 @@ export const stopLabSession = async (sessionId) => {
   });
 };
 
+/** Tells the backend the student is still active in this lab (lets it stop idle labs safely). */
+export const sendLabHeartbeat = async (sessionId) => {
+  return executeRequest(API_PATHS.LAB_SESSIONS.HEARTBEAT(sessionId), { method: 'POST', body: {}, auth: true });
+};
+
+/** Student-side start timing: { clickToReadyMs, stageDurations }. */
+export const sendLabStartMetrics = async (sessionId, metrics) => {
+  return executeRequest(API_PATHS.LAB_SESSIONS.START_METRICS(sessionId), { method: 'POST', body: metrics, auth: true });
+};
+
 export const switchDotnetSubtype = async (sessionId, subtype) => {
   if (!sessionId) {
     throw new Error('sessionId is required to switch subtype');

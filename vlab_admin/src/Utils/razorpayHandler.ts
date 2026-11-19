@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/auth-store';
+import { BASE_URL } from '@/Utils/Api_path';
 
 declare global {
   interface Window {
@@ -113,6 +114,9 @@ export const detectPaymentMethod = (response: any): string => {
 };
 
 const getApiBaseUrl = (): string => {
+  if (BASE_URL) {
+    return BASE_URL.replace(/\/+$/, '');
+  }
   let url = (import.meta as any).env?.VITE_API_BASE_URL || '';
   if (typeof window !== 'undefined') {
     if (!url) {
@@ -121,49 +125,20 @@ const getApiBaseUrl = (): string => {
       url = url.replace('localhost', window.location.hostname);
     }
   }
-  return url || 'http://localhost:8080/api';
+  return (url || 'http://localhost:8080/api').replace(/\/+$/, '');
 };
 
-const authHeaders = (): Record<string, string> => {
-  const token = useAuthStore.getState()?.auth?.accessToken || '';
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-export interface RazorpayVerifyPayload {
-  razorpay_order_id?: string;
-  razorpay_payment_id: string;
-  razorpay_signature?: string;
-  credits: number;
-  amount: number;
-  labId: string;
-  labName: string;
-  items?: RazorpayCartItem[];
-}
-
-export type RazorpayVerifyResult = { ok: true } | { ok: false; message: string };
-
-/** Confirms the payment server-side; tokens exist only once this resolves with ok: true. */
-export const verifyRazorpayPaymentOnServer = async (payload: RazorpayVerifyPayload): Promise<RazorpayVerifyResult> => {
-  const supportHint = `Please contact support with payment ID ${payload.razorpay_payment_id}.`;
-  // The endpoint is idempotent per payment ID, so a retry after a dropped connection cannot double-credit.
-  for (let attempt = 1; attempt <= 2; attempt++) {
+const getAuthToken = (): string => {
+  const authState = useAuthStore.getState()?.auth;
+  let token = authState?.accessToken || '';
+  if (!token && typeof window !== 'undefined') {
     try {
-      const res = await fetch(`${getApiBaseUrl()}/payments/razorpay/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data?.success && data?.verified) return { ok: true };
-      return { ok: false, message: data?.message || `Payment could not be verified. ${supportHint}` };
-    } catch (err) {
-      if (attempt === 2) {
-        console.error('Razorpay verification request failed:', err);
-        return { ok: false, message: `Could not confirm your payment with the server. ${supportHint}` };
-      }
+      token = localStorage.getItem('auth-access-token') || localStorage.getItem('accessToken') || '';
+    } catch {
+      // ignore
     }
   }
-  return { ok: false, message: `Could not confirm your payment with the server. ${supportHint}` };
+  return String(token).trim().replace(/^Bearer\s+/i, '').replace(/^"|"$/g, '');
 };
 
 export const initiateRazorpayPayment = async ({
@@ -182,57 +157,74 @@ export const initiateRazorpayPayment = async ({
   const loaded = await loadRazorpayScript();
   
   if (!loaded || !window.Razorpay) {
+    if (onFailure) onFailure({ message: 'Failed to load Razorpay SDK. Please check your internet connection.' });
     return false;
   }
 
-  const razorpayKey = (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || 'rzp_test_1DP5mmOlF5G5ag';
   const apiBaseUrl = getApiBaseUrl();
+  const token = getAuthToken();
+  const authHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 
   let realBackendOrderId = '';
+  let razorpayKey = (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || '';
 
-  // STEP 1: Attempt Order Creation on Backend API
   try {
     const orderRes = await fetch(`${apiBaseUrl}/payments/razorpay/create-order`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: authHeaders,
       body: JSON.stringify({
         amountInRupees,
         labId,
         labName,
+        credits: Array.isArray(items)
+          ? items.reduce((sum, it) => sum + Number(it.tokens || 0), 0)
+          : amountInRupees,
+        items,
       }),
     });
 
-    if (orderRes.ok) {
-      const orderData = await orderRes.json();
-      if (orderData.orderId && !orderData.isTestFallback && !orderData.orderId.startsWith('order_test_')) {
-        realBackendOrderId = orderData.orderId;
-      }
+    const orderData = await orderRes.json().catch(() => ({}));
+    if (!orderRes.ok || !orderData.orderId || !String(orderData.orderId).startsWith('order_')) {
+      const message = orderData.message || 'Could not create a Razorpay order';
+      if (onFailure) onFailure({ message });
+      return false;
     }
+    realBackendOrderId = orderData.orderId;
+    if (orderData.key) razorpayKey = orderData.key;
   } catch (err) {
-    console.warn('Backend order endpoint not reachable, running client mode:', err);
+    if (onFailure) onFailure(err);
+    return false;
   }
+
+  if (!razorpayKey) {
+    if (onFailure) onFailure({ message: 'Razorpay key is not configured' });
+    return false;
+  }
+
+  const calculatedTotalTokens = Array.isArray(items) && items.length > 0
+    ? items.reduce((sum, it) => sum + Number(it.tokens || 0), 0)
+    : amountInRupees;
+
+  const prefillObj: Record<string, string> = {};
+  if (userName?.trim()) prefillObj.name = userName.trim();
+  if (userEmail?.trim()) prefillObj.email = userEmail.trim();
+  if (userPhone?.trim()) prefillObj.contact = userPhone.trim();
+  if (preferredMethod === 'card') prefillObj.method = 'card';
+  else if (preferredMethod === 'netbanking') prefillObj.method = 'netbanking';
+  else if (preferredMethod === 'wallet' || preferredMethod === 'paytm') prefillObj.method = 'wallet';
+  else if (preferredMethod === 'upi' || preferredMethod === 'upi_qr') prefillObj.method = 'upi';
 
   const options: any = {
     key: razorpayKey,
     amount: Math.round(amountInRupees * 100), // Amount in paise (1 INR = 100 Paise)
     currency: 'INR',
     name: 'Ignito Experia Labs',
-    description: `Lab Token Top-Up: ${amountInRupees} Tokens`,
+    description: `Lab Token Top-Up: ${calculatedTotalTokens} Tokens (₹${amountInRupees})`,
     image: 'https://razorpay.com/favicon.ico',
-    prefill: {
-      name: userName,
-      email: userEmail,
-      contact: userPhone,
-      method: preferredMethod === 'card' 
-        ? 'card' 
-        : preferredMethod === 'netbanking' 
-        ? 'netbanking' 
-        : preferredMethod === 'wallet' || preferredMethod === 'paytm'
-        ? 'wallet' 
-        : preferredMethod === 'upi' || preferredMethod === 'upi_qr'
-        ? 'upi' 
-        : undefined,
-    },
+    prefill: prefillObj,
     notes: {
       lab_id: labId,
       credits_added: amountInRupees,
@@ -244,27 +236,47 @@ export const initiateRazorpayPayment = async ({
     },
     // STEP 2: Cryptographic Signature Verification Callback
     handler: async function (response: any) {
-      const paymentId = response.razorpay_payment_id || `pay_${Date.now()}`;
-      const orderId = response.razorpay_order_id || realBackendOrderId;
-      const signature = response.razorpay_signature;
+      const paymentId = response?.razorpay_payment_id;
+      const orderId = response?.razorpay_order_id || realBackendOrderId;
+      const signature = response?.razorpay_signature;
+
+      if (!paymentId || !orderId || !signature) {
+        if (onFailure) onFailure({ message: 'Razorpay did not return a payment signature' });
+        return;
+      }
 
       const calculatedTokens = Array.isArray(items) && items.length > 0
         ? items.reduce((sum: number, it: any) => sum + Number(it.tokens || 0), 0)
-        : Number((options as any).tokens || amountInRupees);
+        : Number(amountInRupees);
 
-      const verification = await verifyRazorpayPaymentOnServer({
-        razorpay_order_id: orderId || undefined,
-        razorpay_payment_id: paymentId,
-        razorpay_signature: signature || undefined,
-        credits: calculatedTokens,
-        amount: amountInRupees,
-        labId,
-        labName,
-        items: Array.isArray(items) ? items : undefined,
-      });
+      try {
+        const currentUser = useAuthStore.getState()?.auth;
+        const currentTenantId = currentUser?.user?.tenantId || (currentUser?.user as any)?.universityId || 'TEN000001';
 
-      if (!verification.ok) {
-        onFailure?.({ paymentId, message: verification.message });
+        const verifyRes = await fetch(`${apiBaseUrl}/payments/razorpay/verify`, {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            razorpay_order_id: orderId,
+            razorpay_payment_id: paymentId,
+            razorpay_signature: signature,
+            credits: calculatedTokens,
+            amount: amountInRupees,
+            labId,
+            labName,
+            items: Array.isArray(items) ? items : undefined,
+            userEmail,
+            userName,
+            tenantId: currentTenantId,
+          }),
+        });
+        const verifyData = await verifyRes.json().catch(() => ({}));
+        if (!verifyRes.ok || !verifyData.success) {
+          if (onFailure) onFailure({ message: verifyData.message || 'Payment verification failed' });
+          return;
+        }
+      } catch (verifyErr) {
+        if (onFailure) onFailure(verifyErr);
         return;
       }
 
@@ -277,10 +289,7 @@ export const initiateRazorpayPayment = async ({
     },
   };
 
-  // ONLY attach order_id if a valid order ID was received from Razorpay servers
-  if (realBackendOrderId) {
-    options.order_id = realBackendOrderId;
-  }
+  options.order_id = realBackendOrderId;
 
   try {
     const rzp = new window.Razorpay(options);

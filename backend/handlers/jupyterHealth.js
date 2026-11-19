@@ -20,7 +20,6 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
     return ok({
       reachable: false,
       message: "Jupyter container is not ready yet",
-      host: host || null,
       port,
     });
   }
@@ -53,32 +52,51 @@ export const jupyterHealthHandler = async ({ pathParameters, auth }) => {
     });
   };
 
-  try {
-    const isReady = await checkPort(host, port);
+  // Probe Jupyter with the session's JUPYTER_TOKEN. 401/403 means the container's token
+  // doesn't match (e.g. the task started without it): the UI shows "Reconnect" instead of a login page.
+  const probeJupyter = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const headers = session.jupyterToken ? { Authorization: `token ${session.jupyterToken}` } : {};
+      const res = await fetch(`http://${host}:${port}/api/status`, { headers, signal: controller.signal });
+      return res.status;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
-    return ok({
-      status: isReady ? "ok" : "error",
-      httpStatus: isReady ? 200 : 503,
-      ready: isReady,
-      reachable: isReady,
-      service: "jupyter",
-      timestamp: new Date().toISOString(),
-      host,
-      port,
-    });
+  const base = { service: "jupyter", timestamp: new Date().toISOString(), port };
+  try {
+    const isOpen = await checkPort(host, port);
+    if (!isOpen) {
+      return ok({ ...base, status: "error", httpStatus: 503, ready: false, reachable: false });
+    }
+    const httpStatus = await probeJupyter();
+    if (httpStatus === 401 || httpStatus === 403) {
+      return ok({
+        ...base,
+        status: "auth_required",
+        httpStatus,
+        ready: false,
+        reachable: true,
+        message: "Jupyter is running but rejected the session secret. Reconnect or restart the lab.",
+      });
+    }
+    // Port open but HTTP not answering yet (still booting) counts as not ready.
+    const isReady = httpStatus !== null && httpStatus < 500;
+    return ok({ ...base, status: isReady ? "ok" : "error", httpStatus: httpStatus ?? 503, ready: isReady, reachable: true });
   } catch (err) {
-    console.error("[jupyterHealth] socket check failed for", host, port, err.message);
+    console.error("[jupyterHealth] check failed:", err.message);
     return ok({
+      ...base,
       status: "error",
       httpStatus: 503,
       ready: false,
       reachable: false,
-      service: "jupyter",
-      timestamp: new Date().toISOString(),
       message: "Jupyter container check encountered an error",
-      host,
-      port,
-      error: err.message,
     });
   }
 };

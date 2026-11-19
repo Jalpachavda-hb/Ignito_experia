@@ -2,6 +2,9 @@ import { LAB_PORTS, getLabById } from "../config/labs.js";
 import { ENV } from "../config/env.js";
 import { signJupyterEmbedToken } from "./jwt.js";
 import { getContainerHost, isDirectContainerMode, isLocalMode, isAwsInstance } from "./ipManager.js";
+import { canonicalLabType } from "./labTypeMapper.js";
+
+export const LAB_DESKTOP_PORT = 6080;
 
 export { getContainerHost, isDirectContainerMode, isLocalMode, isAwsInstance };
 
@@ -47,11 +50,7 @@ export const getSessionApiBaseUrl = async (session) => {
 
   const port = await getContainerPort(session.labId);
 
-  const baseUrl = `http://${host}:${port}`;
-
-  console.log("BASE URL:", baseUrl);
-
-  return baseUrl;
+  return `http://${host}:${port}`;
 };
 
 export const buildJupyterProxyUrl = async (session) => {
@@ -87,11 +86,23 @@ export const buildMainToolUrl = async ({ labId, session }) => {
   }
 
   if (runtime.type === "jupyter") {
-    const jupyterUrl = await buildJupyterProxyUrl(session);
-    return jupyterUrl || joinUrl(`http://${host}:${runtime.port}`, runtime.path);
+    // Only ever hand out the authenticated backend proxy URL. A direct http://<ip>:8888 URL
+    // bypasses the proxy's ownership check; if the proxy URL can't be built, report "not ready".
+    return await buildJupyterProxyUrl(session);
   }
 
   return joinUrl(`http://${host}:${runtime.port}`, runtime.path);
+};
+
+// noVNC "Browser desktop" (testing lab). Carries the per-session VNC password, so it is only
+// ever returned to the session's owner (session GET/list handlers check ownership).
+export const buildDesktopToolUrl = (session) => {
+  const labType = session?.labType || canonicalLabType(session?.labId);
+  if (labType !== "testing") return null;
+  const host = getContainerHost(session);
+  if (!host || session.status !== "running" || !session.vncPassword) return null;
+  const params = new URLSearchParams({ autoconnect: "1", resize: "scale", password: session.vncPassword });
+  return `http://${host}:${LAB_DESKTOP_PORT}/vnc.html?${params.toString()}`;
 };
 
 export const buildSessionTools = async (session) => {
@@ -117,6 +128,10 @@ export const buildSessionTools = async (session) => {
       port: LAB_PORTS.JUPYTER,
       url: runtime.type === "jupyter" ? mainUrl : null,
     },
+    desktop: (() => {
+      const url = buildDesktopToolUrl(session);
+      return { enabled: Boolean(url), type: "vnc", port: LAB_DESKTOP_PORT, url };
+    })(),
   };
 };
 

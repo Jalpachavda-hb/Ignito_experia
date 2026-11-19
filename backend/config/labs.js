@@ -1,4 +1,7 @@
 import { labService } from "../services/labService.js";
+import { resolveLabAlias } from "../lib/labAliases.js";
+
+export { resolveLabAlias };
 
 export const LAB_PORTS = {
   JUPYTER: 8888,
@@ -6,5 +9,5 @@ export const LAB_PORTS = {
 };
 
 export const getLabById = async (labId) => {
-  return await labService.getById(labId);
+  return await labService.getById(resolveLabAlias(labId));
 };

@@ -22,6 +22,7 @@ import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { auditContextMiddleware } from "./middleware/auditContext.js";
 import { auditCleanupService } from "./services/AuditCleanupService.js";
 import { startWorkerInterval as startLabExpiryWorker } from "./services/LabExpiryWorker.js";
+import { startWarmPoolWorker } from "./services/warmPoolService.js";
 import { startUsageBillingWorker } from "./workers/UsageBillingWorker.js";
 import { startRuntimeStopWorker } from "./workers/RuntimeStopWorker.js";
 import { startSessionExpiryWorker } from "./workers/SessionExpiryWorker.js";
@@ -182,6 +183,7 @@ setInterval(() => {
 
 // Initialize MySQL Lab Expiry Worker (runs every 60 seconds)
 startLabExpiryWorker(60000);
+startWarmPoolWorker(); // no-op unless WARM_POOL_ENABLED=true
 
 // Initialize Minute-Wise Lab Token Billing Worker (runs every 30 seconds)
 startUsageBillingWorker(30000);

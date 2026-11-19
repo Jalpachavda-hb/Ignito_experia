@@ -1,21 +1,9 @@
-import crypto from "crypto";
 import pool from "../lib/mysql.js";
 import labTokenPackageRepository from "../repositories/LabTokenPackageRepository.js";
 import tokenOrderRepository from "../repositories/TokenOrderRepository.js";
 import paymentSettlementService from "./PaymentSettlementService.js";
-import { badRequest, notFound } from "../lib/errors.js";
-
-const getRazorpayInstance = async () => {
-  try {
-    const { default: Razorpay } = await import("razorpay");
-    const keyId = process.env.RAZORPAY_KEY_ID || "rzp_test_1DP5mmOlF5G5ag";
-    const keySecret = process.env.RAZORPAY_KEY_SECRET || "6gm7L9wLL2mAAfaTZ3IJz8Wj";
-    return new Razorpay({ key_id: keyId, key_secret: keySecret });
-  } catch (err) {
-    console.warn("[PaymentService] Razorpay package not loaded:", err.message);
-    return null;
-  }
-};
+import { createRazorpayOrder } from "../lib/razorpayClient.js";
+import { badRequest } from "../lib/errors.js";
 
 class PaymentService {
   async createCombinedOrder({ tenantId, studentId, items }) {
@@ -63,25 +51,17 @@ class PaymentService {
 
     const orderNumber = `TOK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100000 + Math.random() * 900000)}`;
 
-    // 2. Create Razorpay order
-    let razorpayOrderId = null;
-    try {
-      const razorpay = await getRazorpayInstance();
-      if (razorpay) {
-        const rzpOrder = await razorpay.orders.create({
-          amount: Math.round(calculatedTotalAmount * 100), // amount in paise
-          currency: "INR",
-          receipt: orderNumber,
-          notes: { tenantId, studentId: String(studentId), orderNumber }
-        });
-        razorpayOrderId = rzpOrder.id;
-      } else {
-        razorpayOrderId = `rzp_order_mock_${Date.now()}`;
-      }
-    } catch (rzpErr) {
-      console.warn("[PaymentService] Razorpay order creation warning (using mock order ID):", rzpErr.message);
-      razorpayOrderId = `rzp_order_mock_${Date.now()}`;
+    const amountInPaise = Math.round(calculatedTotalAmount * 100);
+    if (amountInPaise < 100) {
+      throw badRequest("Minimum payment amount is ₹1");
     }
+
+    const { keyId, order: rzpOrder } = await createRazorpayOrder({
+      amountInPaise,
+      receipt: orderNumber,
+      notes: { tenantId: String(tenantId || ""), studentId: String(studentId), orderNumber },
+    });
+    const razorpayOrderId = rzpOrder.id;
 
     // 3. Persist order & snapshot line items in DB
     const connection = await pool.getConnection();
@@ -120,7 +100,8 @@ class PaymentService {
         totalAmount: calculatedTotalAmount,
         currency: "INR",
         razorpayOrderId,
-        keyId: process.env.RAZORPAY_KEY_ID || "rzp_test_1DP5mmOlF5G5ag",
+        gatewayOrderId: razorpayOrderId,
+        keyId,
         items: validatedOrderItems
       };
     } catch (err) {

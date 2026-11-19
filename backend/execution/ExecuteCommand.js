@@ -137,10 +137,9 @@ export class ExecuteCommand {
 
     if (isTesting) {
       if (executionMode === "gui") {
-        const viewerUrl = BrowserManager.getBrowserUrl(session);
         LogStreamer.sendRunLog(runId, "Execution Mode : GUI", "stdout");
         LogStreamer.sendRunLog(runId, "Display         : :99", "stdout");
-        LogStreamer.sendRunLog(runId, `Viewer          : ${viewerUrl}`, "stdout");
+        LogStreamer.sendRunLog(runId, "Viewer          : open the Browser desktop panel", "stdout");
         LogStreamer.sendRunLog(runId, "Launching Chrome...", "stdout");
       } else {
         LogStreamer.sendRunLog(runId, "Execution Mode : Headless", "stdout");

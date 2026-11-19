@@ -56,6 +56,7 @@ import { Route as AuthenticatedStudentMyLabsRouteRouteImport } from './routes/_a
 import { Route as AuthenticatedStudentProfileRouteRouteImport } from './routes/_authenticated/student/profile/route'
 import { Route as AuthenticatedStudentTransactionsRouteRouteImport } from './routes/_authenticated/student/transactions/route'
 import { Route as AuthenticatedUsersIndexRouteImport } from './routes/_authenticated/users/index'
+import { Route as AuthenticatedAdminComputeAwsRouteImport } from './routes/_authenticated/admin.compute.aws'
 import { Route as AuthenticatedAdminComputeRdpRouteImport } from './routes/_authenticated/admin.compute.rdp'
 
 const AuthenticatedAuditLogsIndexLazyRouteImport = createFileRoute(
@@ -437,6 +438,12 @@ const AuthenticatedUsersIndexRoute = AuthenticatedUsersIndexRouteImport.update({
   path: '/users/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminComputeAwsRoute =
+  AuthenticatedAdminComputeAwsRouteImport.update({
+    id: '/admin/compute/aws',
+    path: '/admin/compute/aws',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdminComputeRdpRoute =
   AuthenticatedAdminComputeRdpRouteImport.update({
     id: '/admin/compute/rdp',
@@ -578,6 +585,7 @@ export interface FileRoutesByFullPath {
   '/semesters/': typeof AuthenticatedSemestersIndexLazyRoute
   '/sessions/': typeof AuthenticatedSessionsIndexLazyRoute
   '/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
+  '/admin/compute/aws': typeof AuthenticatedAdminComputeAwsRoute
   '/admin/compute/rdp': typeof AuthenticatedAdminComputeRdpRoute
   '/student/academic-progress/': typeof AuthenticatedStudentAcademicProgressIndexLazyRoute
   '/student/badges-achievements/': typeof AuthenticatedStudentBadgesAchievementsIndexLazyRoute
@@ -624,6 +632,7 @@ export interface FileRoutesByTo {
   '/semesters': typeof AuthenticatedSemestersIndexLazyRoute
   '/sessions': typeof AuthenticatedSessionsIndexLazyRoute
   '/transactions': typeof AuthenticatedTransactionsIndexLazyRoute
+  '/admin/compute/aws': typeof AuthenticatedAdminComputeAwsRoute
   '/admin/compute/rdp': typeof AuthenticatedAdminComputeRdpRoute
   '/student/academic-progress': typeof AuthenticatedStudentAcademicProgressIndexLazyRoute
   '/student/badges-achievements': typeof AuthenticatedStudentBadgesAchievementsIndexLazyRoute
@@ -690,6 +699,7 @@ export interface FileRoutesById {
   '/_authenticated/semesters/': typeof AuthenticatedSemestersIndexLazyRoute
   '/_authenticated/sessions/': typeof AuthenticatedSessionsIndexLazyRoute
   '/_authenticated/transactions/': typeof AuthenticatedTransactionsIndexLazyRoute
+  '/_authenticated/admin/compute/aws': typeof AuthenticatedAdminComputeAwsRoute
   '/_authenticated/admin/compute/rdp': typeof AuthenticatedAdminComputeRdpRoute
   '/_authenticated/student/academic-progress/': typeof AuthenticatedStudentAcademicProgressIndexLazyRoute
   '/_authenticated/student/badges-achievements/': typeof AuthenticatedStudentBadgesAchievementsIndexLazyRoute
@@ -756,6 +766,7 @@ export interface FileRouteTypes {
     | '/semesters/'
     | '/sessions/'
     | '/transactions/'
+    | '/admin/compute/aws'
     | '/admin/compute/rdp'
     | '/student/academic-progress/'
     | '/student/badges-achievements/'
@@ -802,6 +813,7 @@ export interface FileRouteTypes {
     | '/semesters'
     | '/sessions'
     | '/transactions'
+    | '/admin/compute/aws'
     | '/admin/compute/rdp'
     | '/student/academic-progress'
     | '/student/badges-achievements'
@@ -867,6 +879,7 @@ export interface FileRouteTypes {
     | '/_authenticated/semesters/'
     | '/_authenticated/sessions/'
     | '/_authenticated/transactions/'
+    | '/_authenticated/admin/compute/aws'
     | '/_authenticated/admin/compute/rdp'
     | '/_authenticated/student/academic-progress/'
     | '/_authenticated/student/badges-achievements/'
@@ -1274,6 +1287,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUsersIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/compute/aws': {
+      id: '/_authenticated/admin/compute/aws'
+      path: '/admin/compute/aws'
+      fullPath: '/admin/compute/aws'
+      preLoaderRoute: typeof AuthenticatedAdminComputeAwsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/admin/compute/rdp': {
       id: '/_authenticated/admin/compute/rdp'
       path: '/admin/compute/rdp'
@@ -1642,6 +1662,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
   AuthenticatedHelpCenterIndexRoute: typeof AuthenticatedHelpCenterIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
+  AuthenticatedAdminComputeAwsRoute: typeof AuthenticatedAdminComputeAwsRoute
   AuthenticatedAdminComputeRdpRoute: typeof AuthenticatedAdminComputeRdpRoute
 }
 
@@ -1681,6 +1702,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
   AuthenticatedHelpCenterIndexRoute: AuthenticatedHelpCenterIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
+  AuthenticatedAdminComputeAwsRoute: AuthenticatedAdminComputeAwsRoute,
   AuthenticatedAdminComputeRdpRoute: AuthenticatedAdminComputeRdpRoute,
 }
 

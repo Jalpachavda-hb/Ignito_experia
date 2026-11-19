@@ -2,8 +2,16 @@ import { create } from 'zustand';
 import { fetchLabs, fetchSubLabs, updateLabCredits } from '../services/labService';
 import { Lab } from '../pages/student/my-labs/types';
 
+/** Level definitions from GET /labs (labels, order, descriptions). Never hard-code these in the UI. */
+export interface LabLevelInfo {
+  label: string;
+  order: number;
+  description?: string;
+}
+
 interface LabStore {
   labs: Lab[];
+  levels: Record<string, LabLevelInfo>;
   subLabs: Record<string, any>;
   isLoading: boolean;
   error: string | null;
@@ -34,6 +42,7 @@ function normalizeLab(lab: any): Lab {
 
 export const useLabStore = create<LabStore>((set) => ({
   labs: [],
+  levels: {},
   subLabs: {},
   isLoading: false,
   error: null,
@@ -73,6 +82,7 @@ export const useLabStore = create<LabStore>((set) => ({
 
       set({
         labs: normalizedLabs,
+        levels: labsResponse?.levels || {},
         subLabs: subLabsResponse?.subLabs || {},
         isLoading: false,
         error: null

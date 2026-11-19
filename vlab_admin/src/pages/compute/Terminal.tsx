@@ -3,6 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { io } from 'socket.io-client';
 import { getApiOrigin } from '@/config/env';
+import { useAuthStore } from '@/stores/auth-store';
 import '@xterm/xterm/css/xterm.css';
 import { Terminal as TerminalIcon, X, Plus, Power, ArrowLeft, RefreshCw, Clock } from 'lucide-react';
 
@@ -41,10 +42,12 @@ const TerminalInstance = forwardRef(({ session, isActive, onTerminalCommand, isL
       socketRef.current.disconnect();
     }
     const socketUrl = getApiOrigin();
+    const token = useAuthStore.getState().auth.accessToken || '';
     const socket = io(socketUrl, {
       query: {
         sessionId: session?.sessionId || '',
       },
+      auth: { token },
     });
     socketRef.current = socket;
 

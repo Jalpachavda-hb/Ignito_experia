@@ -1,7 +1,43 @@
 import pool from "../lib/mysql.js";
 import labSessionRepository from "../repositories/LabSessionRepository.js";
 import { stopEcsTask, isEcsEnabled, describeTask } from "./ecsService.js";
-import { deleteSession } from "./sessionRepository.js";
+import { deleteSession, getAllActiveSessions } from "./sessionRepository.js";
+import usageBillingService from "./UsageBillingService.js";
+
+// Idle stop (docs/lab-startup-optimization.md §3.3). 0 = disabled.
+const IDLE_TIMEOUT_MINUTES = Number(process.env.LAB_IDLE_TIMEOUT_MINUTES || 0);
+
+/**
+ * Stops running labs whose page stopped sending heartbeats for IDLE_TIMEOUT_MINUTES.
+ * Only sessions that have sent at least one heartbeat are considered, so pages that
+ * don't send heartbeats (older frontend builds) are never stopped by this check.
+ * Files are left in place (unlike a manual stop) so no work is lost.
+ */
+export async function stopIdleSessions() {
+  if (!IDLE_TIMEOUT_MINUTES) return;
+  const cutoff = Date.now() - IDLE_TIMEOUT_MINUTES * 60 * 1000;
+  const sessions = await getAllActiveSessions();
+  for (const session of sessions) {
+    if (session.status !== "running" || !session.lastHeartbeatAt) continue;
+    if (new Date(session.lastHeartbeatAt).getTime() > cutoff) continue;
+    try {
+      console.log(`[LabExpiryWorker] Stopping idle session ${session.sessionId} (no heartbeat for ${IDLE_TIMEOUT_MINUTES} min)`);
+      await usageBillingService.finalizeSessionBilling(session.sessionId).catch((e) =>
+        console.warn(`[LabExpiryWorker] Billing finalization error for idle session ${session.sessionId}:`, e.message));
+      if (session.taskArn && isEcsEnabled()) {
+        await stopEcsTask(session.taskArn).catch((e) =>
+          console.error(`[LabExpiryWorker] Error stopping idle task:`, e.message));
+      }
+      await labSessionRepository.updateSession(session.sessionId, {
+        Status: "STOPPED",
+        EndedAt: new Date().toISOString().slice(0, 19).replace("T", " "),
+      });
+      await deleteSession(session.sessionId).catch(() => {});
+    } catch (err) {
+      console.error(`[LabExpiryWorker] Failed to stop idle session ${session.sessionId}:`, err.message);
+    }
+  }
+}
 
 let workerIntervalHandle = null;
 
@@ -61,6 +97,7 @@ export async function checkAndExpireSessions() {
         }
       }
     }
+    await stopIdleSessions();
   } catch (err) {
     console.error("[LabExpiryWorker] Error during worker execution cycle:", err.message);
   }

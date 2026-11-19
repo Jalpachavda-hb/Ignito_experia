@@ -114,6 +114,8 @@ const startCountdownTimer = (get: any, set: any) => {
 
   // Periodic synchronization with backend server every 30 seconds
   syncInterval = setInterval(async () => {
+    // Don't poll from background tabs; the next visible tick catches up.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
     const current = get().activeSession;
     if (current?.sessionId) {
       try {

@@ -2,6 +2,7 @@ import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { gunzipSync, brotliDecompressSync, inflateSync } from "zlib";
 import { getBearerToken, verifyAccessToken, verifyJupyterEmbedToken } from "./lib/jwt.js";
 import { getSession } from "./services/sessionRepository.js";
+import { authorizeLabSession } from "./lib/sessionAccess.js";
 import { getLabRuntime, getContainerHost } from "./lib/labTools.js";
 import { ENV } from "./config/env.js";
 
@@ -15,46 +16,69 @@ const getCookieToken = (req, sessionId) => {
   return part ? decodeURIComponent(part.slice(name.length)) : null;
 };
 
-const resolveAuth = (req) => {
-  const sessionId = req.params?.sessionId;
-  const queryToken = typeof req.query?.access_token === "string" ? req.query.access_token : null;
-  const cookieToken = sessionId ? getCookieToken(req, sessionId) : null;
-  const bearer = getBearerToken(req.headers || {});
+const sessionIdFromUrl = (url = "") => url.match(/\/(lab-sessions|lab\/sessions)\/([^/?]+)\/jupyter/)?.[2] || null;
 
-  console.log(`[jupyterProxy resolveAuth] Checking auth for sessionId: ${sessionId}`);
-  console.log(`[jupyterProxy resolveAuth] queryToken: ${queryToken ? queryToken.substring(0, 20) + "..." : "none"}`);
-  console.log(`[jupyterProxy resolveAuth] cookieToken: ${cookieToken ? cookieToken.substring(0, 20) + "..." : "none"}`);
-  console.log(`[jupyterProxy resolveAuth] bearer: ${bearer ? bearer.substring(0, 20) + "..." : "none"}`);
+const queryParam = (req, name) => {
+  if (typeof req.query?.[name] === "string") return req.query[name];
+  try {
+    return new URL(req.originalUrl || req.url || "/", "http://local").searchParams.get(name);
+  } catch {
+    return null;
+  }
+};
 
-  const tryToken = (token, source) => {
-    if (!token) return null;
+const httpError = (statusCode, message) => Object.assign(new Error(message), { statusCode });
+
+/**
+ * Authorizes a Jupyter proxy request (HTTP or WebSocket upgrade) for one session.
+ * Accepts, in order: the signed embed token (?access_token= or the per-session cookie),
+ * which must name this session and its owner; or the student's normal bearer token,
+ * checked with the same ownership/tenant rules as file and terminal access.
+ * Returns { session, cookieToken }; cookieToken is set when the embed token came from the query.
+ */
+const authorizeJupyter = async (req, sessionId) => {
+  if (!sessionId) throw httpError(400, "Session ID required");
+
+  const candidates = [
+    [queryParam(req, "access_token"), true],
+    [getCookieToken(req, sessionId), false],
+  ];
+  for (const [token, fromQuery] of candidates) {
+    if (!token) continue;
+    let claims;
     try {
-      const claims = verifyJupyterEmbedToken(token);
-      const userId = claims.userId || claims.sub;
-      if (!userId || !claims.sessionId) {
-        console.log(`[jupyterProxy resolveAuth] Token from ${source} is missing sub/userId or sessionId`);
-        return null;
-      }
-      return { userId, sessionId: claims.sessionId, token };
-    } catch (err) {
-      console.log(`[jupyterProxy resolveAuth] Token from ${source} failed verification: ${err.message}`);
-      return null;
+      claims = verifyJupyterEmbedToken(token);
+    } catch {
+      continue;
     }
-  };
+    if (claims.sessionId !== sessionId) continue;
+    const session = await getSession(sessionId);
+    if (!session) throw httpError(404, "Session not found");
+    if (String(claims.sub ?? claims.userId) !== String(session.userId)) continue;
+    return { session, cookieToken: fromQuery ? token : null };
+  }
 
-  const fromEmbed = tryToken(queryToken, "query") || tryToken(cookieToken, "cookie");
-  if (fromEmbed) return fromEmbed;
-
+  const bearer = getBearerToken(req.headers || {});
   if (bearer) {
+    let claims = null;
     try {
-      const claims = verifyAccessToken(bearer);
-      return { userId: claims.sub, sessionId: sessionId || claims.sessionId, token: bearer };
-    } catch (err) {
-      console.log(`[jupyterProxy resolveAuth] Bearer token verification failed: ${err.message}`);
+      claims = verifyAccessToken(bearer);
+    } catch {
+      claims = null;
+    }
+    if (claims) {
+      const auth = {
+        userId: claims.sub,
+        email: claims.email || "",
+        role: claims.role || "Tenant User",
+        tenantId: claims.tenantId || claims.universityId,
+      };
+      const { session } = await authorizeLabSession(auth, sessionId);
+      if (session) return { session, cookieToken: null };
     }
   }
-  console.log(`[jupyterProxy resolveAuth] No valid authentication found`);
-  return null;
+
+  throw httpError(401, "Jupyter access requires a valid session link");
 };
 
 const setJupyterCookie = (res, sessionId, token) => {
@@ -126,10 +150,8 @@ export const setupJupyterProxy = (app, apiPrefix) => {
   const authMiddleware = async (req, res, next) => {
     try {
       const sessionId = req.params.sessionId;
-      const session = await getSession(sessionId);
-      if (!session) {
-        return res.status(404).json({ success: false, message: "Session not found" });
-      }
+      const { session, cookieToken } = await authorizeJupyter(req, sessionId);
+      if (cookieToken) setJupyterCookie(res, sessionId, cookieToken);
 
       const rt = session.runtimeType?.toLowerCase();
       if (rt !== "jupyter") {
@@ -162,13 +184,16 @@ export const setupJupyterProxy = (app, apiPrefix) => {
 
       const runtime = await getLabRuntime(session.labId);
       req.jupyterTarget = `http://${host}:${runtime.port || 8888}`;
+      req.jupyterToken = session.jupyterToken || null;
+      req.jupyterAuthorized = true;
       const matchedPath = req.originalUrl || req.url || "";
       const pathType = matchedPath.includes("/lab/sessions/") ? "lab/sessions" : "lab-sessions";
       req.jupyterProxyBase = `${apiPrefix}/${pathType}/${sessionId}/jupyter`;
       return next();
     } catch (err) {
-      console.error("[jupyterProxy auth]", err);
-      return res.status(401).json({ success: false, message: err.message || "Unauthorized" });
+      const status = err.statusCode || 401;
+      if (status >= 500) console.error("[jupyterProxy auth]", err.message);
+      return res.status(status).json({ success: false, message: status >= 500 ? "Unauthorized" : err.message });
     }
   };
 
@@ -183,36 +208,33 @@ export const setupJupyterProxy = (app, apiPrefix) => {
       return full.includes("/jupyter");
     },
     router: async (req) => {
-      if (req.jupyterTarget) {
+      // HTTP requests were already authorized by authMiddleware.
+      if (req.jupyterAuthorized && req.jupyterTarget) {
         return req.jupyterTarget;
       }
-      const url = req.originalUrl || req.url || "";
-      const match = url.match(/\/(lab-sessions|lab\/sessions)\/([^/]+)\/jupyter/);
-      if (match) {
-        const sessionId = match[2];
-        try {
-          const session = await getSession(sessionId);
-          if (session) {
-            let host = getContainerHost(session);
-            if (!host && session.taskArn) {
-              const { getTaskPublicIp } = await import("./services/ecsService.js");
-              const publicIp = await getTaskPublicIp(session.taskArn);
-              if (publicIp) host = publicIp;
-            }
-            if (host) {
-              const runtime = await getLabRuntime(session.labId);
-              const target = `http://${host}:${runtime.port || 8888}`;
-              req.jupyterTarget = target;
-              console.log(`[jupyterProxy router] Resolved target for ${sessionId} -> ${target}`);
-              return target;
-            }
-          }
-        } catch (err) {
-          console.error("[jupyterProxy router async error]", err.message);
+      // WebSocket upgrades bypass Express middleware, so authorize them here.
+      req.jupyterAuthorized = false;
+      const sessionId = sessionIdFromUrl(req.originalUrl || req.url || "");
+      try {
+        const { session } = await authorizeJupyter(req, sessionId);
+        let host = getContainerHost(session);
+        if (!host && session.taskArn) {
+          const { getTaskPublicIp } = await import("./services/ecsService.js");
+          host = await getTaskPublicIp(session.taskArn);
         }
+        const sStatus = (session.status || "").toLowerCase();
+        if (host && sStatus !== "stopped" && sStatus !== "expired") {
+          const runtime = await getLabRuntime(session.labId);
+          req.jupyterTarget = `http://${host}:${runtime.port || 8888}`;
+          req.jupyterToken = session.jupyterToken || null;
+          req.jupyterAuthorized = true;
+          return req.jupyterTarget;
+        }
+      } catch {
+        // unauthorized or not ready: fall through
       }
-      console.warn(`[jupyterProxy router] Fallback to 127.0.0.1 for url=${url}`);
-      return "http://127.0.0.1:8888";
+      // Never fall back to a real Jupyter (e.g. one on this host); proxyReqWs drops the socket.
+      return "http://127.0.0.1:9";
     },
     pathRewrite: (path, req) => {
       const url = req.originalUrl || req.url || path || "";
@@ -225,6 +247,10 @@ export const setupJupyterProxy = (app, apiPrefix) => {
     on: {
       proxyReq: (proxyReq, req, res) => {
         fixRequestBody(proxyReq, req);
+        // Authenticate to Jupyter with the per-session JUPYTER_TOKEN. This also drops the
+        // student's own bearer token, which must not be forwarded into the lab container.
+        proxyReq.removeHeader("authorization");
+        if (req.jupyterToken) proxyReq.setHeader("Authorization", `token ${req.jupyterToken}`);
         const target = req.jupyterTarget;
         if (target) {
           try {
@@ -235,6 +261,13 @@ export const setupJupyterProxy = (app, apiPrefix) => {
         }
       },
       proxyReqWs: (proxyReq, req, socket, options, head) => {
+        if (!req.jupyterAuthorized) {
+          proxyReq.destroy();
+          socket.destroy();
+          return;
+        }
+        proxyReq.removeHeader("authorization");
+        if (req.jupyterToken) proxyReq.setHeader("Authorization", `token ${req.jupyterToken}`);
         proxyReq.setHeader("Connection", "Upgrade");
         proxyReq.setHeader("Upgrade", "websocket");
         const target = req.jupyterTarget || (typeof options?.target === "string" ? options.target : options?.target?.href);
@@ -247,14 +280,13 @@ export const setupJupyterProxy = (app, apiPrefix) => {
         }
       },
       error(err, req, res) {
-        console.error("[jupyterProxy]", err.message, "target=", req.jupyterTarget);
+        console.error("[jupyterProxy]", err.message);
         if (res.writeHead) {
           res.writeHead(502, { "Content-Type": "text/html; charset=utf-8" });
           res.end(`<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem">
             <h2>Jupyter could not be reached</h2>
             <p>The API server cannot connect to the lab container on port <b>8888</b>.</p>
             <p><b>AWS fix:</b> Open inbound TCP <b>8888</b> on the ECS task security group (see docs/JUPYTER_AWS_FIX.md).</p>
-            <p style="color:#666;font-size:12px">Target: ${req.jupyterTarget || "unknown"} — ${err.message}</p>
           </body></html>`);
         }
       },

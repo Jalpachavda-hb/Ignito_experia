@@ -15,6 +15,35 @@ export const createSessionId = () =>
 
 export const createSessionToken = () => crypto.randomBytes(16).toString("hex");
 
+// Jupyter token (data-science lab). Injected by the backend Jupyter proxy, never sent to the browser.
+export const createJupyterToken = () => crypto.randomBytes(32).toString("hex");
+
+// noVNC password (testing lab). VNC only uses the first 8 characters.
+export const createVncPassword = () => {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  const bytes = crypto.randomBytes(8);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+};
+
+// Per-session secrets that must never be returned to clients or logged.
+const SECRET_SESSION_FIELDS = ["sessionToken", "jupyterToken", "vncPassword", "claimSecret"];
+
+export const toPublicSession = (session) => {
+  if (!session) return session;
+  const copy = { ...session };
+  for (const field of SECRET_SESSION_FIELDS) delete copy[field];
+  return copy;
+};
+
+// Make sure a session has every secret its lab needs (older records may predate them).
+export const ensureSessionSecrets = (session) => {
+  if (!session) return session;
+  if (!session.sessionToken) session.sessionToken = createSessionToken();
+  if (!session.jupyterToken) session.jupyterToken = createJupyterToken();
+  if (!session.vncPassword) session.vncPassword = createVncPassword();
+  return session;
+};
+
 export const getSession = async (sessionId) => {
   let item = null;
   if (useDynamoDb()) {
@@ -154,6 +183,8 @@ export const createSessionRecord = ({
     starterAssetKey,
     status: "starting",
     sessionToken,
+    jupyterToken: createJupyterToken(),
+    vncPassword: createVncPassword(),
     startTime: new Date().toISOString(),
     expiryTime: ttlEpoch(durationMinutes),
     durationMinutes,

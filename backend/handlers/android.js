@@ -1,7 +1,7 @@
 import path from "path";
 import { ok } from "../lib/apigw.js";
-import { badRequest, forbidden, notFound, HttpError } from "../lib/errors.js";
-import { getSession } from "../services/sessionRepository.js";
+import { badRequest, notFound, HttpError } from "../lib/errors.js";
+import { authorizeLabSession } from "../lib/sessionAccess.js";
 import { AndroidBuildService } from "../services/AndroidBuildService.js";
 import { readBinaryFromContainer } from "../services/containerClient.js";
 
@@ -12,16 +12,8 @@ const getSessionId = (event) =>
 
 const assertSessionAccess = async (event) => {
   const sessionId = getSessionId(event);
-  if (!sessionId) throw badRequest("Session ID required");
-  const session = await getSession(sessionId);
+  const { session } = await authorizeLabSession(event.auth, sessionId);
   if (!session) throw notFound("Session not found");
-  if (
-    event.auth &&
-    String(session.userId) !== String(event.auth.userId) &&
-    event.auth.role !== "Super Admin"
-  ) {
-    throw forbidden("You do not own this session");
-  }
   return { sessionId, session };
 };
 

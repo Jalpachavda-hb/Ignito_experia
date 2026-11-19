@@ -1,5 +1,6 @@
 import { getContainerPort, getContainerHost, isDirectContainerMode } from "../lib/labTools.js";
 import { ENV } from "../config/env.js";
+import { toWorkspacePath } from "../lib/workspacePath.js";
 import { updateSession } from "./sessionRepository.js";
 import { executeCode } from "./ExecutionService.js";
 import { executeViaSsm } from "./executeCommandService.js";
@@ -251,16 +252,28 @@ python3 /tmp/list_files.py
   return [];
 };
 
+const shellInsideWorkspace = (destVar) => `
+real_${destVar}=$(readlink -f "$${destVar}" 2>/dev/null || realpath "$${destVar}" 2>/dev/null || echo "")
+case "$real_${destVar}" in
+  /tmp/workspace/workspace|/tmp/workspace/workspace/*|/workspace|/workspace/*) ;;
+  *) echo "PATH_DENIED"; exit 1 ;;
+esac
+`;
+
 const saveSsmFallback = async (session, filePath, content) => {
-  console.log(`[containerClient] Running SSM-based save fallback for file: ${filePath}`);
-  const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-  const containerPath = `/tmp/workspace/workspace/${cleanPath}`;
-  const containerDir = path.dirname(containerPath).replace(/\\/g, "/");
+  const located = toWorkspacePath(filePath);
+  console.log(`[containerClient] Running SSM-based save fallback for file: ${located.workspacePath}`);
+  const containerPath = located.containerPath;
+  const containerDir = path.posix.dirname(containerPath);
   const b64 = Buffer.from(content || "").toString("base64");
 
   const shellScript = `#!/bin/sh
 mkdir -p "${containerDir}"
+PARENT="${containerDir}"
+${shellInsideWorkspace("PARENT")}
 echo "${b64}" | base64 -d > "${containerPath}"
+DEST="${containerPath}"
+${shellInsideWorkspace("DEST")}
 echo "SUCCESS"
 `;
 
@@ -279,13 +292,14 @@ echo "SUCCESS"
 };
 
 const deleteSsmFallback = async (session, filePath) => {
-  console.log(`[containerClient] Running SSM-based delete fallback for file: ${filePath}`);
-  let containerPath = filePath;
-  if (!filePath.startsWith("/tmp/workspace/workspace/")) {
-    const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-    containerPath = `/tmp/workspace/workspace/${cleanPath}`;
-  }
-  const shellScript = `#!/bin/sh\nrm -f "${containerPath}"\necho "SUCCESS"`;
+  const located = toWorkspacePath(filePath);
+  console.log(`[containerClient] Running SSM-based delete fallback for file: ${located.workspacePath}`);
+  const containerPath = located.containerPath;
+  const shellScript = `#!/bin/sh
+DEST="${containerPath}"
+${shellInsideWorkspace("DEST")}
+rm -f "$DEST"
+echo "SUCCESS"`;
 
   const execRes = await executeViaSsm(session, {
     action: "run",
@@ -301,15 +315,13 @@ const deleteSsmFallback = async (session, filePath) => {
 };
 
 const readSsmFallback = async (session, filePath) => {
-  console.log(`[containerClient] Running SSM-based read fallback for file: ${filePath}`);
-  let containerPath = filePath;
-  if (!filePath.startsWith("/tmp/workspace/workspace/")) {
-    const cleanPath = filePath.replace(/^\/workspace\//, "").replace(/^\/+/, "");
-    containerPath = `/tmp/workspace/workspace/${cleanPath}`;
-  }
+  const located = toWorkspacePath(filePath);
+  console.log(`[containerClient] Running SSM-based read fallback for file: ${located.workspacePath}`);
+  const containerPath = located.containerPath;
   
   const shellScript = `#!/bin/sh
 target="${containerPath}"
+${shellInsideWorkspace("target")}
 if [ -f "$target" ]; then
     echo "###START###"
     cat "$target" | base64
@@ -346,6 +358,7 @@ fi
  * Save file content directly to the ECS container via private HTTP endpoint, or falls back to SSM.
  */
 export const saveToContainer = async (session, { path: filePath, content }) => {
+  filePath = toWorkspacePath(filePath).workspacePath;
   const baseUrl = await getPrivateBaseUrl(session);
   if (baseUrl && shouldAttemptHttp()) {
     try {
@@ -387,6 +400,7 @@ export const saveToContainer = async (session, { path: filePath, content }) => {
  * Delete a file directly from the ECS container via private HTTP endpoint, or falls back to SSM.
  */
 export const deleteFromContainer = async (session, filePath) => {
+  filePath = toWorkspacePath(filePath).workspacePath;
   const baseUrl = await getPrivateBaseUrl(session);
   if (baseUrl && shouldAttemptHttp()) {
     try {
@@ -427,8 +441,8 @@ export const deleteFromContainer = async (session, filePath) => {
  * Paths are /workspace/... style from the IDE.
  */
 export const renameInContainer = async (session, oldPath, newPath) => {
-  const cleanSrc = String(oldPath || "").replace(/^\/workspace\//, "").replace(/^\/+/, "");
-  const cleanDest = String(newPath || "").replace(/^\/workspace\//, "").replace(/^\/+/, "");
+  const cleanSrc = toWorkspacePath(oldPath).relative;
+  const cleanDest = toWorkspacePath(newPath).relative;
   const src = `/tmp/workspace/workspace/${cleanSrc}`;
   const dest = `/tmp/workspace/workspace/${cleanDest}`;
   const destDir = path.dirname(dest).replace(/\\/g, "/");
@@ -564,6 +578,7 @@ echo "SUCCESS"
  * Read text file content directly from the ECS container via private HTTP endpoint, or falls back to SSM.
  */
 export const readFromContainer = async (session, filePath) => {
+  filePath = toWorkspacePath(filePath).workspacePath;
   const baseUrl = await getPrivateBaseUrl(session);
   if (baseUrl && shouldAttemptHttp()) {
     try {
@@ -605,6 +620,7 @@ export const getFileContentFromContainer = readFromContainer;
  * Download a binary file directly from the ECS container via private HTTP endpoint, or falls back to SSM.
  */
 export const readBinaryFromContainer = async (session, filePath) => {
+  filePath = toWorkspacePath(filePath).workspacePath;
   const baseUrl = await getPrivateBaseUrl(session);
   if (baseUrl && shouldAttemptHttp()) {
     try {

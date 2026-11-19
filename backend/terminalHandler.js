@@ -4,12 +4,33 @@ import fs from 'fs';
 import path from 'path';
 import { getSession } from './services/sessionRepository.js';
 import { ENV } from './config/env.js';
+import { verifyAccessToken } from './lib/jwt.js';
+import { authorizeLabSession } from './lib/sessionAccess.js';
+import { toWorkspacePath } from './lib/workspacePath.js';
 
-const LOCAL_SHELL = os.platform() === 'win32' ? 'cmd.exe' : 'bash';
-const activePtys = new Map(); // Store PTYs strictly by socket.id
+const activePtys = new Map();
 const readySessionContainers = new Map(); // sessionId -> containerName
 const readyTaskContainers = new Map(); // taskId -> containerName
 let pluginInstalledChecked = false;
+
+const authFromSocket = (socket) => {
+  const header = socket.handshake.headers?.authorization || "";
+  const bearer = String(header).replace(/^(?:Bearer\s+)+/i, "").trim();
+  const token = socket.handshake.auth?.token || socket.handshake.query?.token || bearer;
+  if (!token) return null;
+  try {
+    const claims = verifyAccessToken(token);
+    return {
+      userId: claims.sub || claims.userId,
+      id: claims.sub || claims.userId,
+      email: claims.email,
+      role: claims.role,
+      tenantId: claims.tenantId || claims.universityId || null,
+    };
+  } catch {
+    return null;
+  }
+};
 
 // OSC window-title sequences (\x1b]0;…\x07) and orphaned "0;…" when ESC is dropped (SSM/ECS).
 const stripOscTitleSequences = (data) => {
@@ -38,6 +59,22 @@ export const setupTerminal = (io) => {
     const sessionId = socket.handshake.query.sessionId;
     if (!sessionId) {
       socket.emit("terminal-output", "\r\n\x1b[31m[ERROR: Session ID required]\x1b[0m\r\n");
+      socket.disconnect();
+      return;
+    }
+
+    const auth = authFromSocket(socket);
+    if (!auth?.userId) {
+      socket.emit("terminal-status", { status: "error", message: "Authentication required" });
+      socket.emit("terminal-output", "\r\n\x1b[31m[ERROR: Authentication required]\x1b[0m\r\n");
+      socket.disconnect();
+      return;
+    }
+    try {
+      await authorizeLabSession(auth, sessionId);
+    } catch (err) {
+      socket.emit("terminal-status", { status: "error", message: err.message || "Forbidden" });
+      socket.emit("terminal-output", `\r\n\x1b[31m[ERROR: ${err.message || "Forbidden"}]\x1b[0m\r\n`);
       socket.disconnect();
       return;
     }
@@ -310,30 +347,15 @@ export const setupTerminal = (io) => {
       }
     }
 
-    // =====================================
-    // LOCAL FALLBACK
-    // =====================================
     if (!ptyProcess) {
-      console.log('[LOCAL FALLBACK TERMINAL]');
-      try {
-        const localWorkspaceRoot = path.resolve(process.cwd(), '..');
-        ptyProcess = pty.spawn(LOCAL_SHELL, [], {
-          name: 'xterm-color',
-          cols: 120,
-          rows: 30,
-          cwd: localWorkspaceRoot,
-          useConpty: process.env.USE_CONPTY !== 'false',
-          env: {
-            ...process.env,
-            TERM: 'xterm-256color',
-          },
-        });
-        activePtys.set(socket.id, ptyProcess);
-      } catch (err) {
-        console.error('[LOCAL TERMINAL FAILED]', err.message);
-        socket.emit('terminal-output', `\r\n\x1b[31m[Failed to launch local terminal: ${err.message}]\x1b[0m\r\n`);
-        return;
-      }
+      console.warn("[Terminal] Refusing API-server shell. Container PTY was not created.");
+      socket.emit("terminal-status", {
+        status: "error",
+        message: "Container shell is unavailable. The lab terminal does not run on the API server.",
+      });
+      socket.emit("terminal-output", "\r\n\x1b[31m[Container shell is unavailable]\x1b[0m\r\n");
+      socket.disconnect();
+      return;
     }
 
     // =====================================
@@ -385,25 +407,21 @@ export const setupTerminal = (io) => {
     socket.on('terminal-run-file', ({ path: filePath, content, language }) => {
       if (ptyProcess) {
         try {
-          const b64 = Buffer.from(content).toString('base64');
-          let syncCmd;
-          if (isContainer) {
-            syncCmd = `echo "${b64}" | base64 -d > "${filePath}"`;
-          } else {
-            const localPath = path.join(path.resolve(process.cwd(), '..'), 'workspace', filePath.replace('/workspace/', '').replace(/^\/+/, ''));
-            try { fs.writeFileSync(localPath, content); } catch (e) { }
-            syncCmd = `echo "Local file synced"`;
-          }
+          const located = toWorkspacePath(filePath);
+          const containerFile = located.containerPath;
+          const b64 = Buffer.from(content || "").toString('base64');
+          const syncCmd = `echo "${b64}" | base64 -d > "${containerFile}"`;
 
           let runCmd = '';
-          if (language === 'python') runCmd = `python3 "${filePath}"`;
-          else if (language === 'java') runCmd = `javac "${filePath}" && java Main`;
-          else if (language === 'javascript') runCmd = `node "${filePath}"`;
+          if (language === 'python') runCmd = `python3 "${containerFile}"`;
+          else if (language === 'java') runCmd = `javac "${containerFile}" && java Main`;
+          else if (language === 'javascript') runCmd = `node "${containerFile}"`;
           else runCmd = `echo "Language ${language} not supported for direct run"`;
 
           ptyProcess.write(`\nclear || cls\n${syncCmd} > /dev/null 2>&1\n${runCmd}\n`);
         } catch (err) {
           console.error('[PTY RUN FILE ERROR]', err.message);
+          socket.emit('terminal-output', `\r\n\x1b[31m[Rejected path]\x1b[0m\r\n`);
         }
       }
     });
@@ -440,8 +458,6 @@ export const setupTerminal = (io) => {
     // Signal ready for frontend tab
     if (isContainer) {
       socket.emit('terminal-status', { status: 'ready', message: 'Terminal Connected' });
-    } else {
-      socket.emit('terminal-status', { status: 'ready', message: 'Local Terminal Connected' });
     }
   });
 };

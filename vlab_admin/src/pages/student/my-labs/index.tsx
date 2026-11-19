@@ -5,6 +5,9 @@ import { useLabStore } from '@/stores/labStore';
 import { MyLabsHeader } from './components/my-labs-header';
 import { ActiveLabs } from './components/active-labs';
 import { LabCard } from './components/lab-card';
+import { LabCatalogFilters, applyCatalogFilters, EMPTY_CATALOG_FILTERS, type LabCatalogFilterState } from './components/lab-catalog-filters';
+import { LabDetailsDialog } from './components/lab-details-dialog';
+import { getSavedLabActivities } from '@/Utils/labActivityTracker';
 import { AlertCircle, Loader2, BookOpen, FlaskConical } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useSearch, useNavigate } from '@tanstack/react-router';
@@ -54,7 +57,9 @@ function labFamily(...parts: Array<string | number | null | undefined>) {
 }
 
 export default function MyLabs() {
-  const { labs, isLoading, error, loadLabs } = useLabStore();
+  const { labs, levels, isLoading, error, loadLabs } = useLabStore();
+  const [catalogFilters, setCatalogFilters] = useState<LabCatalogFilterState>(EMPTY_CATALOG_FILTERS);
+  const [detailsLabId, setDetailsLabId] = useState<string | null>(null);
   const { auth } = useAuthStore();
   const { user, updateUser } = auth;
   const { transactions, fetchTransactions, addTransaction } = useTransactionStore();
@@ -967,6 +972,13 @@ export default function MyLabs() {
       return;
     }
 
+    // AWS console labs (kind "aws-console") run in a leased AWS account, not a container:
+    // they have their own lab page (start, console link, tasks, timer).
+    if ((lab as any)?.kind === 'aws-console') {
+      navigate({ to: '/admin/compute/aws', search: { labType: labId } as any });
+      return;
+    }
+
     if (activeSession && activeSession.labId !== labId) {
       setShowWarningModal(true);
       return;
@@ -1072,8 +1084,22 @@ export default function MyLabs() {
   };
 
   const handleViewDetails = (id: string) => {
-    console.log('View details', id);
+    setDetailsLabId(id);
   };
+
+  // Catalog filters (level / category / kind), retired labs hidden, sorted by level then title.
+  const filteredDisplayLabs = useMemo(() => applyCatalogFilters(displayLabs, catalogFilters), [displayLabs, catalogFilters]);
+  const filteredPurchasedLabs = useMemo(() => applyCatalogFilters(purchasedLabs, catalogFilters), [purchasedLabs, catalogFilters]);
+  const filteredOtherLabs = useMemo(() => applyCatalogFilters(otherLabs, catalogFilters), [otherLabs, catalogFilters]);
+
+  const completedLabIds = useMemo(() => {
+    const uid = String(user?.userId || user?.email || '');
+    return new Set(getSavedLabActivities(uid).filter((a) => a.status === 'Completed').map((a) => a.id));
+  }, [user]);
+  const detailsLab = useMemo(
+    () => (detailsLabId ? displayLabs.find((l) => getLabId(l) === detailsLabId) || labs.find((l) => getLabId(l) === detailsLabId) || null : null),
+    [detailsLabId, displayLabs, labs]
+  );
 
   return (
     <>
@@ -1171,6 +1197,7 @@ export default function MyLabs() {
               )}
 
               <div className="mt-6">
+                <LabCatalogFilters labs={displayLabs} levels={levels} value={catalogFilters} onChange={setCatalogFilters} />
                 {isDirectUser && !hasCourseFilter ? (
                   // Direct External Student: Cleanly divided into Purchased Labs (Top) and Available Labs (Bottom)
                   <div className="space-y-10">
@@ -1181,7 +1208,7 @@ export default function MyLabs() {
                           <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                             Purchased Labs
                             <Badge variant="outline" className="text-xs font-semibold bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800">
-                              {purchasedLabs.length}
+                              {filteredPurchasedLabs.length}
                             </Badge>
                           </h2>
                           <p className="text-xs text-muted-foreground mt-0.5">
@@ -1190,9 +1217,9 @@ export default function MyLabs() {
                         </div>
                       </div>
 
-                      {purchasedLabs.length > 0 ? (
+                      {filteredPurchasedLabs.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 lg:gap-6">
-                          {purchasedLabs.map((lab: any) => (
+                          {filteredPurchasedLabs.map((lab: any) => (
                             <LabCard
                               key={lab.id}
                               lab={lab}
@@ -1220,14 +1247,14 @@ export default function MyLabs() {
                     </div>
 
                     {/* Section 2: Unpurchased / Available Catalogue Labs */}
-                    {otherLabs.length > 0 && (
+                    {filteredOtherLabs.length > 0 && (
                       <div className="space-y-4 pt-2">
                         <div className="flex items-center justify-between pb-2 border-b border-border/40">
                           <div>
                             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                               Available Lab Catalogue
                               <Badge variant="outline" className="text-xs font-semibold bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
-                                {otherLabs.length}
+                                {filteredOtherLabs.length}
                               </Badge>
                             </h2>
                             <p className="text-xs text-muted-foreground mt-0.5">
@@ -1237,7 +1264,7 @@ export default function MyLabs() {
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 lg:gap-6">
-                          {otherLabs.map((lab: any) => (
+                          {filteredOtherLabs.map((lab: any) => (
                             <LabCard
                               key={lab.id}
                               lab={lab}
@@ -1259,7 +1286,7 @@ export default function MyLabs() {
                   </div>
                 ) : (
                   // University LMS Student (or Semester Filter View): Standard unified grid
-                  displayLabs.length === 0 ? (
+                  filteredDisplayLabs.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16 bg-white dark:bg-card rounded-xl border border-dashed border-border/60">
                       <BookOpen className="h-10 w-10 text-muted-foreground mb-4 opacity-50" />
                       <h3 className="text-lg font-bold text-foreground">No Course Labs Found</h3>
@@ -1269,7 +1296,7 @@ export default function MyLabs() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 lg:gap-6">
-                      {displayLabs.map((lab: any, idx: number) => (
+                      {filteredDisplayLabs.map((lab: any, idx: number) => (
                         <LabCard
                           key={`${lab.courseCode || 'course'}-${lab.id || idx}`}
                           lab={lab}
@@ -1293,6 +1320,15 @@ export default function MyLabs() {
           )}
         </div>
       </Main>
+
+      <LabDetailsDialog
+        lab={detailsLab}
+        allLabs={labs}
+        completedLabIds={completedLabIds}
+        open={Boolean(detailsLab)}
+        onOpenChange={(open) => !open && setDetailsLabId(null)}
+        onSelectLab={(id) => setDetailsLabId(id)}
+      />
 
       {/* Warning Modal */}
       <ConfirmDialog
