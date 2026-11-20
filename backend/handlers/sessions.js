@@ -200,13 +200,60 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     const isAdmin = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';
 
     if (!isAdmin && remainingTokens <= 0) {
+      // 1. Check if the student has successful purchases for this lab in the purchase ledgers
+      const [tokenTxRows] = await connection.query(
+        `SELECT COALESCE(SUM(Tokens), 0) AS TotalTokens 
+         FROM student_lab_token_transactions 
+         WHERE (StudentId = ? OR StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ?))
+           AND TransactionType = 'PURCHASE'
+           AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)`,
+        [String(userId), auth?.email || '', String(userId), cleanLabId, labId, cleanLabId]
+      ).catch(() => [[{ TotalTokens: 0 }]]);
+
+      let reconciledPurchased = Number(tokenTxRows?.[0]?.TotalTokens || 0);
+
+      if (reconciledPurchased <= 0) {
+        const [creditTxRows] = await connection.query(
+          `SELECT COALESCE(SUM(Credits), 0) AS TotalCredits
+           FROM credit_transactions
+           WHERE (UserId = ? OR UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ?))
+             AND Status = 'SUCCESS' AND Type = 'PURCHASE'
+             AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ? OR MetadataJson LIKE ?)`,
+          [String(userId), auth?.email || '', String(userId), cleanLabId, labId, cleanLabId, `%"${cleanLabId}"%`]
+        ).catch(() => [[{ TotalCredits: 0 }]]);
+        reconciledPurchased = Number(creditTxRows?.[0]?.TotalCredits || 0);
+      }
+
+      if (reconciledPurchased > 0) {
+        try {
+          await studentLabTokenWalletRepository.creditWalletTokens(
+            tenantId || 'PLATFORM',
+            userId,
+            cleanLabId,
+            reconciledPurchased,
+            connection,
+            lab?.title || labId
+          );
+          labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(
+            tenantId,
+            userId,
+            cleanLabId || labId,
+            auth?.email,
+            connection
+          );
+          remainingTokens = Number(labWallet?.RemainingTokens || reconciledPurchased);
+        } catch (syncErr) {
+          console.warn("[sessionsStartHandler] Failed auto-reconciling purchased tokens:", syncErr.message);
+        }
+      }
+
       const isLmsCandidate = auth?.authType === 'LMS' ||
         auth?.authType === 'LMS_AND_DIRECT' ||
         auth?.isLmsStudent ||
         (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT' && Boolean(body?.academicCtx)) ||
         Boolean(body?.academicCtx && (body.academicCtx.programId || body.academicCtx.semesterId || body.academicCtx.courseCode));
 
-      if (isLmsCandidate) {
+      if (isLmsCandidate && remainingTokens <= 0) {
         const defaultCredit = (cleanLabId.includes('dbms') || String(body?.academicCtx?.courseCode || '').includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || String(body?.academicCtx?.courseCode || '').includes('4011')) ? 80 : 60);
         const practicalCredit = Number(body?.practicalCredit || body?.academicCtx?.practicalCredit || defaultCredit);
 
@@ -221,7 +268,7 @@ export const sessionsStartHandler = async ({ body, auth }) => {
           );
         } catch (e) {}
 
-        labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, labId, auth?.email, connection);
+        labWallet = await studentLabTokenWalletRepository.getWalletForUpdate(tenantId, userId, cleanLabId || labId, auth?.email, connection);
         remainingTokens = Number(labWallet?.RemainingTokens || practicalCredit);
       }
 

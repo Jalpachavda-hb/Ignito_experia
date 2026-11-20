@@ -59,6 +59,99 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
     }
   });
 
+  // Ensure all labs purchased by the student in student_lab_token_transactions are included in groupedWallets
+  for (const [purchasedLabId, purchasedTokens] of purchasedByLab.entries()) {
+    const cleanId = toCleanLabId(purchasedLabId);
+    if (!groupedWallets.has(cleanId) && purchasedTokens > 0) {
+      groupedWallets.set(cleanId, {
+        id: `purchased-${cleanId}`,
+        labId: cleanId,
+        rows: [],
+        maxRowTotal: purchasedTokens,
+        usedTokens: 0,
+        allocation: 0,
+        updatedAt: new Date().toISOString()
+      });
+    }
+  }
+
+  // Also include purchases recorded in credit_transactions
+  try {
+    const [cTxRows] = await pool.query(
+      `SELECT LabId, Credits, MetadataJson FROM credit_transactions 
+       WHERE (UserId = ? OR UserId = ? OR UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ?))
+         AND Status = 'SUCCESS' AND Type = 'PURCHASE'`,
+      [canonicalStudentId || String(studentId), auth?.email || '', auth?.email || '', String(studentId)]
+    );
+    for (const ctx of (cTxRows || [])) {
+      let ctxLabId = ctx.LabId;
+      if (!ctxLabId && ctx.MetadataJson) {
+        try {
+          const parsed = typeof ctx.MetadataJson === 'string' ? JSON.parse(ctx.MetadataJson) : ctx.MetadataJson;
+          if (parsed.items && Array.isArray(parsed.items)) {
+            for (const item of parsed.items) {
+              const itemLab = toCleanLabId(item.labId, item.labName);
+              const itemTokens = Number(item.tokens || item.credits || 0);
+              if (itemLab && itemTokens > 0) {
+                if (!groupedWallets.has(itemLab)) {
+                  groupedWallets.set(itemLab, {
+                    id: `purchased-${itemLab}`,
+                    labId: itemLab,
+                    rows: [],
+                    maxRowTotal: itemTokens,
+                    usedTokens: 0,
+                    allocation: 0,
+                    updatedAt: new Date().toISOString()
+                  });
+                } else {
+                  const grp = groupedWallets.get(itemLab);
+                  grp.maxRowTotal = Math.max(grp.maxRowTotal, itemTokens);
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+      if (ctxLabId) {
+        const cleanId = toCleanLabId(ctxLabId);
+        const tokens = Number(ctx.Credits || 0);
+        if (cleanId && tokens > 0) {
+          if (!groupedWallets.has(cleanId)) {
+            groupedWallets.set(cleanId, {
+              id: `purchased-${cleanId}`,
+              labId: cleanId,
+              rows: [],
+              maxRowTotal: tokens,
+              usedTokens: 0,
+              allocation: 0,
+              updatedAt: new Date().toISOString()
+            });
+          } else {
+            const grp = groupedWallets.get(cleanId);
+            grp.maxRowTotal = Math.max(grp.maxRowTotal, tokens);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[studentLabTokensSummaryHandler] credit_transactions sync notice:", err.message);
+  }
+
+  // Auto-provision any missing wallet rows for purchased labs
+  for (const [cleanId, group] of groupedWallets.entries()) {
+    if (group.rows.length === 0 && group.maxRowTotal > 0) {
+      try {
+        await studentLabTokenWalletRepository.creditWalletTokens(
+          tenantId || 'PLATFORM',
+          canonicalStudentId || studentId,
+          cleanId,
+          group.maxRowTotal,
+          pool
+        );
+      } catch (e) {}
+    }
+  }
+
   const entitlementFor = (group) =>
     Math.max(group.maxRowTotal, (group.allocation || 0) + (purchasedByLab.get(group.labId) || 0));
 

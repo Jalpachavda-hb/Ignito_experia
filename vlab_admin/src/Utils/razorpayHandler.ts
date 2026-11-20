@@ -251,7 +251,7 @@ export const initiateRazorpayPayment = async ({
 
       try {
         const currentUser = useAuthStore.getState()?.auth;
-        const currentTenantId = currentUser?.user?.tenantId || (currentUser?.user as any)?.universityId || 'TEN000001';
+        const currentTenantId = currentUser?.user?.tenantId || (currentUser?.user as any)?.universityId || 'PLATFORM';
 
         const verifyRes = await fetch(`${apiBaseUrl}/payments/razorpay/verify`, {
           method: 'POST',

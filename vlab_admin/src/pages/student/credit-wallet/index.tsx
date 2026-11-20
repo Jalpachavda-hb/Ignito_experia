@@ -26,7 +26,7 @@ export default function CreditWallet() {
   const { auth } = useAuthStore();
   const { user } = auth;
   const isUniversity = isUniversityStudent(user);
-  const { addTransaction, fetchTransactions } = useTransactionStore();
+  const { transactions, addTransaction, fetchTransactions } = useTransactionStore();
   const { labWallets, courseAllocations, fetchStudentLabTokens } = useLabTokenStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,6 +87,25 @@ export default function CreditWallet() {
       }
     });
 
+    // Also include completed purchases from transactionStore (e.g. recent Razorpay purchases)
+    (transactions || []).forEach((tx) => {
+      const isCompleted = tx.status === 'Completed' || (!tx.status && tx.status !== 'Failed');
+      if (isCompleted && tx.type === 'Credit') {
+        const tLabId = tx.labId ? String(tx.labId).toLowerCase().trim() : '';
+        const cleanTLabId = tLabId.replace(/^lab-/, '').replace(/-lab$/, '');
+        const txTokens = Number(tx.amount || 0);
+        if (cleanTLabId && txTokens > 0) {
+          if (!map[cleanTLabId] || map[cleanTLabId].availableTokens === 0) {
+            const info = { availableTokens: txTokens, reservedTokens: 0 };
+            map[cleanTLabId] = info;
+            map[tLabId] = info;
+            map[`lab-${cleanTLabId}`] = info;
+            map[`${cleanTLabId}-lab`] = info;
+          }
+        }
+      }
+    });
+
     labs.forEach((lab) => {
       const rawId = String(lab.id || lab.labId || lab.name || '').toLowerCase().trim();
       const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
@@ -96,11 +115,13 @@ export default function CreditWallet() {
         const info = { availableTokens: remaining, reservedTokens: 0 };
         map[cleanId] = info;
         map[rawId] = info;
+        map[`lab-${cleanId}`] = info;
+        map[`${cleanId}-lab`] = info;
       }
     });
 
     return map;
-  }, [labWallets, labs, courseAllocations, isUniversity]);
+  }, [labWallets, labs, courseAllocations, isUniversity, transactions]);
 
   const handleToggleSelectForCart = (lab: any, currentTokens: number = 60) => {
     const labId = lab.id || lab.labId;
@@ -343,7 +364,7 @@ export default function CreditWallet() {
                 const labId = lab.id || lab.labId;
                 const rawId = String(labId || lab.name || '').toLowerCase().trim();
                 const cleanId = rawId.replace(/^lab-/, '').replace(/-lab$/, '');
-                const tokenInfo = labTokensMap[cleanId] || labTokensMap[rawId] || { availableTokens: 0, reservedTokens: 0 };
+                const tokenInfo = labTokensMap[cleanId] || labTokensMap[rawId] || labTokensMap[`lab-${cleanId}`] || labTokensMap[`${cleanId}-lab`] || { availableTokens: 0, reservedTokens: 0 };
                 const isSelected = Boolean(cartItems[labId]);
                 return (
                   <LabCreditCard 

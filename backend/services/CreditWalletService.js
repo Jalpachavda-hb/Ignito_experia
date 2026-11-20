@@ -161,7 +161,7 @@ class CreditWalletService {
 
       for (const line of lines) {
         const storedLabId = canonicalLabKey(line.labId, line.labName);
-        await studentLabTokenWalletRepository.creditWalletTokens(
+        const updatedWallet = await studentLabTokenWalletRepository.creditWalletTokens(
           effectiveTenantId,
           userId,
           storedLabId,
@@ -174,9 +174,10 @@ class CreditWalletService {
           ? `purchase_${idempotencyKey}_lab_${storedLabId}`
           : `purchase_tx_${txnId}_lab_${storedLabId}`;
         await studentLabTokenTransactionRepository.createTransaction({
-          tenantId,
+          tenantId: effectiveTenantId,
           studentId: userId,
           labId: storedLabId,
+          walletId: updatedWallet?.Id || null,
           transactionType: 'PURCHASE',
           tokens: line.tokens,
           referenceType: 'PURCHASE',

@@ -2,6 +2,8 @@ import pool from "../lib/mysql.js";
 import { ok } from "../lib/apigw.js";
 import { badRequest, unauthorized } from "../lib/errors.js";
 import creditWalletService from "../services/CreditWalletService.js";
+import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWalletRepository.js";
+import { canonicalLabKey } from "../lib/labIdentity.js";
 import {
   assertPaymentMatches,
   createRazorpayOrder,
@@ -110,12 +112,16 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
 
     if (uRows && uRows.length > 0) {
       targetUserId = uRows[0].UserId;
-      if (!tenantId) tenantId = uRows[0].TenantId;
+      if (uRows[0].TenantId) {
+        tenantId = uRows[0].TenantId;
+      } else if (!tenantId) {
+        tenantId = "PLATFORM";
+      }
     } else {
       // Auto-provision user in Users so FK constraints on credit_wallets do not fail
       const fallbackEmail = lookupEmail || `student_${rawTarget.replace(/[^a-zA-Z0-9]/g, "_")}@experia.ignitolearn.com`;
       const fallbackName = auth?.name || auth?.fullName || bodyUserEmail || `Student ${rawTarget}`;
-      const effectiveTenant = tenantId || "TEN000001";
+      const effectiveTenant = tenantId || "PLATFORM";
 
       const [insRes] = await pool.query(
         `INSERT INTO Users (FullName, Email, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId)
@@ -131,10 +137,11 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
     console.warn("User lookup warning in payment verification:", e);
   }
 
-  if (!tenantId) tenantId = "TEN000001";
+  if (!tenantId) tenantId = "PLATFORM";
   if (!targetUserId || isNaN(Number(targetUserId))) targetUserId = 1;
 
   if (creditsToAdd > 0 && targetUserId) {
+    let purchaseSucceeded = false;
     try {
       await creditWalletService.processPurchase({
         userId: targetUserId,
@@ -148,8 +155,26 @@ export const verifyRazorpaySignatureHandler = async ({ auth, body = {} }) => {
         labName: labName || null,
         items: Array.isArray(items) ? items : null,
       });
+      purchaseSucceeded = true;
     } catch (e) {
-      console.warn("Wallet database credit warning for userId:", targetUserId, e.message);
+      console.error("Wallet database credit error for userId:", targetUserId, e);
+    }
+
+    // Direct fallback to student_lab_token_wallets if processPurchase failed or didn't credit
+    if (!purchaseSucceeded) {
+      try {
+        const canonicalKey = canonicalLabKey(labId, labName);
+        await studentLabTokenWalletRepository.creditWalletTokens(
+          tenantId || "PLATFORM",
+          targetUserId,
+          canonicalKey,
+          creditsToAdd,
+          pool,
+          labName
+        );
+      } catch (fallbackErr) {
+        console.error("Critical fallback wallet credit error:", fallbackErr);
+      }
     }
   }
 
