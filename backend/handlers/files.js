@@ -5,6 +5,7 @@ import { authorizeLabSession } from "../lib/sessionAccess.js";
 import { toWorkspacePath } from "../lib/workspacePath.js";
 import {
   listFiles,
+  listFilesShared,
   getFile,
   upsertFile,
   deleteFile,
@@ -44,29 +45,50 @@ const assertSessionAccess = async (event) => {
 
 const requireWorkspacePath = (filePath) => toWorkspacePath(filePath).workspacePath;
 
+const FILES_LIST_TIMEOUT_MS = Number(process.env.FILES_LIST_TIMEOUT_MS || 20000);
+const LIST_TIMED_OUT = Symbol("list-timed-out");
+
 export const filesListHandler = async (event) => {
-  console.log("[filesListHandler] Request received for session verification and file listing.");
-  try {
-    const { sessionId } = await assertSessionAccess(event);
-    console.log(`[filesListHandler] Session authorized successfully. sessionId: ${sessionId}`);
-    const files = await listFiles(sessionId);
-    console.log(`[filesListHandler] File list retrieved successfully for sessionId: ${sessionId}. Count: ${files?.length || 0}`);
-    const NO_CACHE_HEADERS = {
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      "Pragma": "no-cache",
-      "Expires": "0"
+  const NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
+  };
+  const { sessionId, session } = await assertSessionAccess(event);
+  const bootstrapState = String(session?.bootstrapState || (session?.taskArn ? "NOT_STARTED" : "READY")).toUpperCase();
+
+  // Bounded wait: the container/SSM listing can take minutes when the runtime is slow. The
+  // lookup keeps running in the background (and fills the cache); the request returns in time.
+  let timer;
+  const shared = listFilesShared(sessionId);
+  const outcome = await Promise.race([
+    shared,
+    new Promise((resolve) => { timer = setTimeout(() => resolve(LIST_TIMED_OUT), FILES_LIST_TIMEOUT_MS); }),
+  ]).catch((err) => ({ error: err })).finally(() => clearTimeout(timer));
+  if (outcome === LIST_TIMED_OUT) shared.catch(() => {});
+
+  const strip = (list) => (list || []).map(({ content, ...rest }) => rest);
+
+  if (outcome === LIST_TIMED_OUT || outcome?.error) {
+    const cached = session?.files;
+    if (cached?.length) {
+      return ok({ files: strip(cached), stale: true, ready: bootstrapState === "READY", bootstrapState }, 200, NO_CACHE_HEADERS);
+    }
+    const reason = outcome === LIST_TIMED_OUT ? "The lab workspace is still loading." : (outcome.error?.message || "Could not read the lab workspace.");
+    console.warn(`[filesListHandler] list ${outcome === LIST_TIMED_OUT ? "timed out" : "failed"} for session ${sessionId}: ${reason}`);
+    return {
+      statusCode: 503,
+      headers: { ...NO_CACHE_HEADERS, "Retry-After": "3" },
+      body: { success: false, retryable: true, code: outcome === LIST_TIMED_OUT ? "WORKSPACE_LOADING" : "WORKSPACE_LIST_FAILED", message: reason, bootstrapState },
     };
-
-    // Omit bodies from the tree payload; content is served via /files/content
-    const tree = (files || []).map(({ content, ...rest }) => rest);
-
-    return ok({
-      files: tree,
-    }, 200, NO_CACHE_HEADERS);
-  } catch (err) {
-    console.error("[filesListHandler] FATAL ERROR:", err.message, err.stack);
-    throw err;
   }
+
+  // Omit bodies from the tree payload; content is served via /files/content
+  return ok({
+    files: strip(outcome),
+    ready: bootstrapState === "READY",
+    bootstrapState,
+  }, 200, NO_CACHE_HEADERS);
 };
 
 export const filesContentHandler = async (event) => {

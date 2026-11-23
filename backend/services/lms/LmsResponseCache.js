@@ -72,25 +72,30 @@ class LmsResponseCache {
    * Cache hit returns cached LMS payload. Miss calls fetcher once per key (single-flight).
    */
   async getOrFetch(key, { forceRefresh = false, ttlSeconds, fetcher }) {
-    if (!forceRefresh) {
-      const cached = await this.read(key);
-      if (cached) {
-        console.log(`[LmsResponseCache] HIT ${key}`);
-        return { data: cached, source: "REDIS_CACHE", profileStatus: "LIVE" };
-      }
-    } else {
-      await this.invalidate(key);
+    // Read first even on a forced refresh: the current copy is the fallback if the LMS fails.
+    const cached = await this.read(key);
+    if (cached && !forceRefresh) {
+      return { data: cached, source: "REDIS_CACHE", profileStatus: "LIVE" };
     }
 
     if (inFlight.has(key)) {
-      console.log(`[LmsResponseCache] Single-flight join ${key}`);
       return inFlight.get(key);
     }
 
     const promise = (async () => {
-      const data = await fetcher();
+      let data;
+      try {
+        data = await fetcher();
+      } catch (err) {
+        // A forced refresh that fails keeps (and returns) the still-valid cached copy instead of
+        // wiping it; nothing is fabricated and nothing is overwritten with an empty value.
+        if (cached) {
+          console.warn(`[LmsResponseCache] refresh failed for ${key}, keeping cached copy: ${err.message}`);
+          return { data: cached, source: "CACHE_FALLBACK", profileStatus: "LIVE", refreshError: err.code || "LMS_UNAVAILABLE" };
+        }
+        throw err;
+      }
       await this.write(key, data, ttlSeconds);
-      console.log(`[LmsResponseCache] SET ${key}`);
       return { data, source: "LMS_API", profileStatus: "LIVE" };
     })();
 

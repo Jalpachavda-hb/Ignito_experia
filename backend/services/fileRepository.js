@@ -306,6 +306,18 @@ export const invalidateWorkspaceIndex = (sessionId) => {
 
 const getCacheKey = (sessionId, filePath) => `${sessionId}:${filePath}`;
 
+// Concurrent list requests for one session share a single lookup (the editor, refresh button
+// and cache-busted retries used to start one container/SSM listing each).
+const listInFlight = new Map();
+
+export const listFilesShared = (sessionId) => {
+  const running = listInFlight.get(sessionId);
+  if (running) return running;
+  const promise = listFiles(sessionId).finally(() => listInFlight.delete(sessionId));
+  listInFlight.set(sessionId, promise);
+  return promise;
+};
+
 export const listFiles = async (sessionId) => {
   console.log(`[listFiles] Fetching session details for sessionId: ${sessionId}`);
   const session = await getSession(sessionId);
@@ -364,7 +376,12 @@ export const listFiles = async (sessionId) => {
         return containerFiles;
       } catch (err) {
         console.error("[listFiles] Container list failed:", err.message);
-        return session?.files || [];
+        // Fall back to the last good cached tree; with nothing cached, report the failure
+        // instead of pretending the workspace is empty.
+        if (session?.files?.length) return session.files;
+        const failure = new Error("Could not read the lab workspace. Please retry.");
+        failure.code = "WORKSPACE_LIST_FAILED";
+        throw failure;
       }
     }
 
@@ -547,7 +564,7 @@ export const getFile = async (sessionId, filePath) => {
     return foundInS3;
   }
 
-  const files = await listFiles(sessionId);
+  const files = await listFilesShared(sessionId).catch(() => []);
   return files.find((f) => f.path === filePath) || null;
 };
 

@@ -1,4 +1,4 @@
-import { labRepository } from "../../repositories/labRepository.js";
+import { loadLabCatalog, findCatalogLab } from "../StudentLabAccessService.js";
 import { lmsCourseService } from "./LmsCourseService.js";
 import { loadOwnedProgrammes } from "./studentLmsContext.js";
 import {
@@ -35,13 +35,10 @@ class LmsSemesterService {
     const list = Array.isArray(programmes) ? programmes : [];
     if (!ctx?.tenant || list.length === 0) return list;
 
-    const enriched = [];
-    for (const programme of list) {
+    // One LMS lookup per programme, all at once (order of the list is preserved).
+    return Promise.all(list.map(async (programme) => {
       const programmeId = programme?.programmeId ?? programme?.programId;
-      if (programmeId == null || programmeId === "") {
-        enriched.push(programme);
-        continue;
-      }
+      if (programmeId == null || programmeId === "") return programme;
       try {
         const result = await lmsCourseService.getByProgramme({
           tenantId: ctx.tenant.TenantId,
@@ -51,16 +48,12 @@ class LmsSemesterService {
           externalStudentId: ctx.externalStudentId,
         });
         const numbers = [...allowedSemesters(result, programme)];
-        if (numbers.length) {
-          enriched.push({ ...programme, semesters: dedupeSemesters(numbers) });
-          continue;
-        }
+        if (numbers.length) return { ...programme, semesters: dedupeSemesters(numbers) };
       } catch (err) {
         console.warn("[LmsSemesterService] Semester enrichment skipped:", err.message);
       }
-      enriched.push(programme);
-    }
-    return enriched;
+      return programme;
+    }));
   }
 
   /**
@@ -149,10 +142,12 @@ class LmsSemesterService {
 
     const courses = scoped.courseList || [];
     const labs = [];
+    // One cached catalog read instead of one lab query per course.
+    const catalog = await loadLabCatalog().catch(() => []);
     for (const course of courses) {
       const mapped = course?.mappedLab;
       if (!mapped?.labId) continue;
-      const record = await labRepository.getById(mapped.labId).catch(() => null);
+      const record = findCatalogLab(catalog, mapped.labId);
       const title = labTitle(record, mapped.title);
       const practicalCredit = Number(course.practicalCredit || mapped.practicalCredit || 60);
       labs.push({

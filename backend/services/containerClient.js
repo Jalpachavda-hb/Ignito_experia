@@ -699,7 +699,8 @@ export const getFilesFromContainer = async (session) => {
       recordHttpFailure();
       console.warn(`[containerClient] HTTP files request failed: ${err.message}. Checking SSM fallback...`);
       if (!canUseSsmFallback()) {
-        return [];
+        // A failed request is an error, not an empty workspace.
+        throw new Error(`Container file listing failed: ${err.message}`);
       }
     }
   }
@@ -707,7 +708,7 @@ export const getFilesFromContainer = async (session) => {
   if (canUseSsmFallback()) {
     return await getFilesSsmFallback(session);
   }
-  return [];
+  throw new Error("Container file listing is unavailable (no HTTP or SSM path)");
 };
 
 export const getContainerFiles = getFilesFromContainer;

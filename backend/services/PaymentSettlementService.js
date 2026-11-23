@@ -5,10 +5,22 @@ import studentLabTokenWalletRepository from "../repositories/StudentLabTokenWall
 import studentLabTokenTransactionRepository from "../repositories/StudentLabTokenTransactionRepository.js";
 import creditWalletRepository from "../repositories/CreditWalletRepository.js";
 import notificationService from "./NotificationService.js";
-import { badRequest, notFound } from "../lib/errors.js";
+import { badRequest, forbidden, notFound } from "../lib/errors.js";
 
 class PaymentSettlementService {
-  async settleOrder({ orderId, razorpayOrderId, razorpayPaymentId, razorpaySignature }) {
+  /**
+   * Credits a paid order exactly once.
+   *
+   * @param {object} args
+   * @param {string|number} [args.orderId]          token_orders.Id
+   * @param {string} [args.razorpayOrderId]          Razorpay order id (alias: gatewayOrderId)
+   * @param {string} args.razorpayPaymentId
+   * @param {string} [args.razorpaySignature]        checkout signature (required unless fromVerifiedWebhook)
+   * @param {string|number} [args.expectedStudentId] when set, the order must belong to this student
+   * @param {boolean} [args.fromVerifiedWebhook]     the webhook body HMAC was already verified
+   */
+  async settleOrder({ orderId, razorpayOrderId, gatewayOrderId, razorpayPaymentId, razorpaySignature, expectedStudentId = null, fromVerifiedWebhook = false }) {
+    razorpayOrderId = razorpayOrderId || gatewayOrderId || null;
     let connection = null;
     try {
       connection = await pool.getConnection();
@@ -31,8 +43,24 @@ class PaymentSettlementService {
         throw notFound("Order not found");
       }
 
+      // Ownership: a student may only settle (and see the result of) their own order.
+      if (expectedStudentId != null && String(order.StudentId) !== String(expectedStudentId)) {
+        await connection.rollback();
+        connection.release();
+        connection = null;
+        throw forbidden("This order belongs to another account");
+      }
+      // The order must match the Razorpay order the payment was made against.
+      if (razorpayOrderId && String(order.RazorpayOrderId || "") !== String(razorpayOrderId)) {
+        await connection.rollback();
+        connection.release();
+        connection = null;
+        throw badRequest("Payment does not match this order");
+      }
+
       // Idempotency Guard: If already processed and credited, return immediately
-      if (order.Status === "TOKEN_CREDITED" || order.Status === "PAID") {
+      const creditedStatuses = await tokenOrderRepository.creditedStatuses(connection);
+      if (creditedStatuses.includes(order.Status) || order.CreditedAt) {
         await connection.rollback();
         connection.release();
         console.log(`[PaymentSettlementService] Order ${order.Id} (${order.OrderNumber}) is already processed (${order.Status}). Skipping.`);
@@ -45,14 +73,18 @@ class PaymentSettlementService {
         connection.release();
         throw badRequest("This order is not a Razorpay order");
       }
-      if (!razorpayPaymentId || !razorpaySignature) {
+      if (!razorpayPaymentId || (!razorpaySignature && !fromVerifiedWebhook)) {
         await connection.rollback();
         connection.release();
+        connection = null;
         throw badRequest("Razorpay payment id and signature are required");
       }
 
       try {
-        verifyCheckoutSignature(orderRef, razorpayPaymentId, razorpaySignature);
+        if (!fromVerifiedWebhook) {
+          verifyCheckoutSignature(orderRef, razorpayPaymentId, razorpaySignature);
+        }
+        // Always confirm with Razorpay itself: captured, same order, same amount.
         const payment = await fetchRazorpayPayment(razorpayPaymentId);
         assertPaymentMatches({
           payment,
@@ -136,11 +168,13 @@ class PaymentSettlementService {
         });
 
         // 4. Reset LowTokenWarningSent flag if session is currently RUNNING so student gets next warning when low
+        // lab_sessions has no StudentId column (it is UserId). The old query failed on every
+        // settlement and rolled the whole credit back.
         await connection.query(
           `UPDATE lab_sessions
            SET LowTokenWarningSent = 0
-           WHERE TenantId = ? AND StudentId = ? AND LabId = ? AND Status = 'RUNNING'`,
-          [order.TenantId, String(order.StudentId), String(labId)]
+           WHERE TenantId = ? AND UserId = ? AND LabId = ? AND Status = 'RUNNING'`,
+          [order.TenantId, Number(order.StudentId), String(labId)]
         );
       }
 

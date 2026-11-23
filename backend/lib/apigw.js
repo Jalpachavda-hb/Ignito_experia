@@ -1,4 +1,28 @@
+import crypto from "crypto";
 import { HttpError } from "./errors.js";
+
+/**
+ * Structured request timing. One JSON line per request:
+ *   {"type":"api","requestId","method","route","status","ms"}
+ * Route is the route TEMPLATE (/lab-sessions/:sessionId), so no ids, tokens or personal data
+ * are logged. PERF_LOG=1 logs every request; otherwise only requests slower than
+ * PERF_LOG_SLOW_MS (default 1000 ms) and 5xx responses are logged.
+ */
+const PERF_LOG_ALL = ["1", "true", "yes"].includes(String(process.env.PERF_LOG || "").toLowerCase());
+const PERF_LOG_SLOW_MS = Number(process.env.PERF_LOG_SLOW_MS || 1000);
+
+export const elapsedMs = (startedAt) => Number(process.hrtime.bigint() - startedAt) / 1e6;
+
+function cleanRequestId(value) {
+  const text = String(value || "").trim();
+  return /^[A-Za-z0-9._:-]{8,100}$/.test(text) ? text : "";
+}
+
+export function logRequestTiming({ requestId, method, route, status, startedAt }) {
+  const ms = elapsedMs(startedAt);
+  if (!PERF_LOG_ALL && ms < PERF_LOG_SLOW_MS && status < 500) return;
+  console.log(JSON.stringify({ type: "api", requestId, method, route, status, ms: Math.round(ms) }));
+}
 
 export const jsonResponse = (statusCode, body, extraHeaders = {}) => ({
   statusCode,
@@ -100,13 +124,19 @@ export const expressRoute = (app, route, apiPrefix) => {
   const method = route.method.toLowerCase();
 
   app[method](fullPath, async (req, res) => {
+    const startedAt = process.hrtime.bigint();
+    const requestId = cleanRequestId(req.headers["x-request-id"]) || crypto.randomUUID();
+    res.setHeader("X-Request-Id", requestId);
+    res.on("finish", () => logRequestTiming({ requestId, method: route.method, route: route.path, status: res.statusCode, startedAt }));
+
     const event = {
-      requestContext: { http: { method: req.method } },
+      requestContext: { http: { method: req.method }, requestId },
       rawPath: req.path.replace(apiPrefix, "") || "/",
       path: req.path,
       pathParameters: req.params,
       queryStringParameters: req.query,
       body: req.body,
+      rawBody: req.rawBody,
       files: req.files || [],
       headers: req.headers,
     };
@@ -130,6 +160,7 @@ export const expressRoute = (app, route, apiPrefix) => {
         headers["Access-Control-Allow-Origin"] = reqOrigin;
         headers["Access-Control-Allow-Credentials"] = "true";
       }
+      headers["Server-Timing"] = `app;dur=${elapsedMs(startedAt).toFixed(1)}`;
 
       res.status(response.statusCode).set(headers).send(response.body);
     } catch (err) {

@@ -304,6 +304,8 @@ export const ROUTES = [
 
   // Student Lab Token Wallets & Usage
   { method: "GET", path: "/student/lab-tokens", handler: studentLabTokensSummaryHandler, auth: true },
+  // Unified lab access: university-assigned ∪ purchased (backend is the source of truth)
+  { method: "GET", path: "/student/labs/access", handler: (event) => import("./handlers/studentLabs.js").then(m => m.studentLabAccessHandler(event)), auth: true },
   { method: "GET", path: "/student/labs/:labId/tokens", handler: studentLabSingleTokenBalanceHandler, auth: true },
   { method: "GET", path: "/student/lab-token-packages", handler: studentAvailableTokenPackagesHandler, auth: true },
   { method: "GET", path: "/student/lab-token-usage", handler: studentLabTokenUsageHandler, auth: true },

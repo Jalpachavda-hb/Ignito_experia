@@ -80,18 +80,17 @@ export const authFromAuthorizerContext = (event) => {
 };
 
 export const requireAuth = (event) => {
+  // Tenant identity comes only from signed claims. The x-tenant-id header is client-controlled and is
+  // never used for authorization; callers without a tenant claim resolve it from the user's own DB row.
   const fromAuthorizer = authFromAuthorizerContext(event);
   if (fromAuthorizer) {
-    if (!fromAuthorizer.tenantId) {
-      fromAuthorizer.tenantId = event.headers?.['x-tenant-id'] || event.headers?.['X-Tenant-Id'] || null;
-    }
+    fromAuthorizer.tenantId = fromAuthorizer.claims?.tenantId || fromAuthorizer.claims?.tenant_id || null;
     return fromAuthorizer;
   }
 
   const token = getBearerToken(event.headers || {}) || event.queryStringParameters?.token;
   if (!token) throw unauthorized("Missing Authorization Bearer token");
   const claims = verifyAccessToken(token);
-  const headerTenantId = event.headers?.['x-tenant-id'] || event.headers?.['X-Tenant-Id'] || null;
   return {
     userId: claims.sub || claims.userId,
     profileId: claims.profileId,
@@ -100,7 +99,7 @@ export const requireAuth = (event) => {
     name: claims.name,
     roleId: claims.roleId,
     source: claims.source,
-    tenantId: claims.tenantId || claims.tenant_id || claims.universityId || headerTenantId || null,
+    tenantId: claims.tenantId || claims.tenant_id || claims.universityId || null,
     tenantSlug: claims.tenantSlug || null,
     tenantName: claims.tenantName || null,
     claims,

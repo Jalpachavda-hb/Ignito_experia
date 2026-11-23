@@ -41,10 +41,8 @@ function cookieDomain(headers = {}) {
     .split("/")[0]
     .split(":")[0]
     .toLowerCase();
-  if (host === "experia.ignitolearn.com" || host.endsWith(".experia.ignitolearn.com")) {
-    return "experia.ignitolearn.com";
-  }
-  return "";
+  // Share the refresh cookie across {slug}.{apex} portals of whichever platform apex served the request.
+  return platformApexFor(host);
 }
 
 function requestIsHttps(headers = {}) {
@@ -85,6 +83,8 @@ import { lmsLoginDto, loginDto, refreshDto } from "../dto/auth.dto.js";
 import { ssoService } from "../services/SsoService.js";
 import { badRequest } from "../lib/errors.js";
 import { portalHostFromRequest, slugFromHost } from "../lib/tenantSlug.js";
+import { platformApexFor } from "../lib/platformDomain.js";
+import { invalidateStudentLabAccess } from "../services/StudentLabAccessService.js";
 import {
   PLATFORM_TENANT_ID,
   isUniversityIdentity,
@@ -474,21 +474,33 @@ export const authMeHandler = async ({ auth, headers = {}, queryStringParameters 
   const lmsProvider = universityStudent && tenant
     ? await loadLmsProvider(profile.UserId || auth.userId, tenant)
     : null;
+  // LMS identity comes only from the stored account (never from the query string).
   const lmsIdentityIds = identityFromUser(profile);
-  const requestedStudentId = cleanLmsId(queryStringParameters.studentId || queryStringParameters.student_id);
-  if (!lmsIdentityIds.studentId && requestedStudentId) {
-    lmsIdentityIds.studentId = requestedStudentId;
-  }
   const lmsExternalId = lmsIdentityIds.externalStudentId || lmsIdentityIds.studentId;
-  if (universityStudent && (admissionId || lmsIdentityIds.studentId) && tenant) {
-    const cachedResult = await lmsProfileCacheService.getOrFetchProfile({
-      tenantId: tenant.TenantId,
-      provider: lmsProvider,
-      externalStudentId: lmsExternalId,
-      admissionId,
-      studentId: lmsIdentityIds.studentId,
-      forceRefresh: false
-    });
+
+  // Profile and purchased programmes are independent LMS calls: run them together.
+  const wantsProfile = universityStudent && (admissionId || lmsIdentityIds.studentId) && tenant;
+  const wantsPurchased = universityStudent && tenant && (profile.StudentId || profile.ExternalStudentId);
+  const [cachedResult, purchased] = await Promise.all([
+    wantsProfile
+      ? lmsProfileCacheService.getOrFetchProfile({
+          tenantId: tenant.TenantId,
+          provider: lmsProvider,
+          externalStudentId: lmsExternalId,
+          admissionId,
+          studentId: lmsIdentityIds.studentId,
+          forceRefresh: false
+        })
+      : Promise.resolve(null),
+    wantsPurchased
+      ? lmsProgrammeService.getPurchased({
+          tenantId: tenant.TenantId,
+          provider: lmsProvider,
+          studentId: lmsIdentityIds.studentId,
+        })
+      : Promise.resolve(null),
+  ]);
+  if (wantsProfile) {
     profileStatus = cachedResult?.profileStatus || 'LMS_PROFILE_UNAVAILABLE';
     cacheSource = cachedResult?.source || profileStatus;
     if (profileStatus === 'LIVE' && cachedResult?.data) {
@@ -499,14 +511,7 @@ export const authMeHandler = async ({ auth, headers = {}, queryStringParameters 
   }
 
   let purchasedPayload = null;
-  if (universityStudent && tenant && (profile.StudentId || profile.ExternalStudentId)) {
-    const purchased = await lmsProgrammeService.getPurchased({
-      tenantId: tenant.TenantId,
-      provider: lmsProvider,
-      studentId: lmsIdentityIds.studentId,
-    });
-    if (purchased.lmsStatus === 'LIVE') purchasedPayload = purchased.rawData || purchased;
-  }
+  if (purchased?.lmsStatus === 'LIVE') purchasedPayload = purchased.rawData || purchased;
 
   const fullName = cachedLmsProfile?.applicantFullName || profile.FullName || `${profile.FirstName || ''} ${profile.LastName || ''}`.trim() || 'Student';
   const displayEmail = (universityStudent && cachedLmsProfile?.email) ? cachedLmsProfile.email : profile.Email;
@@ -527,18 +532,25 @@ export const authMeHandler = async ({ auth, headers = {}, queryStringParameters 
     : [];
   let extProgrammes = universityStudent ? mergeProgrammes(profileProgrammes, purchasedPayload) : [];
   if (universityStudent && tenant && extProgrammes.length) {
-    extProgrammes = await lmsSemesterService.enrichProgrammes({
-      tenant,
-      provider: lmsProvider,
-      externalStudentId: lmsExternalId,
-    }, extProgrammes);
-
-    try {
-      const practical = await lmsProgrammeService.getPracticalAvailable({
+    // Semester enrichment and the practical-programme list are independent: run them together.
+    const [enriched, practical] = await Promise.all([
+      lmsSemesterService.enrichProgrammes({
+        tenant,
+        provider: lmsProvider,
+        externalStudentId: lmsExternalId,
+      }, extProgrammes),
+      lmsProgrammeService.getPracticalAvailable({
         tenantId: tenant.TenantId,
         provider: lmsProvider,
         bearerToken: getBearerToken(headers) || headers?.["x-lms-token"] || null,
-      });
+      }).catch((e) => {
+        console.warn("[authMeHandler] practical filter failed:", e.message);
+        return null;
+      }),
+    ]);
+    extProgrammes = enriched;
+
+    try {
       const practicalList = practical?.programList || practical?.programmeList || [];
       if (Array.isArray(practicalList) && practicalList.length > 0) {
         const filtered = extProgrammes.filter((prog) =>
@@ -776,31 +788,36 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
   }
 
   const provider = ctx.provider || LMS_PROVIDER_CONFIG.provider;
-  await lmsProfileCacheService.invalidateProfile(ctx.tenant.TenantId, provider, ctx.externalStudentId);
-  await lmsProgrammeService.invalidate(ctx.tenant.TenantId, provider, ctx.studentId);
-  await lmsResponseCache.invalidatePrefix(
-    lmsCourseService.cachePrefix(ctx.tenant.TenantId, provider, ctx.externalStudentId)
-  );
-  if (ctx.admissionId) {
-    await lmsResponseCache.invalidate(`lms:academic:${ctx.tenant.TenantId}:${provider}:${ctx.admissionId}`);
+  // Profile and programmes are refreshed in place (forceRefresh): when the LMS is down the
+  // current cached copy is kept instead of being deleted first.
+  const [result, purchased] = await Promise.all([
+    lmsProfileCacheService.getOrFetchProfile({
+      tenantId: ctx.tenant.TenantId,
+      provider: ctx.provider,
+      externalStudentId: ctx.externalStudentId,
+      admissionId: ctx.admissionId,
+      studentId: ctx.studentId,
+      forceRefresh: true,
+    }),
+    ctx.studentId
+      ? lmsProgrammeService.getPurchased({
+          tenantId: ctx.tenant.TenantId,
+          provider: ctx.provider,
+          studentId: ctx.studentId,
+          forceRefresh: true,
+        })
+      : Promise.resolve(null),
+  ]);
+  // Course and academic caches are only dropped once the LMS answered, so they refill from it.
+  if (result?.profileStatus === "LIVE" && result?.source === "LMS_API") {
+    await lmsResponseCache.invalidatePrefix(
+      lmsCourseService.cachePrefix(ctx.tenant.TenantId, provider, ctx.externalStudentId)
+    );
+    if (ctx.admissionId) {
+      await lmsResponseCache.invalidate(`lms:academic:${ctx.tenant.TenantId}:${provider}:${ctx.admissionId}`);
+    }
   }
-
-  const result = await lmsProfileCacheService.getOrFetchProfile({
-    tenantId: ctx.tenant.TenantId,
-    provider: ctx.provider,
-    externalStudentId: ctx.externalStudentId,
-    admissionId: ctx.admissionId,
-    studentId: ctx.studentId,
-    forceRefresh: true,
-  });
-  const purchased = ctx.studentId
-    ? await lmsProgrammeService.getPurchased({
-        tenantId: ctx.tenant.TenantId,
-        provider: ctx.provider,
-        studentId: ctx.studentId,
-        forceRefresh: true,
-      })
-    : null;
+  await invalidateStudentLabAccess(ctx.profile?.UserId ?? auth.userId);
 
   let refreshedProgrammes = mergeProgrammes(
     Array.isArray(result?.data?.enrollmentnumberprogrammenamelist) ? result.data.enrollmentnumberprogrammenamelist : [],
@@ -832,9 +849,13 @@ export const authRefreshLmsProfileHandler = async ({ auth }) => {
   return ok({
     success: true,
     profileStatus: result?.profileStatus || "LMS_PROFILE_UNAVAILABLE",
-    message: result?.profileStatus === "LIVE"
+    refreshed: result?.source === "LMS_API",
+    cacheStatus: result?.source || null,
+    message: result?.source === "LMS_API"
       ? "LMS profile refreshed and cache updated successfully."
-      : "LMS data is temporarily unavailable.",
+      : (result?.source === "CACHE_FALLBACK"
+          ? "LMS is temporarily unavailable. Showing your last synced profile."
+          : "LMS data is temporarily unavailable."),
     profile: result?.data || null,
     programmes: refreshedProgrammes,
   });

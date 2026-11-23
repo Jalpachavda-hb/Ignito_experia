@@ -1,5 +1,4 @@
 import { ok, serverError } from "../lib/apigw.js";
-import { verifyDbConnection } from "../lib/mysql.js";
 import pool from "../lib/mysql.js";
 
 export const healthHandler = async () => {
@@ -21,11 +20,15 @@ export const healthHandler = async () => {
   }
 };
 
+/**
+ * Read-only connectivity check. It used to call verifyDbConnection(), which runs the startup
+ * schema DDL (including dropping Users columns) on every unauthenticated health request.
+ */
 export const databaseHealthHandler = async () => {
-  const isConnected = await verifyDbConnection();
-  if (isConnected) {
+  try {
+    await pool.query("SELECT 1");
     return ok({ success: true, database: "connected" });
-  } else {
+  } catch {
     return serverError({ success: false, database: "disconnected" });
   }
 };

@@ -77,7 +77,6 @@ export async function executeRequest(path, options = {}) {
   const authState = useAuthStore.getState()?.auth;
   const token = auth ? currentAccessToken() : null;
   const lmsToken = currentLmsToken();
-  const tenantId = authState?.user?.tenantId || authState?.user?.universityId;
 
   // Construct full URL using provided baseUrl or default BASE_URL from Api_path.js
   const activeBaseUrl = baseUrl || BASE_URL;
@@ -104,7 +103,6 @@ export async function executeRequest(path, options = {}) {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(lmsToken ? { 'X-Lms-Token': lmsToken } : {}),
-    ...(tenantId ? { 'X-Tenant-Id': String(tenantId) } : {}),
     ...headers,
   };
 
@@ -198,8 +196,27 @@ export const fetchUserActiveSession = async (userId, labId) => {
   });
 };
 
+// One file-list request per session at a time: concurrent callers (initial load, refresh,
+// polling) share it instead of stacking cache-busted requests on a slow runtime.
+const filesInFlight = new Map();
+const FILES_REQUEST_TIMEOUT_MS = 30000;
+
+/** University-assigned ∪ purchased labs for the signed-in student (backend decides access). */
+export const fetchStudentLabAccess = async (refresh = false) => {
+  return executeRequest(API_PATHS.TOKENS.STUDENT_LAB_ACCESS, {
+    params: refresh ? { refresh: '1' } : undefined,
+    auth: true,
+  });
+};
+
 export const fetchFiles = async (sessionId, forceFresh = true) => {
-  return executeRequest(API_PATHS.IDE.GET_FILES, {
+  const key = String(sessionId || '');
+  const running = filesInFlight.get(key);
+  if (running) return running;
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), FILES_REQUEST_TIMEOUT_MS) : null;
+  const request = executeRequest(API_PATHS.IDE.GET_FILES, {
     params: forceFresh ? { t: Date.now() } : undefined,
     headers: {
       'x-session-id': sessionId,
@@ -207,7 +224,24 @@ export const fetchFiles = async (sessionId, forceFresh = true) => {
       'Pragma': 'no-cache',
     },
     auth: true,
-  });
+    ...(controller ? { signal: controller.signal } : {}),
+  })
+    .catch((err) => {
+      if (err?.name === 'AbortError') {
+        const timeoutErr = new Error('Loading files timed out. Retrying...');
+        timeoutErr.status = 504;
+        timeoutErr.retryable = true;
+        throw timeoutErr;
+      }
+      if (err?.status === 503) err.retryable = true;
+      throw err;
+    })
+    .finally(() => {
+      if (timer) clearTimeout(timer);
+      filesInFlight.delete(key);
+    });
+  filesInFlight.set(key, request);
+  return request;
 };
 
 export const fetchFileContent = async (path, sessionId, forceFresh = true) => {

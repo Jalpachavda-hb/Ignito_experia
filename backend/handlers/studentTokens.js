@@ -6,10 +6,11 @@ import labTokenPackageRepository from "../repositories/LabTokenPackageRepository
 import labTokenUsageRepository from "../repositories/LabTokenUsageRepository.js";
 import { loadStudentLmsContext, loadOwnedProgrammes } from "../services/lms/studentLmsContext.js";
 import { lmsCourseService } from "../services/lms/LmsCourseService.js";
+import { resolveAuthTenantId } from "../lib/studentTenant.js";
 
 export const studentLabTokensSummaryHandler = async ({ auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || "DIRECT";
+  const tenantId = await resolveAuthTenantId(auth, { fallback: "DIRECT" });
   const studentId = auth.userId;
 
   const wallets = await studentLabTokenWalletRepository.getAllWalletsForStudent(tenantId, studentId, auth.email);
@@ -344,7 +345,7 @@ export const studentLabTokensSummaryHandler = async ({ auth }) => {
 
 export const studentLabSingleTokenBalanceHandler = async ({ pathParameters, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
+  const tenantId = await resolveAuthTenantId(auth, { fallback: null });
   const labId = pathParameters?.labId;
 
   let wallet = await studentLabTokenWalletRepository.getWallet(tenantId, auth.userId, labId, auth.email);
@@ -395,7 +396,7 @@ export const studentAvailableTokenPackagesHandler = async () => {
 
 export const studentLabTokenUsageHandler = async ({ queryStringParameters, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || null;
+  const tenantId = await resolveAuthTenantId(auth, { fallback: null });
   const labId = queryStringParameters?.labId || null;
   const limit = Math.min(100, Math.max(1, Number(queryStringParameters?.limit || 50)));
   const offset = Math.max(0, Number(queryStringParameters?.offset || 0));

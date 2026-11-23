@@ -1,11 +1,13 @@
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth-store'
+// Live: the owner API is served from the same origin under /owner-api (nginx), so a domain
+// change needs no rebuild. VITE_API_URL may be absolute or relative ("/owner-api").
+const isLocalHost = (hostname: string) =>
+  hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.localhost')
 export const OWNER_API_BASE =
   import.meta.env.VITE_API_URL ||
-  (typeof window !== 'undefined' &&
-  (window.location.hostname.includes('experia.ignitolearn.com') ||
-   (!window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')))
-    ? 'https://experia.ignitolearn.com/owner-api'
+  (typeof window !== 'undefined' && !isLocalHost(window.location.hostname)
+    ? `${window.location.origin}/owner-api`
     : 'http://localhost:4000/api')
 export const api = axios.create({
   baseURL: OWNER_API_BASE,

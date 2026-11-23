@@ -332,7 +332,7 @@ function UniversitiesPage() {
                               className="flex-1 bg-transparent px-3 py-2 text-xs focus:outline-none font-mono"
                             />
                             <span className="bg-muted px-3 py-2 text-xs text-muted-foreground border-l border-border font-mono">
-                              .experia.ignitolearn.com
+                              .{import.meta.env.VITE_BASE_DOMAIN || 'ignitoexperia.com'}
                             </span>
                           </div>
                         </div>

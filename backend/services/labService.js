@@ -77,6 +77,15 @@ const normalizeLabObject = (lab) => {
   };
 };
 
+// The active catalog is the same for every student, so a short shared cache is safe.
+// It saves an owner-API round trip (up to 1.5 s) plus a mappings query on every /labs call.
+const ACTIVE_CACHE_TTL_MS = Number(process.env.LAB_CATALOG_CACHE_TTL_MS || 30000);
+const activeCache = new Map(); // tenantKey -> { at, labs, pending }
+
+export function resetLabServiceCache() {
+  activeCache.clear();
+}
+
 class LabService {
   async getAllAdmin(status, tenantId = null) {
     const endpoint = status ? `/api/labs?status=${encodeURIComponent(status)}` : "/api/labs";
@@ -124,6 +133,23 @@ class LabService {
   }
 
   async getAllActive(tenantId = null) {
+    const cacheKey = String(tenantId || "*");
+    const hit = activeCache.get(cacheKey);
+    if (hit?.labs && Date.now() - hit.at < ACTIVE_CACHE_TTL_MS) return structuredClone(hit.labs);
+    if (hit?.pending) return structuredClone(await hit.pending);
+    const pending = this._loadAllActive(tenantId);
+    activeCache.set(cacheKey, { ...(hit || {}), pending });
+    try {
+      const labs = await pending;
+      activeCache.set(cacheKey, { at: Date.now(), labs });
+      return structuredClone(labs);
+    } catch (err) {
+      activeCache.delete(cacheKey);
+      throw err;
+    }
+  }
+
+  async _loadAllActive(tenantId = null) {
     const data = await fetchFromOwner("/api/labs");
     let labs = [];
     if (data && Array.isArray(data.labs)) {

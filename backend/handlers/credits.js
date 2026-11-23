@@ -1,12 +1,13 @@
 import { ok } from "../lib/apigw.js";
-import { unauthorized, badRequest } from "../lib/errors.js";
+import { unauthorized, badRequest, forbidden } from "../lib/errors.js";
 import creditWalletService from "../services/CreditWalletService.js";
+import { resolveAuthTenantId } from "../lib/studentTenant.js";
 
 export const getWalletHandler = async ({ auth }) => {
   if (!auth || !auth.userId) {
     throw unauthorized("Authentication required");
   }
-  const tenantId = auth.tenantId || auth.universityId || "DEFAULT";
+  const tenantId = await resolveAuthTenantId(auth, { fallback: "DEFAULT" });
 
   const wallet = await creditWalletService.getWallet(auth.userId, tenantId);
   return ok({
@@ -25,34 +26,21 @@ export const purchaseCreditsHandler = async ({ auth, body = {} }) => {
   if (!auth || !auth.userId) {
     throw unauthorized("Authentication required");
   }
-  const tenantId = auth.tenantId || auth.universityId || "DEFAULT";
+  const tenantId = await resolveAuthTenantId(auth, { fallback: "DEFAULT" });
 
-  const { credits, amount, currency, paymentReference, idempotencyKey } = body;
-  if (!credits || credits <= 0) {
-    throw badRequest("Credits amount must be a positive number.");
-  }
-
-  const result = await creditWalletService.processPurchase({
-    userId: auth.userId,
-    tenantId,
-    credits,
-    amount,
-    currency: currency || "INR",
-    paymentReference: paymentReference || `PAY-${Date.now()}`,
-    idempotencyKey: idempotencyKey || body.referenceId || null
-  });
-
-  return ok({
-    success: true,
-    ...result
-  });
+  // This route used to add any number of credits with no payment at all. Purchases must go
+  // through the Razorpay checkout (/payments/razorpay/create-order + /verify), which prices the
+  // order on the server and credits tokens only after Razorpay confirms the capture.
+  void tenantId;
+  void body;
+  throw forbidden("Credits can only be bought through the payment checkout.");
 };
 
 export const getTransactionHistoryHandler = async ({ auth, queryStringParameters = {} }) => {
   if (!auth || !auth.userId) {
     throw unauthorized("Authentication required");
   }
-  const tenantId = auth.tenantId || auth.universityId || "DEFAULT";
+  const tenantId = await resolveAuthTenantId(auth, { fallback: "DEFAULT" });
 
   const limit = Number(queryStringParameters.limit || 50);
   const offset = Number(queryStringParameters.offset || 0);

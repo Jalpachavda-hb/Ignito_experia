@@ -1,4 +1,6 @@
-const RESERVED = new Set(["www", "localhost", "experia"]);
+import { isPlatformMainHost, platformApexFor } from "./platformDomain.js";
+
+const RESERVED = new Set(["www", "localhost", "experia", "api", "owner"]);
 
 export function isIpHost(hostname) {
   if (!hostname) return false;
@@ -13,13 +15,24 @@ export function slugFromHost(host) {
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
     isIpHost(hostname) ||
-    hostname === "experia.ignitolearn.com" ||
-    hostname === "www.experia.ignitolearn.com"
+    isPlatformMainHost(hostname)
   ) {
     return "";
   }
   const parts = hostname.split(".");
-  if (parts.length > 1 && !RESERVED.has(parts[0])) return parts[0];
+  // {slug}.{platform apex}: only the label directly in front of the apex is a slug.
+  const apex = platformApexFor(hostname);
+  if (apex) {
+    const prefix = hostname.slice(0, -(apex.length + 1));
+    if (!prefix || prefix.includes(".")) return "";
+    return RESERVED.has(prefix) ? "" : prefix;
+  }
+  // {slug}.localhost during development.
+  if (hostname.endsWith(".localhost") && parts.length === 2) {
+    return RESERVED.has(parts[0]) ? "" : parts[0];
+  }
+  // Other hosts: a bare two-label domain (example.com) is an apex, never a slug.
+  if (parts.length > 2 && !RESERVED.has(parts[0])) return parts[0];
   return "";
 }
 
@@ -34,7 +47,7 @@ function hostFromUrl(value) {
 }
 
 /**
- * The SSO API is on experia.ignitolearn.com. The student portal is on {slug}.experia.ignitolearn.com.
+ * The SSO API is on the platform apex (BASE_DOMAIN). The student portal is on {slug}.{BASE_DOMAIN}.
  * Read the portal from the browser page, not from the API host.
  */
 export function portalHostFromRequest(headers = {}, body = {}) {

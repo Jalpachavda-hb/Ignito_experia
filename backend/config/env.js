@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import dotenv from "dotenv";
 import { isPrivateMode } from "../lib/ipManager.js";
 
@@ -21,11 +22,26 @@ export const getApiOrigin = (apiPublicUrl) => {
   }
 };
 
+/**
+ * JWT signing secret. The old hard-coded fallback let anyone forge access tokens when JWT_SECRET
+ * was unset. Production now refuses the fallback and uses a random per-process secret instead
+ * (tokens stop working after a restart, but cannot be forged); set JWT_SECRET to fix that.
+ */
+function resolveJwtSecret() {
+  const configured = process.env.JWT_SECRET;
+  if (configured && configured !== "change-me-in-production") return configured;
+  if ((process.env.NODE_ENV || "development") === "production") {
+    console.error("[env] JWT_SECRET is not set. Using a random per-process secret; set JWT_SECRET in backend/.env.");
+    return crypto.randomBytes(48).toString("hex");
+  }
+  return "change-me-in-production";
+}
+
 export const ENV = {
   port,
   nodeEnv: process.env.NODE_ENV || "development",
   apiPrefix,
-  jwtSecret: process.env.JWT_SECRET || "change-me-in-production",
+  jwtSecret: resolveJwtSecret(),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "24h",
   awsRegion: process.env.AWS_REGION || "ap-south-1",
   ecsCluster: process.env.ECS_CLUSTER || "",

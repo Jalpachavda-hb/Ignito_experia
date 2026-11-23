@@ -27,6 +27,37 @@ import { getSemesterCourseListByProgrammeId, getSemesterLabs, getStudentPurchase
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { isDirectStudent } from '@/lib/student-kind';
+import { fetchStudentLabAccess } from '@/Utils/GetApiHandler';
+
+/** Canonical lab key, same rule as the backend (LabCode without "lab-" / "-lab"). */
+const labKey = (value: unknown) => String(value ?? '').toLowerCase().trim().replace(/^lab-/, '').replace(/-lab$/, '');
+
+/** One entry of GET /student/labs/access. */
+interface LabAccessEntry {
+  id?: string;
+  labCode: string;
+  dbId?: number | string;
+  status?: string;
+  access?: {
+    accessSource?: string;
+    viaUniversity?: boolean;
+    viaPurchase?: boolean;
+    practicalCredit?: number | null;
+    remainingTokens?: number;
+    hasTokens?: boolean;
+    canLaunch?: boolean;
+    needsTokens?: boolean;
+    courses?: string[];
+  };
+  [key: string]: unknown;
+}
+
+const ACCESS_LABELS: Record<string, string> = {
+  university: 'University',
+  purchased: 'Purchased',
+  both: 'University + Purchased',
+  granted: 'Granted',
+};
 
 export default function MyLabs() {
   const { labs, levels, isLoading, error, loadLabs } = useLabStore();
@@ -63,6 +94,37 @@ export default function MyLabs() {
   }, [fetchStudentLabTokens, fetchTransactions]);
 
   const isDirectUser = useMemo(() => isDirectStudent(user), [user]);
+
+  // Backend source of truth for which labs this student may use (university ∪ purchased) and
+  // the lab-specific token balance. Reloaded whenever wallets change (e.g. after a purchase).
+  const [accessLabs, setAccessLabs] = useState<LabAccessEntry[] | null>(null);
+  useEffect(() => {
+    if (!user?.userId && !user?.email) return;
+    let cancelled = false;
+    fetchStudentLabAccess()
+      .then((res: { labs?: LabAccessEntry[] }) => {
+        if (!cancelled && Array.isArray(res?.labs)) setAccessLabs(res.labs);
+      })
+      .catch(() => {
+        // Keep the previous list; the page falls back to its own calculation when this is null.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.userId, user?.email, labWallets]);
+
+  const accessByKey = useMemo(() => {
+    const map = new Map<string, LabAccessEntry>();
+    (accessLabs || []).forEach((entry) => {
+      [entry.labCode, entry.id, entry.dbId].forEach((k) => {
+        if (k !== undefined && k !== null && k !== '') {
+          map.set(String(k).toLowerCase(), entry);
+          map.set(labKey(k), entry);
+        }
+      });
+    });
+    return map;
+  }, [accessLabs]);
 
   // Dynamic Semester Courses & Mapped Labs State
   const [semesterCourses, setSemesterCourses] = useState<any[]>([]);
@@ -623,6 +685,32 @@ export default function MyLabs() {
     );
 
     const tagLabWithAccess = (labItem: any) => {
+      // Backend access wins whenever it has loaded.
+      if (accessLabs) {
+        const ref = labItem.mappedLab?.labId || labItem.id || labItem.labId || labItem.LabId || labItem.labCode;
+        const entry = accessByKey.get(String(ref ?? '').toLowerCase()) || accessByKey.get(labKey(ref));
+        if (!entry) {
+          return { ...labItem, accessType: 'catalogue', accessLabel: '', isPurchased: false, isUniversity: false, remainingTokens: 0, availableTokens: 0, tokens: 0 };
+        }
+        const a = entry.access || {};
+        // University lab with no wallet yet: its course credit is added on first start.
+        const shownTokens = a.hasTokens ? Number(a.remainingTokens || 0) : (a.canLaunch ? Number(a.practicalCredit || 0) : 0);
+        return {
+          ...labItem,
+          accessSource: a.accessSource,
+          accessType: a.viaUniversity ? 'university' : 'personal',
+          accessLabel: ACCESS_LABELS[a.accessSource ?? ''] || '',
+          isUniversity: Boolean(a.viaUniversity),
+          isPurchased: Boolean(a.viaPurchase) || a.accessSource === 'granted',
+          practicalCredit: a.practicalCredit ?? labItem.practicalCredit,
+          canLaunch: Boolean(a.canLaunch),
+          needsTokens: Boolean(a.needsTokens),
+          inactive: entry.status !== 'active',
+          remainingTokens: shownTokens,
+          availableTokens: shownTokens,
+          tokens: shownTokens,
+        };
+      }
       const lId = String(labItem.id || labItem.labId || labItem.LabId || '').toLowerCase().trim();
       const cleanLId = lId.replace(/^lab-/, '').replace(/-lab$/, '');
       const lTitle = String(labItem.title || labItem.name || '').toLowerCase().trim();
@@ -873,8 +961,18 @@ export default function MyLabs() {
       return labs.map(tagLabWithAccess);
     }
 
-    // Main My Labs page view for LMS Students:
-    // Combine assigned labs for enrolled programs + any extra labs purchased by the student!
+    // Main My Labs page view for LMS Students: the backend list (university ∪ purchased, no
+    // duplicates), shown with the full catalog record so runtime details stay available.
+    if (accessLabs) {
+      return accessLabs.map((entry) => {
+        const catalogLab = (labs as Array<Record<string, unknown>>).find(
+          (l) => labKey(l.id || l.labCode || l.labId) === labKey(entry.labCode)
+        ) || {};
+        return tagLabWithAccess({ ...entry, ...catalogLab, id: (catalogLab.id as string | undefined) || entry.labCode });
+      });
+    }
+
+    // Fallback (access lookup unavailable): previous client-side combination.
     const combined: any[] = [...allEnrolledMappedLabs];
     const existingIds = new Set(
       allEnrolledMappedLabs.map((l) => String(l.id || l.labId || l.title || '').toLowerCase())
@@ -889,7 +987,7 @@ export default function MyLabs() {
     });
 
     return combined.map(tagLabWithAccess);
-  }, [labs, isDirectUser, hasCourseFilter, semesterCourses, allEnrolledMappedLabs, purchasedLabsList, transactions, user]);
+  }, [labs, isDirectUser, hasCourseFilter, semesterCourses, allEnrolledMappedLabs, purchasedLabsList, transactions, user, accessLabs, accessByKey, labWallets]);
 
   // Split displayLabs into purchased/unlocked labs vs available/unpurchased catalogue labs
   const { purchasedLabs, otherLabs } = useMemo(() => {
