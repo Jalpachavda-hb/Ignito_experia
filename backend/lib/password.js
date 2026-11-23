@@ -1,17 +1,29 @@
 import crypto from "crypto";
+import { promisify } from "util";
 import bcrypt from "bcryptjs";
 
 /**
- * Standard Password Security Module for Experia Passwords.
- * Primary standard: Argon2id.
+ * Experia password hashing.
+ *
+ * Stored format (unchanged, so every existing hash keeps working):
+ *   $argon2id$v=19$m=65536,t=3,p=4$<saltHex>$<hashHex>
+ * Despite the prefix, the hash is PBKDF2-SHA512, 100,000 iterations, 64-byte key.
+ * Legacy bcrypt hashes are still accepted.
+ *
+ * Both hashing and verification run on libuv's thread pool (crypto.pbkdf2 / bcrypt.compare),
+ * so a login no longer blocks the event loop for every other request.
  */
+const pbkdf2 = promisify(crypto.pbkdf2);
+const ITERATIONS = 100000;
+const KEY_LENGTH = 64;
+const DIGEST = "sha512";
+const PREFIX = "$argon2id$v=19$m=65536,t=3,p=4$";
+
 export async function hashPassword(password) {
   if (!password) throw new Error("Password is required for hashing");
-  
-  // High-security Argon2id-compatible hashing using crypto PBKDF2 SHA-512 (100,000 iterations) with salt
   const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
-  return `$argon2id$v=19$m=65536,t=3,p=4$${salt}$${hash}`;
+  const hash = (await pbkdf2(password, salt, ITERATIONS, KEY_LENGTH, DIGEST)).toString("hex");
+  return `${PREFIX}${salt}$${hash}`;
 }
 
 export async function verifyPassword(password, hashedPassword) {
@@ -22,15 +34,18 @@ export async function verifyPassword(password, hashedPassword) {
     if (parts.length >= 6) {
       const salt = parts[4];
       const storedHash = parts[5];
-      const calcHash = crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
-      return crypto.timingSafeEqual(Buffer.from(storedHash, 'hex'), Buffer.from(calcHash, 'hex'));
+      if (!/^[0-9a-f]+$/i.test(storedHash || "")) return false;
+      const stored = Buffer.from(storedHash, "hex");
+      const calc = await pbkdf2(password, salt, ITERATIONS, KEY_LENGTH, DIGEST);
+      return stored.length === calc.length && crypto.timingSafeEqual(stored, calc);
     }
+    return false;
   }
-  
-  // Legacy support
+
+  // Legacy bcrypt hashes
   try {
-    return bcrypt.compareSync(password, hashedPassword);
-  } catch (err) {
+    return await bcrypt.compare(password, hashedPassword);
+  } catch {
     return false;
   }
 }

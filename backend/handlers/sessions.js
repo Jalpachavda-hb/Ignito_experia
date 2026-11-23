@@ -31,6 +31,9 @@ import {
 import { clearSessionFiles, clearDiskWorkspace } from "../services/fileRepository.js";
 import { bootstrap as bootstrapSession, switchDotnetSubtypeWorkspace } from "../services/workspaceBootstrapService.js";
 import userWorkspaceService from "../services/UserWorkspaceService.js";
+import { resolveAuthTenantId } from "../lib/studentTenant.js";
+import { applyRuntimeReadiness } from "../services/sessionReadiness.js";
+import studentLabAccessService, { invalidateStudentLabAccess } from "../services/StudentLabAccessService.js";
 
 function calculateRemainingSeconds(expiresAt) {
   if (!expiresAt) return 0;
@@ -71,10 +74,13 @@ export const verifySessionOwnership = async (dbSession, auth) => {
   }
 };
 
+const effectiveUserIdForCache = (userId) => String(userId);
+
 export const sessionsStartHandler = async ({ body, auth }) => {
   if (!auth?.userId) throw unauthorized("Authentication required");
   const userId = String(auth.userId);
-  const tenantId = auth.tenantId || auth.universityId || auth.tenant_id || body?.tenantId || body?.tenant_id || "DIRECT";
+  // Tenant from the signed token or the student's own records, never from the request body.
+  const tenantId = await resolveAuthTenantId(auth, { fallback: "DIRECT" });
 
   const labId = body?.labId;
   const idempotencyKey = body?.idempotencyKey || body?.referenceId || null;
@@ -82,6 +88,21 @@ export const sessionsStartHandler = async ({ body, auth }) => {
   if (!labId) throw badRequest("labId is required");
   const lab = await getLabById(labId);
   if (!lab) throw notFound("Lab not found");
+
+  // Access is decided by the backend before any row is locked (LMS lookups can be slow).
+  // Only needed when the student has no tokens for this lab: a university-assigned lab then gets
+  // its course credit; any other lab is refused. Values from the request body are never used.
+  const isAdminCaller = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';
+  let preAccess = null;
+  if (!isAdminCaller) {
+    const preWallet = await studentLabTokenWalletRepository.getWallet(tenantId, userId, labId, auth?.email).catch(() => null);
+    if (Number(preWallet?.RemainingTokens || 0) <= 0) {
+      preAccess = await studentLabAccessService.getLabAccess(auth, labId).catch((err) => {
+        console.warn("[sessionsStartHandler] lab access lookup failed:", err.message);
+        return null;
+      });
+    }
+  }
 
   const connection = await pool.getConnection();
   await connection.beginTransaction();
@@ -200,37 +221,29 @@ export const sessionsStartHandler = async ({ body, auth }) => {
     const isAdmin = auth?.role?.includes('Super Admin') || auth?.role?.includes('Tenant Admin') || auth?.authType === 'ADMIN';
 
     if (!isAdmin && remainingTokens <= 0) {
-      // 1. Check if the student has successful purchases for this lab in the purchase ledgers
+      // 1. Purchases that never reached the wallet (e.g. orders settled before the settlement fix).
+      // Credit only the shortfall between PURCHASE ledger rows and what the wallet already holds,
+      // so a student who has used up their tokens is NOT re-credited their old purchases.
       const [tokenTxRows] = await connection.query(
-        `SELECT COALESCE(SUM(Tokens), 0) AS TotalTokens 
-         FROM student_lab_token_transactions 
-         WHERE (StudentId = ? OR StudentId IN (SELECT CAST(UserId AS CHAR) FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ?))
+        `SELECT COALESCE(SUM(Tokens), 0) AS TotalTokens
+         FROM student_lab_token_transactions
+         WHERE StudentId = ?
            AND TransactionType = 'PURCHASE'
            AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ?)`,
-        [String(userId), auth?.email || '', String(userId), cleanLabId, labId, cleanLabId]
+        [String(userId), cleanLabId, String(labId).toLowerCase(), cleanLabId]
       ).catch(() => [[{ TotalTokens: 0 }]]);
 
-      let reconciledPurchased = Number(tokenTxRows?.[0]?.TotalTokens || 0);
+      const purchasedInLedger = Number(tokenTxRows?.[0]?.TotalTokens || 0);
+      const alreadyInWallet = Number(labWallet?.TotalPurchasedTokens || 0);
+      const missingPurchased = purchasedInLedger - alreadyInWallet;
 
-      if (reconciledPurchased <= 0) {
-        const [creditTxRows] = await connection.query(
-          `SELECT COALESCE(SUM(Credits), 0) AS TotalCredits
-           FROM credit_transactions
-           WHERE (UserId = ? OR UserId IN (SELECT UserId FROM Users WHERE LOWER(Email) = LOWER(?) OR CAST(UserId AS CHAR) = ?))
-             AND Status = 'SUCCESS' AND Type = 'PURCHASE'
-             AND (LOWER(LabId) = ? OR LOWER(LabId) = ? OR LOWER(REPLACE(REPLACE(LabId, 'lab-', ''), '-lab', '')) = ? OR MetadataJson LIKE ?)`,
-          [String(userId), auth?.email || '', String(userId), cleanLabId, labId, cleanLabId, `%"${cleanLabId}"%`]
-        ).catch(() => [[{ TotalCredits: 0 }]]);
-        reconciledPurchased = Number(creditTxRows?.[0]?.TotalCredits || 0);
-      }
-
-      if (reconciledPurchased > 0) {
+      if (missingPurchased > 0) {
         try {
           await studentLabTokenWalletRepository.creditWalletTokens(
             tenantId || 'PLATFORM',
             userId,
             cleanLabId,
-            reconciledPurchased,
+            missingPurchased,
             connection,
             lab?.title || labId
           );
@@ -241,21 +254,22 @@ export const sessionsStartHandler = async ({ body, auth }) => {
             auth?.email,
             connection
           );
-          remainingTokens = Number(labWallet?.RemainingTokens || reconciledPurchased);
+          remainingTokens = Number(labWallet?.RemainingTokens || 0);
+          console.log(`[sessionsStartHandler] Reconciled ${missingPurchased} purchased tokens for user ${userId}, lab ${cleanLabId}`);
         } catch (syncErr) {
           console.warn("[sessionsStartHandler] Failed auto-reconciling purchased tokens:", syncErr.message);
         }
       }
 
-      const isLmsCandidate = auth?.authType === 'LMS' ||
-        auth?.authType === 'LMS_AND_DIRECT' ||
-        auth?.isLmsStudent ||
-        (tenantId && String(tenantId).toUpperCase() !== 'PLATFORM' && String(tenantId).toUpperCase() !== 'DIRECT' && Boolean(body?.academicCtx)) ||
-        Boolean(body?.academicCtx && (body.academicCtx.programId || body.academicCtx.semesterId || body.academicCtx.courseCode));
+      // 2. Course credit only for a lab the backend confirmed as university-assigned to this student.
+      // (Never from request-body academicCtx/practicalCredit: that let any student self-grant tokens.)
+      const universityAccess = remainingTokens <= 0 &&
+        Boolean(preAccess?.access?.viaUniversity) && preAccess?.status === 'active';
 
-      if (isLmsCandidate && remainingTokens <= 0) {
-        const defaultCredit = (cleanLabId.includes('dbms') || String(body?.academicCtx?.courseCode || '').includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || String(body?.academicCtx?.courseCode || '').includes('4011')) ? 80 : 60);
-        const practicalCredit = Number(body?.practicalCredit || body?.academicCtx?.practicalCredit || defaultCredit);
+      if (universityAccess) {
+        const mappedCourses = (preAccess.access.courses || []).join(',');
+        const defaultCredit = (cleanLabId.includes('dbms') || mappedCourses.includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || mappedCourses.includes('4011')) ? 80 : 60);
+        const practicalCredit = Number(preAccess.access.practicalCredit || defaultCredit);
 
         try {
           await connection.query(
@@ -302,30 +316,16 @@ export const sessionsStartHandler = async ({ body, auth }) => {
 
       if (uRows && uRows.length > 0) {
         effectiveUserId = uRows[0].UserId;
-      } else {
-        const fallbackEmail = email || `student_${rawUserId.replace(/[^a-zA-Z0-9]/g, "_")}@experia.ignitolearn.com`;
-        const fallbackName = auth?.name || auth?.fullName || `Student ${rawUserId}`;
-        if (isNumeric && numericId > 0) {
-          const [insRes] = await connection.query(
-            `INSERT INTO Users (UserId, FullName, Email, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId)
-             VALUES (?, ?, ?, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?)
-             ON DUPLICATE KEY UPDATE UserId = LAST_INSERT_ID(UserId), TenantId = COALESCE(VALUES(TenantId), TenantId)`,
-            [numericId, fallbackName, fallbackEmail, tenantId || 'TEN000001', rawUserId]
-          );
-          effectiveUserId = insRes.insertId || numericId;
-        } else {
-          const [insRes] = await connection.query(
-            `INSERT INTO Users (FullName, Email, Role, Status, CreatedFrom, AuthType, TenantId, ExternalStudentId)
-             VALUES (?, ?, 'STUDENT', 'Active', 'LMS', 'LMS', ?, ?)
-             ON DUPLICATE KEY UPDATE UserId = LAST_INSERT_ID(UserId), TenantId = COALESCE(VALUES(TenantId), TenantId)`,
-            [fallbackName, fallbackEmail, tenantId || 'TEN000001', rawUserId]
-          );
-          effectiveUserId = insRes.insertId;
-        }
       }
     } catch (userErr) {
-      console.warn("[sessionsStartHandler] User ensure warning:", userErr.message);
-      effectiveUserId = numericId > 0 ? numericId : 1;
+      console.warn("[sessionsStartHandler] User lookup failed:", userErr.message);
+    }
+    // The signed token always names an existing account (SSO and direct login create it first).
+    // Never invent a placeholder student here; that created duplicate, fake-profile accounts.
+    if (!effectiveUserId) {
+      await connection.rollback();
+      connection.release();
+      throw unauthorized("Your account could not be found. Please sign in again.");
     }
 
     let starterAssetKey = null;
@@ -381,6 +381,8 @@ export const sessionsStartHandler = async ({ body, auth }) => {
 
     await connection.commit();
     connection.release();
+    // A course-credit wallet may have just been created: refresh the dashboard's access list.
+    invalidateStudentLabAccess(effectiveUserIdForCache(userId)).catch(() => {});
   } catch (err) {
     if (connection) {
       try { await connection.rollback(); connection.release(); } catch (e) {}
@@ -538,7 +540,7 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     await labSessionRepository.updateSession(sessionId, { Status: 'EXPIRED', EndedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') });
   }
 
-  const memorySess = await getSession(sessionId);
+  let memorySess = await getSession(sessionId);
   let startStage = null;
   if (isEcsEnabled() && dbSession.TaskArn) {
     try {
@@ -550,33 +552,41 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
       } else if (currentStatus === 'STARTING' || memorySess?.status === 'starting') {
         const net = await resolveTaskNetworking(dbSession.TaskArn, dbSession.LabId);
         startStage = net.stage || null;
-        // Ready only when ECS says so (health check HEALTHY when defined), not merely when an IP exists.
+        // ECS healthy is not enough: billing starts only after the workspace bootstrap is READY.
         if (net.status === 'running') {
-          const now = new Date();
-          const sessionTokens = Number(dbSession.AllocatedCredits || dbSession.AllocatedDurationMinutes || 60);
-          const tokenExpiryAt = new Date(now.getTime() + sessionTokens * 60 * 1000);
-          currentStatus = 'RUNNING';
-          await labSessionRepository.updateSession(sessionId, {
-            Status: 'RUNNING',
-            StartedAt: now,
-            TokenExpiryAt: tokenExpiryAt,
-            ExpiresAt: tokenExpiryAt,
-            LastBilledAt: now,
-            UnbilledSeconds: 0
-          });
-          dbSession.Status = 'RUNNING';
-          dbSession.StartedAt = now;
-          dbSession.TokenExpiryAt = tokenExpiryAt;
-          dbSession.ExpiresAt = tokenExpiryAt;
-          if (memorySess) {
-            memorySess.status = 'running';
-            memorySess.startedAt = now.toISOString();
-            memorySess.expiresAt = tokenExpiryAt.toISOString();
+          if (!memorySess) {
+            // No runtime record to bootstrap (e.g. store lost after a restart): old behaviour.
+            const promoted = await applyRuntimeReadiness(dbSession, { bootstrapState: 'READY' });
+            if (promoted.changed) {
+              currentStatus = 'RUNNING';
+              dbSession.StartedAt = promoted.startedAt;
+              dbSession.ExpiresAt = promoted.tokenExpiryAt;
+            }
+          } else {
             if (!memorySess.bootstrapState || memorySess.bootstrapState === 'NOT_STARTED') {
               await updateSession(sessionId, net);
-              bootstrapSession(memorySess, net).catch(e => console.error(e));
+              bootstrapSession({ ...memorySess, ...net }, net).catch(e => console.error(e));
+              startStage = 'BOOTSTRAPPING';
+            }
+            const fresh = (await getSession(sessionId)) || memorySess;
+            memorySess = fresh;
+            const result = await applyRuntimeReadiness(dbSession, fresh, { stopTask: stopEcsTask });
+            if (result.outcome === 'RUNNING') {
+              currentStatus = 'RUNNING';
+              startStage = 'READY';
+              if (result.changed) {
+                dbSession.StartedAt = result.startedAt;
+                dbSession.ExpiresAt = result.tokenExpiryAt;
+                fresh.startedAt = result.startedAt.toISOString();
+                fresh.expiresAt = result.tokenExpiryAt.toISOString();
+                fresh.status = 'running';
+                await saveSession(fresh);
+              }
+            } else if (result.outcome === 'FAILED') {
+              currentStatus = 'FAILED';
+              startStage = 'FAILED';
             } else {
-              await saveSession(memorySess);
+              startStage = startStage || 'BOOTSTRAPPING';
             }
           }
         }
@@ -604,7 +614,12 @@ export const sessionsGetHandler = async ({ pathParameters, auth }) => {
     await saveSession(memorySess).catch(() => {});
   }
 
-  const effectiveStatus = (memorySess?.status || currentStatus || 'RUNNING').toLowerCase();
+  // DB state wins for terminal states and for "not ready yet" (no billing before READY).
+  const terminal = ['FAILED', 'STOPPED', 'EXPIRED', 'COMPLETED'].includes(String(currentStatus).toUpperCase());
+  const effectiveStatus = (terminal
+    ? currentStatus
+    : (String(currentStatus).toUpperCase() === 'STARTING' && isEcsEnabled() ? 'starting' : (memorySess?.status || currentStatus || 'RUNNING'))
+  ).toLowerCase();
   if (!startStage) {
     if (['running', 'expiring_soon'].includes(effectiveStatus)) startStage = 'READY';
     else if (effectiveStatus === 'starting') startStage = dbSession.TaskArn ? 'PROVISIONING' : 'QUEUED';

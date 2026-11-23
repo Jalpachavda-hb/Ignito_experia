@@ -40,6 +40,18 @@ export function verifyCheckoutSignature(orderId, paymentId, signature) {
   }
 }
 
+/**
+ * Razorpay webhooks are signed with the WEBHOOK secret (Dashboard > Webhooks), not the API key
+ * secret: X-Razorpay-Signature = HMAC_SHA256(rawBody, RAZORPAY_WEBHOOK_SECRET).
+ * Returns false when the secret is missing, the body is missing, or the signature differs.
+ */
+export function verifyWebhookSignature(rawBody, signature, secret = process.env.RAZORPAY_WEBHOOK_SECRET) {
+  const key = String(secret || "").trim();
+  if (!key || !rawBody || !signature) return false;
+  const expected = crypto.createHmac("sha256", key).update(rawBody).digest("hex");
+  return signaturesMatch(expected, signature);
+}
+
 export async function createRazorpayOrder({ amountInPaise, receipt, notes }) {
   const { keyId, headers } = authHeaders();
   try {

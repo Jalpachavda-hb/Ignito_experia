@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { getDbPool } from '../config/db.js'
 
-const BASE_DOMAIN = process.env.BASE_DOMAIN || 'experia.ignitolearn.com'
+const BASE_DOMAIN = process.env.BASE_DOMAIN || 'ignitoexperia.com'
 
 /**
  * Direct sync helper to mirror tenant changes into ignito_experia database

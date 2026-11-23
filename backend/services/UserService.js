@@ -37,7 +37,7 @@ class UserService {
       throw badRequest("Email is already registered");
     }
 
-    const passwordHash = hashPassword(password || "password123");
+    const passwordHash = await hashPassword(password || "password123");
     
     return await userRepository.insert({
       fullName: fullName || "New User",
@@ -85,7 +85,7 @@ class UserService {
     if (!user) throw badRequest("User not found");
     if (!newPassword) throw badRequest("New password is required");
 
-    const passwordHash = hashPassword(newPassword);
+    const passwordHash = await hashPassword(newPassword);
     await userRepository.updatePassword(userId, passwordHash);
     return { success: true, message: "Password reset successfully" };
   }

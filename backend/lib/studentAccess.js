@@ -1,6 +1,7 @@
 import pool from "./mysql.js";
 import { unauthorized } from "./errors.js";
 import { portalHostForSlug } from "./tenantSlug.js";
+import { BASE_DOMAIN } from "./platformDomain.js";
 import { LMS_PROVIDER_CONFIG } from "../config/lms/lmsProviderConfig.js";
 import { ENV } from "../config/env.js";
 
@@ -267,7 +268,7 @@ export function assertStudentPortal({ user, tenant, slug, host }) {
 
     const portalUrl = portal
       ? `https://${portal}/login`
-      : (expected ? `https://${expected}.experia.ignitolearn.com/login` : "your university portal");
+      : (expected ? `https://${expected}.${BASE_DOMAIN}/login` : "your university portal");
 
     if (!requestSlug) {
       throw unauthorized(

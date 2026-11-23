@@ -702,7 +702,7 @@ fi
   }
 
   // 4. Load fresh files
-  const files = await listFiles(sessionId, session, true);
+  const files = await listFiles(sessionId, session, true).catch(() => []);
 
   return {
     success: true,

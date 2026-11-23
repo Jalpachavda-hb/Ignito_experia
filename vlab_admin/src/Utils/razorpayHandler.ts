@@ -169,6 +169,8 @@ export const initiateRazorpayPayment = async ({
   };
 
   let realBackendOrderId = '';
+  // The server prices the order from the lab catalog; show and charge exactly that amount.
+  let serverAmountPaise: number | undefined;
   let razorpayKey = (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || '';
 
   try {
@@ -193,6 +195,7 @@ export const initiateRazorpayPayment = async ({
       return false;
     }
     realBackendOrderId = orderData.orderId;
+    serverAmountPaise = Number(orderData.amount) || undefined;
     if (orderData.key) razorpayKey = orderData.key;
   } catch (err) {
     if (onFailure) onFailure(err);
@@ -219,10 +222,10 @@ export const initiateRazorpayPayment = async ({
 
   const options: any = {
     key: razorpayKey,
-    amount: Math.round(amountInRupees * 100), // Amount in paise (1 INR = 100 Paise)
+    amount: serverAmountPaise || Math.round(amountInRupees * 100), // paise; the server order amount wins
     currency: 'INR',
     name: 'Ignito Experia Labs',
-    description: `Lab Token Top-Up: ${calculatedTotalTokens} Tokens (₹${amountInRupees})`,
+    description: `Lab Token Top-Up: ${calculatedTotalTokens} Tokens (₹${serverAmountPaise ? serverAmountPaise / 100 : amountInRupees})`,
     image: 'https://razorpay.com/favicon.ico',
     prefill: prefillObj,
     notes: {

@@ -65,7 +65,7 @@ export function uploadFileHandler(req, res) {
     let prefix = "/uploads";
     if (req.originalUrl && req.originalUrl.includes("/owner-api")) {
       prefix = "/owner-api/uploads";
-    } else if (host.includes("experia.ignitolearn.com")) {
+    } else if (host.includes(process.env.BASE_DOMAIN || "ignitoexperia.com") || host.includes("experia.ignitolearn.com")) {
       prefix = "/owner-api/uploads";
     }
 

@@ -1173,6 +1173,9 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
   };
 
   const [isRefreshingFiles, setIsRefreshingFiles] = useState(false);
+  // A failed file-list request is shown as an error (with retry), never as an empty workspace.
+  const [filesLoadError, setFilesLoadError] = useState<string | null>(null);
+  const filesRetryRef = useRef<{ attempts: number; timer: ReturnType<typeof setTimeout> | null }>({ attempts: 0, timer: null });
 
   const prevSessionIdRef = useRef<string>('');
 
@@ -1198,6 +1201,8 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
     try {
       const response = await fetchFiles(sessionId, true);
       if (response.success) {
+        setFilesLoadError(null);
+        filesRetryRef.current.attempts = 0;
         const activePath =
           activeFileIndexRef.current >= 0 && filesRef.current[activeFileIndexRef.current]
             ? filesRef.current[activeFileIndexRef.current].path
@@ -1271,13 +1276,29 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
         return response.files;
       }
-    } catch (err) {
+    } catch (caught) {
+      const err = caught as { message?: string; retryable?: boolean; status?: number };
       console.error('Refresh files error:', err);
+      setFilesLoadError(err?.message || 'Could not load files.');
+      // Workspace still starting or briefly unreachable: retry with backoff (keeps current files).
+      const retry = filesRetryRef.current;
+      if ((err?.retryable || err?.status === 503 || err?.status === 504) && retry.attempts < 10) {
+        retry.attempts += 1;
+        if (retry.timer) clearTimeout(retry.timer);
+        retry.timer = setTimeout(() => {
+          retry.timer = null;
+          refreshFilesRef.current?.(false, forceFresh);
+        }, Math.min(2000 * retry.attempts, 10000));
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshingFiles(false);
     }
   };
+
+  useEffect(() => () => {
+    if (filesRetryRef.current.timer) clearTimeout(filesRetryRef.current.timer);
+  }, []);
 
   const refreshFilesRef = useRef(refreshFiles);
   useEffect(() => {
@@ -2833,7 +2854,21 @@ const CloudEditor = ({ session: propSession, onStopLab, onBack, remainingTime }:
 
           <div className="flex-1 overflow-y-auto py-2 pr-1 space-y-0.5">
             {buildFileTree(files).map((node) => renderTreeNode(node, 0))}
-            {files.length === 0 && !isLoading && (
+            {files.length === 0 && !isLoading && filesLoadError && (
+              <div className="py-6 px-3 text-center text-xs text-slate-500 space-y-2">
+                <div>{isRefreshingFiles ? 'Loading files...' : filesLoadError}</div>
+                <button
+                  onClick={() => { filesRetryRef.current.attempts = 0; refreshFiles(false); }}
+                  className="text-red-600 hover:text-red-500 font-semibold cursor-pointer"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {files.length === 0 && (isLoading || (isRefreshingFiles && !filesLoadError)) && (
+              <div className="py-8 text-center text-xs text-slate-400">Loading files...</div>
+            )}
+            {files.length === 0 && !isLoading && !isRefreshingFiles && !filesLoadError && (
               <div className="py-8 text-center text-xs text-slate-400">
                 No files in workspace
               </div>

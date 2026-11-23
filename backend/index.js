@@ -68,7 +68,13 @@ const limiter = rateLimit({
   message: { success: false, message: 'Too many requests, please try again later.' }
 });
 app.use('/api/', limiter);
-app.use(express.json({ limit: "25mb" }));
+app.use(express.json({
+  limit: "25mb",
+  // Razorpay signs the exact webhook bytes, so keep them for that one route.
+  verify: (req, _res, buf) => {
+    if (req.originalUrl && req.originalUrl.includes("/token-orders/webhook")) req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 const uploadsDir = path.join(process.cwd(), "uploads");

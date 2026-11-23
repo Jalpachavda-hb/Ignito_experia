@@ -4,16 +4,22 @@ const defaultApiPort = import.meta.env.VITE_API_PORT || '8080';
 
 let rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
 
-if (
-  typeof window !== 'undefined' &&
-  window.location.hostname !== 'localhost' &&
-  rawApiBaseUrl.includes('localhost')
-) {
-  rawApiBaseUrl = rawApiBaseUrl.replace('localhost', window.location.hostname);
-}
+// Live sites (any non-local host) talk to the API on their own origin under /api, through
+// nginx. A build-time localhost URL, or no URL at all, must not leak into production as
+// http://<host>:8080/api. This keeps working when the live domain changes.
+const isLocalHost = (hostname: string) =>
+  hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.localhost') || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
 
-if (typeof window !== 'undefined' && !rawApiBaseUrl) {
-  rawApiBaseUrl = `${window.location.protocol}//${window.location.hostname}:${defaultApiPort}/api`;
+if (typeof window !== 'undefined') {
+  const { hostname, protocol, origin } = window.location;
+  const configuredIsLocal = /\/\/(localhost|127\.0\.0\.1)([:/]|$)/.test(rawApiBaseUrl);
+  if (!isLocalHost(hostname) && (!rawApiBaseUrl || configuredIsLocal)) {
+    rawApiBaseUrl = `${origin}/api`;
+  } else if (!rawApiBaseUrl) {
+    rawApiBaseUrl = `${protocol}//${hostname}:${defaultApiPort}/api`;
+  } else if (configuredIsLocal && hostname !== 'localhost') {
+    rawApiBaseUrl = rawApiBaseUrl.replace('localhost', hostname);
+  }
 }
 
 const apiBaseUrl = rawApiBaseUrl ? trimTrailingSlash(rawApiBaseUrl) : '';

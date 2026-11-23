@@ -103,7 +103,7 @@ class LabSessionRepository {
            AllocatedDurationMinutes = AllocatedDurationMinutes + ?,
            ExpiresAt = ?,
            TenMinuteWarningSent = 0,
-           Status = 'RUNNING',
+           Status = IF(Status = 'STARTING', 'STARTING', 'RUNNING'),
            UpdatedAt = CURRENT_TIMESTAMP
        WHERE SessionId = ?`,
       [additionalCredits, additionalMinutes, newExpiresAt, sessionId]

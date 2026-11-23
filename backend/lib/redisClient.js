@@ -4,7 +4,9 @@ import { ENV } from "../config/env.js";
 let client = null;
 let connecting = null;
 let unavailableUntil = 0;
-const REDIS_COOLDOWN_MS = 60000;
+// After a failed connect, do not try again for a while (REDIS_RETRY_AFTER_MS, default 60 s):
+// otherwise every cache read waits for a fresh connect timeout while Redis is down.
+const REDIS_COOLDOWN_MS = Number(process.env.REDIS_RETRY_AFTER_MS || 60000);
 
 function redisUrl() {
   if (process.env.REDIS_URL) return process.env.REDIS_URL;
@@ -16,6 +18,7 @@ function redisUrl() {
  * Lazy Redis connection. Returns null when Redis is down so callers keep an in-memory fallback.
  * LMS data is never treated as permanently stored here.
  */
+
 export async function getRedis() {
   if (client?.isOpen) return client;
   if (connecting) return connecting;

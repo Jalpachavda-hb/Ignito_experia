@@ -19,7 +19,12 @@ import {
   resolvePortalTenant,
 } from "../lib/studentAccess.js";
 
-const LMS_JWT_SECRET = process.env.LMS_JWT_SECRET || "default_lms_secret";
+import { verifyLmsSsoToken } from "../lib/lmsSsoVerifier.js";
+
+function cleanId(value) {
+  const text = value == null ? "" : String(value).trim();
+  return text && text !== "null" && text !== "undefined" ? text : null;
+}
 
 async function runOptional(label, fn) {
   try {
@@ -117,33 +122,31 @@ class SsoService {
       throw badRequest("LMS token is required");
     }
 
-    let decodedToken = null;
-    try {
-      // 1. Try standard secret verification first
-      decodedToken = jwt.verify(token, LMS_JWT_SECRET, { clockTolerance: 30 });
-    } catch (err) {
-      // 2. Fallback to OIDC token decode (for RS256 / Auth0 / SAML tokens)
-      const unverified = jwt.decode(token, { complete: true });
-      if (unverified && unverified.payload) {
-        decodedToken = unverified.payload;
-      } else {
-        throw unauthorized(`LMS token verification failed: ${err.message}`);
-      }
-    }
-
+    // Signature, issuer and expiry are verified here (HS* with LMS_JWT_SECRET, RS*/ES* via the issuer's JWKS).
+    // An unsigned, forged or expired token is rejected; there is no decode-only fallback.
+    const decodedToken = await verifyLmsSsoToken(token);
     if (!decodedToken || typeof decodedToken !== 'object') {
       throw unauthorized("Invalid LMS token payload");
-    }
-
-    // Validate Expiration (Log warning on expired tokens so SSO assertion & DB user creation proceed)
-    if (decodedToken.exp && decodedToken.exp * 1000 < Date.now() - 30000) {
-      console.warn(`[SsoService] LMS SSO token exp is in the past (${new Date(decodedToken.exp * 1000).toISOString()}). Proceeding with identity assertion & DB user synchronization.`);
     }
 
     const providerSubject = decodedToken.sub || decodedToken.user_id || decodedToken.id;
     if (!providerSubject) throw unauthorized("LMS token must contain a Subject (sub)");
 
-    const admissionId = studentDegreeAdmissionId || decodedToken.studentDegreeAdmissionId || decodedToken.admissionId;
+    // Identity binding: ids inside the signed token always win. Ids from the request body are only
+    // hints, and must not contradict the token (otherwise one student could sign in as another).
+    const tokenAdmissionId = cleanId(decodedToken.studentDegreeAdmissionId || decodedToken.admissionId);
+    const tokenStudentId = cleanId(
+      decodedToken.studentId || decodedToken.studentID || decodedToken.StudentId || decodedToken.student_id || decodedToken.lmsStudentId
+    );
+    const bodyAdmissionId = cleanId(studentDegreeAdmissionId);
+    const bodyStudentId = cleanId(studentId);
+    if ((tokenAdmissionId && bodyAdmissionId && tokenAdmissionId !== bodyAdmissionId) ||
+        (tokenStudentId && bodyStudentId && tokenStudentId !== bodyStudentId)) {
+      throw unauthorized("The student id in the request does not match the LMS sign-in token.");
+    }
+    const tokenEmail = String(decodedToken.email || "").trim().toLowerCase();
+    const idsFromBodyOnly = !tokenAdmissionId && !tokenStudentId && Boolean(bodyAdmissionId || bodyStudentId);
+    const admissionId = tokenAdmissionId || bodyAdmissionId;
     const requestSlug = String(slug || decodedToken.tenantSlug || decodedToken.slug || decodedToken.universitySlug || "").trim().toLowerCase();
     const tenant = await resolvePortalTenant({
       slug: requestSlug,
@@ -161,13 +164,7 @@ class SsoService {
       host: host || ""
     });
     const provider = await loadLmsProvider(null, tenant, decodedToken.provider || null);
-    const hintedStudentId = studentId
-      || decodedToken.studentId
-      || decodedToken.studentID
-      || decodedToken.StudentId
-      || decodedToken.student_id
-      || decodedToken.lmsStudentId
-      || null;
+    const hintedStudentId = tokenStudentId || bodyStudentId || null;
 
     let externalProfile = null;
     if (admissionId) {
@@ -188,6 +185,17 @@ class SsoService {
       }
     }
 
+    if (idsFromBodyOnly) {
+      const profileEmail = String(externalProfile?.email || "").trim().toLowerCase();
+      if (tokenEmail && profileEmail && tokenEmail !== profileEmail) {
+        throw unauthorized("The student id in the request does not belong to this LMS account.");
+      }
+      if (!tokenEmail) {
+        // The token carries no student id and no email, so the body ids cannot be bound to it.
+        console.warn(`[SsoService] SSO identity for subject ${String(providerSubject).slice(0, 64)} relies on request ids that the token cannot confirm (tenant=${tenantId}).`);
+      }
+    }
+
     const resolvedStudentId = hintedStudentId
       || externalProfile?.studentId
       || externalProfile?.studentID
@@ -199,7 +207,8 @@ class SsoService {
     const storedExternalId = storedStudentId || storedAdmissionId || String(providerSubject);
 
     const replayId = String(decodedToken.jti || decodedToken.nonce || `${providerSubject}_${decodedToken.iat || Date.now()}`).slice(0, 255);
-    let email = (externalProfile?.email || decodedToken.email || decodedToken.preferred_username || "").trim().toLowerCase();
+    // The signed token's email is the account key when present; the LMS profile email is the fallback.
+    let email = (tokenEmail || externalProfile?.email || decodedToken.preferred_username || "").trim().toLowerCase();
     if (!email.includes("@")) {
       const safeSubject = String(providerSubject).replace(/[^a-z0-9._-]/gi, "").slice(0, 48) || "student";
       email = `${safeSubject}@sso.experia.local`;
@@ -222,11 +231,14 @@ class SsoService {
       // StudentSessions.UserId can only reference the table named by FK_StudentSessions_UserId.
       const userTable = await sessionUserTable(connection);
       const externalIdentity = await externalIdentityRepository.findBySubject(tenantId, provider, providerSubject, connection).catch(() => null);
-      let userId = await selectUserIdByEmail(connection, userTable, email);
-      if (!userId && externalIdentity?.UserId) {
+      // The verified (tenant, provider, subject) link is the strongest key, so it is checked first;
+      // email matching only links a first SSO login to an existing account.
+      let userId = null;
+      if (externalIdentity?.UserId) {
         const linked = await selectUserById(connection, userTable, externalIdentity.UserId);
         userId = linked?.UserId || null;
       }
+      if (!userId) userId = await selectUserIdByEmail(connection, userTable, email);
       if (!userId) {
         userId = await insertStudent(connection, userTable, {
           fullName,
@@ -259,19 +271,32 @@ class SsoService {
           `SELECT DISTINCT lab_id, course_code, practical_credit FROM course_lab_mappings WHERE tenant_id = ? OR tenant_id = 'PLATFORM'`,
           [tenantId || 'PLATFORM']
         );
+        // Same rows and values as before, written in one statement instead of one per mapping.
+        const walletRows = new Map();
         for (const m of mappings) {
           const rawLabId = String(m.lab_id).toLowerCase().trim();
           const cleanLabId = rawLabId.replace(/^lab-/, '').replace(/-lab$/, '');
           const codeStr = String(m.course_code || '').toUpperCase();
           const defaultCred = (cleanLabId.includes('dbms') || codeStr.includes('4031')) ? 90 : ((cleanLabId.includes('dotnet') || codeStr.includes('4011')) ? 80 : 60);
           const practicalCredit = Number(m.practical_credit || defaultCred);
+          // Several mappings can name the same lab; the per-row upsert kept the largest grant.
+          const prev = walletRows.get(cleanLabId);
+          if (prev == null || practicalCredit > prev) walletRows.set(cleanLabId, practicalCredit);
+        }
+        if (walletRows.size) {
+          const values = [];
+          const params = [];
+          for (const [labId, credit] of walletRows) {
+            values.push("(?, ?, ?, ?, 0, ?, 1)");
+            params.push(tenantId || 'DEFAULT', String(userId), labId, credit, credit);
+          }
           await connection.query(
             `INSERT INTO student_lab_token_wallets (TenantId, StudentId, LabId, TotalPurchasedTokens, ConsumedTokens, RemainingTokens, Version)
-             VALUES (?, ?, ?, ?, 0, ?, 1)
+             VALUES ${values.join(", ")}
              ON DUPLICATE KEY UPDATE
                TotalPurchasedTokens = IF(TotalPurchasedTokens < VALUES(TotalPurchasedTokens), VALUES(TotalPurchasedTokens), TotalPurchasedTokens),
                RemainingTokens = CASE WHEN CAST(TotalPurchasedTokens AS SIGNED) >= CAST(ConsumedTokens AS SIGNED) THEN CAST(TotalPurchasedTokens AS SIGNED) - CAST(ConsumedTokens AS SIGNED) ELSE 0 END`,
-            [tenantId || 'DEFAULT', String(userId), cleanLabId, practicalCredit, practicalCredit]
+            params
           );
         }
       } catch (e) {

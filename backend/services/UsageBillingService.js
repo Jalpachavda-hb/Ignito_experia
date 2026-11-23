@@ -26,37 +26,13 @@ class UsageBillingService {
         return { billed: false, reason: "Session not found" };
       }
 
-      // If session is still STARTING, check if it has been active for >= 40 seconds and promote to RUNNING
+      // A STARTING session is never billed. It used to be promoted to RUNNING after 40 seconds
+      // even when the runtime never became ready; promotion now happens only through
+      // sessionReadiness.applyRuntimeReadiness() once the bootstrap reports READY.
       if (session.Status === 'STARTING') {
-        const createdMs = session.CreatedAt ? new Date(session.CreatedAt).getTime() : 0;
-        const startedMs = session.StartedAt ? new Date(session.StartedAt).getTime() : 0;
-        const baseMs = Math.max(createdMs, startedMs);
-        if (baseMs > 0 && (Date.now() - baseMs) >= 40000) {
-          const promoNow = new Date();
-          const sessionTokens = Number(session.AllocatedCredits || session.AllocatedDurationMinutes || 60);
-          const tokenExpiryAt = new Date(promoNow.getTime() + sessionTokens * 60 * 1000);
-          await connection.query(
-            `UPDATE lab_sessions 
-             SET Status = 'RUNNING', 
-                 StartedAt = ?, 
-                 TokenExpiryAt = ?, 
-                 ExpiresAt = ?, 
-                 LastBilledAt = ?, 
-                 UnbilledSeconds = 0, 
-                 UpdatedAt = CURRENT_TIMESTAMP 
-             WHERE SessionId = ?`,
-            [promoNow, tokenExpiryAt, tokenExpiryAt, promoNow, sessionId]
-          );
-          session.Status = 'RUNNING';
-          session.StartedAt = promoNow;
-          session.LastBilledAt = promoNow;
-          session.BilledSeconds = 0;
-          session.UnbilledSeconds = 0;
-        } else {
-          await connection.rollback();
-          connection.release();
-          return { billed: false, reason: "Session is still starting" };
-        }
+        await connection.rollback();
+        connection.release();
+        return { billed: false, reason: "Session is still starting" };
       } else if (!['RUNNING', 'EXPIRING_SOON'].includes(session.Status)) {
         await connection.rollback();
         connection.release();

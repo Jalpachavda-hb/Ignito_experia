@@ -5,7 +5,9 @@
   "scripts": {
     "start": "nodemon index.js",
     "dev": "nodemon index.js",
-    "db:update": "node scripts/run_db_updates.js"
+    "db:update": "node scripts/run_db_updates.js",
+    "test": "node --test --experimental-test-module-mocks \"test/unit/*.test.mjs\" lib/workspacePath.test.js",
+    "test:integration": "node --test --test-concurrency=1 \"test/integration/*.test.mjs\""
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1052.0",

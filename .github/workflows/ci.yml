@@ -6,12 +6,12 @@ on:
       - main
 
 # Required GitHub Actions secrets for deploy:
-#   EC2_HOST      - e.g. 3.7.254.15 or experia.ignitolearn.com
+#   EC2_HOST      - e.g. 3.7.254.15 or ignitoexperia.com
 #   EC2_USER      - e.g. ubuntu
 #   EC2_SSH_KEY   - private key (.pem contents)
 # Optional:
 #   DEPLOY_PATH   - defaults to /opt/ignitoexperia
-#   APP_URL       - defaults to https://experia.ignitolearn.com
+#   APP_URL       - defaults to https://ignitoexperia.com (update this secret if it still holds the old domain)
 
 jobs:
   backend-main:
@@ -75,7 +75,7 @@ jobs:
 
       - name: Run Build
         env:
-          VITE_API_URL: https://experia.ignitolearn.com/ownerbackend
+          VITE_API_URL: /owner-api
           VITE_BASE: /owner/
         run: npm run build -- --base=/owner/
         working-directory: ignito_Experia_Main_Dashboard/ignito_experia_admin
@@ -110,7 +110,7 @@ jobs:
 
       - name: Run Build
         env:
-          VITE_API_BASE_URL: https://experia.ignitolearn.com/api
+          VITE_API_BASE_URL: https://ignitoexperia.com/api
         run: npm run build
         working-directory: vlab_admin
 
@@ -137,7 +137,7 @@ jobs:
             DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
             DEPLOY_PATH="${DEPLOY_PATH:-/opt/ignitoexperia}"
             APP_URL="${{ secrets.APP_URL }}"
-            APP_URL="${APP_URL:-https://experia.ignitolearn.com}"
+            APP_URL="${APP_URL:-https://ignitoexperia.com}"
 
             cd "$DEPLOY_PATH"
 
@@ -216,8 +216,8 @@ jobs:
             echo "OK: frontend dist/index.html files present"
 
             # Curl with Host header — bare 127.0.0.1 hits default_server (often 404),
-            # not the experia.ignitolearn.com vhost Certbot configured.
-            HOST_HEADER="$(python3 -c "from urllib.parse import urlparse; print(urlparse('${APP_URL}').hostname or 'experia.ignitolearn.com')")"
+            # not the live-domain vhost Certbot configured.
+            HOST_HEADER="$(python3 -c "from urllib.parse import urlparse; print(urlparse('${APP_URL}').hostname or 'ignitoexperia.com')")"
             HTTP_ROOT="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: $HOST_HEADER" http://127.0.0.1/)"
             HTTP_OWNER="$(curl -sS -o /dev/null -w '%{http_code}' -H "Host: $HOST_HEADER" http://127.0.0.1/owner/)"
             echo "HTTP Host=$HOST_HEADER / => $HTTP_ROOT ; /owner/ => $HTTP_OWNER"

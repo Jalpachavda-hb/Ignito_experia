@@ -12,6 +12,7 @@ import { ENV } from "../config/env.js";
 
 import { ROLES } from "../constants/roles.js";
 import { slugFromHost } from "../lib/tenantSlug.js";
+import { isPlatformMainHost } from "../lib/platformDomain.js";
 import {
   PLATFORM_TENANT_ID,
   assertStudentPortal,
@@ -190,7 +191,7 @@ class AuthService {
       }
     }
  
-    const passwordHash = hashPassword(password);
+    const passwordHash = await hashPassword(password);
     const cleanEmail = email.toLowerCase().trim();
 
     // Ensure completely fresh slate for newly registered student (wipe any residual/orphaned data for this email across all tables)
@@ -237,7 +238,7 @@ class AuthService {
 
     // 1. Extract Slug from input or host header
     const cleanHost = String(host || "").split(":")[0].trim().toLowerCase();
-    const isDirectMainHost = cleanHost === "experia.ignitolearn.com" || cleanHost === "www.experia.ignitolearn.com";
+    const isDirectMainHost = isPlatformMainHost(cleanHost);
 
     let slug = isDirectMainHost ? "" : String(inputSlug || "").trim().toLowerCase();
     if (!slug && host && !isDirectMainHost) {
@@ -328,7 +329,7 @@ class AuthService {
         throw unauthorized("This university account is currently unavailable. Please contact the platform administrator.");
       }
 
-      if (!verifyPassword(password, tenant.AdminPasswordHash)) {
+      if (!(await verifyPassword(password, tenant.AdminPasswordHash))) {
         throw unauthorized("Invalid email or password");
       }
 
@@ -361,7 +362,7 @@ class AuthService {
       throw unauthorized(`Your account is ${user.Status || 'Inactive'}. Please contact support.`);
     }
 
-    if (!verifyPassword(password, user.PasswordHash)) {
+    if (!(await verifyPassword(password, user.PasswordHash))) {
       throw unauthorized("Invalid email or password");
     }
 

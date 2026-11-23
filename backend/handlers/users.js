@@ -12,7 +12,8 @@ export const usersListHandler = async (parsed) => {
   const queryParams = parsed.queryStringParameters || {};
 
   const { role, userId } = parsed.auth || {};
-  let authTenantId = parsed.auth?.tenantId || parsed.headers?.['x-tenant-id'] || parsed.headers?.['X-Tenant-Id'] || queryParams.tenantId || null;
+  // Tenant comes only from the signed token or the caller's own records, never from a header or query string.
+  let authTenantId = parsed.auth?.tenantId || null;
   const normalizedRole = (role || "").toUpperCase().replace(/\s+/g, "_");
   const isSuperAdmin = normalizedRole === "SUPER_ADMIN" || normalizedRole === "SUPERADMIN" || normalizedRole === "SUPER_ADMINISTRATOR" || normalizedRole === "ADMIN";
 
