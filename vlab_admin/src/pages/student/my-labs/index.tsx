@@ -975,15 +975,15 @@ export default function MyLabs() {
 
     // Fallback (access lookup unavailable): previous client-side combination.
     const combined: any[] = [...allEnrolledMappedLabs];
-    const labKey = (l: any) => String(l.id || l.labId || l.title || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
-    const existingIds = new Set(allEnrolledMappedLabs.map(labKey));
+    const fallbackLabKey = (l: any) => String(l.id || l.labId || l.title || '').toLowerCase().replace(/^lab-/, '').replace(/-lab$/, '');
+    const existingIds = new Set(allEnrolledMappedLabs.map(fallbackLabKey));
     const existingFamilies = new Set(
       allEnrolledMappedLabs.map((lab) => labFamily(lab.id || lab.labId, lab.title, lab.courseName, lab.courseCode, lab.mappedLabTitle))
     );
 
     // Tokens bought for a university-assigned lab top up that course card instead of adding a duplicate card.
     purchasedLabsList.forEach((pLab) => {
-      const pId = labKey(pLab);
+      const pId = fallbackLabKey(pLab);
       const pFamily = labFamily(pLab.id || pLab.labId, pLab.title, pLab.courseName);
       if (existingFamilies.has(pFamily)) return;
       if (!existingIds.has(pId)) {
