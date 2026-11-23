@@ -5,13 +5,29 @@ import { ENV } from "../config/env.js";
 import { getPythonPlotHookB64 } from "../lib/pythonPlotHook.js";
 import path from "path";
 
-const updateExecuteCommandState = async (sessionId, state) => {
-  try {
-    await updateSession(sessionId, { executeCommandState: state });
-  } catch (err) {
+// Fire-and-forget: the UI status flag must never add DB round-trip latency to a Run.
+const updateExecuteCommandState = (sessionId, state) => {
+  updateSession(sessionId, { executeCommandState: state }).catch((err) => {
     console.error(`[ExecuteCommandService] Failed to update state for ${sessionId}:`, err.message);
-  }
+  });
 };
+
+// Once a task's ExecuteCommandAgent has been verified RUNNING, skip the ECS DescribeTask
+// round-trip for subsequent runs. A failed exec invalidates the entry.
+const READY_CACHE_TTL_MS = Number(process.env.EXECUTE_READY_CACHE_TTL_MS || 10 * 60 * 1000);
+const agentReadyCache = new Map(); // taskArn -> verifiedAt (ms)
+
+const isAgentReadyCached = (taskArn) => {
+  const at = agentReadyCache.get(taskArn);
+  if (!at) return false;
+  if (Date.now() - at > READY_CACHE_TTL_MS) {
+    agentReadyCache.delete(taskArn);
+    return false;
+  }
+  return true;
+};
+
+export const invalidateAgentReadyCache = (taskArn) => agentReadyCache.delete(taskArn);
 
 const verifyAgentReadiness = async (taskArn) => {
   const task = await describeTask(taskArn);
@@ -79,7 +95,7 @@ export const runCommandInContainer = async (session, commandValue, options = {})
   let attempt = 0;
   let lastError = null;
 
-  await updateExecuteCommandState(sessionId, "connecting");
+  updateExecuteCommandState(sessionId, "connecting");
 
   while (attempt <= maxRetries) {
     attempt++;
@@ -87,22 +103,28 @@ export const runCommandInContainer = async (session, commandValue, options = {})
     console.log(`[ExecuteCommand] [RUN] Session: ${sessionId} | Attempt: ${attempt}/${maxRetries + 1} | Elapsed: ${elapsed}s`);
 
     let readiness;
-    try {
-      readiness = await verifyAgentReadiness(taskArn);
-    } catch (err) {
-      readiness = { ready: false, stopped: false, reason: `ECS DescribeTask failed: ${err.message}` };
+    if (attempt === 1 && isAgentReadyCached(taskArn)) {
+      readiness = { ready: true, stopped: false, cached: true };
+    } else {
+      try {
+        readiness = await verifyAgentReadiness(taskArn);
+      } catch (err) {
+        readiness = { ready: false, stopped: false, reason: `ECS DescribeTask failed: ${err.message}` };
+      }
+      if (readiness.ready) agentReadyCache.set(taskArn, Date.now());
     }
 
     if (readiness.stopped) {
+      agentReadyCache.delete(taskArn);
       const errorMsg = `Command execution aborted: ${readiness.reason}`;
       console.error(`[ExecuteCommand] [ABORT] Session: ${sessionId} | Reason: ${errorMsg}`);
-      await updateExecuteCommandState(sessionId, "failed");
+      updateExecuteCommandState(sessionId, "failed");
       throw new Error(errorMsg);
     }
 
     if (!readiness.ready) {
       console.log(`[ExecuteCommand] [WAIT] Session: ${sessionId} | Status: ${readiness.reason}`);
-      await updateExecuteCommandState(sessionId, "retrying");
+      updateExecuteCommandState(sessionId, "retrying");
       
       console.log(`[ExecuteCommand] [BACKOFF] Session: ${sessionId} | Delaying ${currentDelay}ms...`);
       await new Promise(r => setTimeout(r, currentDelay));
@@ -113,15 +135,16 @@ export const runCommandInContainer = async (session, commandValue, options = {})
     try {
       const output = await executeAwsCommand(session, commandValue, timeoutMs);
       const totalDuration = Date.now() - startTime;
-      console.log(`[ExecuteCommand] [SUCCESS] Session: ${sessionId} | Duration: ${Math.round(totalDuration / 1000)}s`);
-      await updateExecuteCommandState(sessionId, "connected");
+      console.log(`[ExecuteCommand] [SUCCESS] Session: ${sessionId} | Duration: ${totalDuration}ms${readiness.cached ? " (readiness cached)" : ""}`);
+      updateExecuteCommandState(sessionId, "connected");
       return output;
     } catch (err) {
       lastError = err;
+      agentReadyCache.delete(taskArn);
       console.warn(`[ExecuteCommand] [FAIL] Session: ${sessionId} | Error Code: ${err.code || "UNKNOWN"} | Message: ${err.message}`);
 
       if (err.code === "SessionManagerPluginMissing" || err.code === "TaskStopped" || err.code === "ETIMEDOUT") {
-        await updateExecuteCommandState(sessionId, "failed");
+        updateExecuteCommandState(sessionId, "failed");
         throw err;
       }
 
@@ -154,7 +177,7 @@ export const runCommandInContainer = async (session, commandValue, options = {})
   const totalDuration = Date.now() - startTime;
   const timeoutError = new Error(`ExecuteCommand failed: Connection remained unreachable after ${maxRetries + 1} attempts (${Math.round(totalDuration / 1000)}s).`);
   console.error(`[ExecuteCommand] [FATAL] Session: ${sessionId} | Error: ${timeoutError.message}`);
-  await updateExecuteCommandState(sessionId, "failed");
+  updateExecuteCommandState(sessionId, "failed");
   throw timeoutError;
 };
 
@@ -344,17 +367,22 @@ if ! find "$SNIP_DIR" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
   elif [ -f "/workspace/dotnet-snippet.csproj" ]; then
     cp "/workspace/dotnet-snippet.csproj" "$SNIP_DIR/" 2>/dev/null || true
   else
-    (cd "$SNIP_DIR" && dotnet new console --force 2>/dev/null || true)
+    # Silence stdout too: "The template ... was created" / "Restore succeeded." must not reach the user
+    (cd "$SNIP_DIR" && dotnet new console --force --no-restore >/dev/null 2>&1 || true)
   fi
-fi
-if [ -d "${parentDir}/obj" ]; then
-  cp -r "${parentDir}/obj" "$SNIP_DIR/" 2>/dev/null || true
-elif [ -d "/workspace/obj" ]; then
-  cp -r "/workspace/obj" "$SNIP_DIR/" 2>/dev/null || true
 fi
 cp "${containerPath}" "$SNIP_DIR/Program.cs"
 cd "$SNIP_DIR"
-PROJECT_ARG="--project $SNIP_DIR"
+# Restore once per container (silently). Do NOT copy obj/ from other projects on every run:
+# their project.assets.json points at a different project path and forces restore + full rebuild each time.
+if [ ! -f "$SNIP_DIR/obj/project.assets.json" ]; then
+  dotnet restore "$SNIP_DIR" -v q >/dev/null 2>&1 || true
+fi
+if [ -f "$SNIP_DIR/obj/project.assets.json" ]; then
+  PROJECT_ARG="--project $SNIP_DIR --no-restore"
+else
+  PROJECT_ARG="--project $SNIP_DIR"
+fi
 ` : ""}
 
 # Execute target command with optional stdin

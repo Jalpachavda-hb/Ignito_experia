@@ -205,7 +205,7 @@ if [ -f "$TMP_TAR" ]; then
         # Console Lab: If .NET workspace has Program.cs but no .csproj anywhere in workspace, initialize console project
         if [ -f "$DEST_DIR/Program.cs" ] && ! find "$DEST_DIR" -maxdepth 2 -name "*.csproj" 2>/dev/null | grep -q .; then
             cp "$DEST_DIR/Program.cs" /tmp/Program.cs.bak 2>/dev/null || true
-            (cd "$DEST_DIR" && dotnet new console --force 2>/dev/null || true)
+            (cd "$DEST_DIR" && dotnet new console --force >/dev/null 2>&1 || true)
             if [ -f /tmp/Program.cs.bak ]; then
                 mv /tmp/Program.cs.bak "$DEST_DIR/Program.cs"
             fi
@@ -240,7 +240,7 @@ if [ -f "$TMP_TAR" ]; then
                 cp -r "/workspace/obj" "$snip_dir/" 2>/dev/null || true
             fi
             if ! find "$snip_dir" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-                (cd "$snip_dir" && dotnet new console --force 2>/dev/null || true)
+                (cd "$snip_dir" && dotnet new console --force >/dev/null 2>&1 || true)
             fi
             chown -R labuser:labuser "$snip_dir" 2>/dev/null || true
         done
@@ -651,7 +651,7 @@ if [ -f "$TMP_TAR" ]; then
                 cp -r "/workspace/obj" "$snip_dir/" 2>/dev/null || true
             fi
             if ! find "$snip_dir" -maxdepth 1 -name "*.csproj" 2>/dev/null | grep -q .; then
-                (cd "$snip_dir" && dotnet new console --force 2>/dev/null || true)
+                (cd "$snip_dir" && dotnet new console --force >/dev/null 2>&1 || true)
             fi
             chown -R labuser:labuser "$snip_dir" 2>/dev/null || true
         done

@@ -12,7 +12,27 @@ const localBinPath = os.platform() === "win32"
   ? path.join(localSsmDir, "bin", "bin", "session-manager-plugin.exe")
   : path.join(localSsmDir, "bin", "session-manager-plugin");
 
-export const ensureSessionManagerPluginInstalled = async () => {
+// Reuse one ECS client per region (keeps credentials + HTTPS keep-alive warm between runs).
+const ecsClients = new Map();
+const getEcsClient = (region) => {
+  if (!ecsClients.has(region)) ecsClients.set(region, new ECSClient({ region }));
+  return ecsClients.get(region);
+};
+
+// The plugin check spawns `where`/`which` synchronously; only do it once per process.
+let pluginCheckPromise = null;
+
+export const ensureSessionManagerPluginInstalled = () => {
+  if (!pluginCheckPromise) {
+    pluginCheckPromise = ensureSessionManagerPluginInstalledOnce().catch((err) => {
+      pluginCheckPromise = null;
+      throw err;
+    });
+  }
+  return pluginCheckPromise;
+};
+
+const ensureSessionManagerPluginInstalledOnce = async () => {
   // Direct container communication on AWS EC2 does not require session-manager-plugin
   if (isDirectContainerMode() && os.platform() !== "win32") {
     return;
@@ -246,7 +266,7 @@ export const executeAwsCommand = async (session, commandValue, timeoutMs = 12000
   // 1. Direct AWS SDK ExecuteCommand (Pure API - No AWS CLI executable required)
   let sdkSession = null;
   try {
-    const ecsClient = new ECSClient({ region });
+    const ecsClient = getEcsClient(region);
     const response = await ecsClient.send(
       new ExecuteCommandCommand({
         cluster,
