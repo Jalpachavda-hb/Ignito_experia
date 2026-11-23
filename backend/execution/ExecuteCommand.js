@@ -26,6 +26,25 @@ const checkPort = (host, port, timeout = 1500) => {
   });
 };
 
+// Remember sessions whose direct HTTP agent is unreachable so subsequent runs go straight
+// to SSM instead of paying the failed-HTTP (or 1.5s port probe) penalty on every click.
+const HTTP_UNREACHABLE_TTL_MS = Number(process.env.HTTP_UNREACHABLE_TTL_MS || 5 * 60 * 1000);
+const httpUnreachable = new Map(); // sessionId -> markedAt
+
+const isHttpKnownUnreachable = (sessionId) => {
+  const at = httpUnreachable.get(sessionId);
+  if (!at) return false;
+  if (Date.now() - at > HTTP_UNREACHABLE_TTL_MS) {
+    httpUnreachable.delete(sessionId);
+    return false;
+  }
+  return true;
+};
+const markHttpUnreachable = (sessionId, reason) => {
+  console.warn(`[ExecuteCommand] HTTP agent unreachable for ${sessionId} (${reason}); using SSM for next ${Math.round(HTTP_UNREACHABLE_TTL_MS / 1000)}s`);
+  httpUnreachable.set(sessionId, Date.now());
+};
+
 export class ExecuteCommand {
   static async execute(session, runId, payload) {
     const host = getContainerHost(session);
@@ -162,40 +181,36 @@ export class ExecuteCommand {
 
       let result;
       const port = session.containerPort || 8080;
+      const t0 = Date.now();
+      let via = "http";
 
-      if (isDirectContainerMode()) {
-        // AWS Instance Mode: Backend connects directly to container via private IP
-        console.log(`[ExecuteCommand] Direct Container Mode: connecting to http://${host}:${port}`);
+      const runSsm = async (reason) => {
+        via = "ssm";
+        console.log(`[ExecuteCommand] Using SSM for ${session.sessionId}: ${reason}`);
+        return executeViaSsm(session, finalPayload);
+      };
+
+      if (isHttpKnownUnreachable(session.sessionId)) {
+        // Already proved unreachable recently: skip the probe and go straight to SSM.
+        result = await runSsm("HTTP agent marked unreachable (cached)");
+      } else if (!(await checkPort(host, port, isDirectContainerMode() ? 1000 : 1500))) {
+        // Fast TCP probe (≤1–1.5s) instead of letting fetch hang on an unreachable private IP.
+        markHttpUnreachable(session.sessionId, `port ${host}:${port} closed`);
+        result = await runSsm("port probe failed");
+      } else {
         try {
+          console.log(`[ExecuteCommand] Direct HTTP: http://${host}:${port}`);
           result = await executeCode(session, finalPayload, { runId });
           if (!result.success && (result.error === "Container unreachable" || result.error === "Runtime initialization failed")) {
             throw new Error(result.error);
           }
         } catch (directErr) {
-          console.warn(`[ExecuteCommand] Direct container HTTP execution failed (${directErr.message}). Falling back to SSM execution...`);
-          LogStreamer.sendRunLog(runId, `⚠️ Private HTTP agent port unreachable. Executing script via AWS SSM fallback...`, "stdout");
-          result = await executeViaSsm(session, finalPayload);
-        }
-      } else {
-        // Local Mode: Direct network route to container private IP is typically blocked,
-        // so check port and fall back to AWS SSM / AWS CLI command execution
-        const isReachable = await checkPort(host, port, 1500);
-
-        if (isReachable) {
-          try {
-            result = await executeCode(session, finalPayload, { runId });
-            if (!result.success && result.error === "Container unreachable") {
-              throw new Error("Container unreachable");
-            }
-          } catch (err) {
-            LogStreamer.sendRunLog(runId, `⚠️ Private HTTP agent port unreachable. Executing script via AWS SSM fallback...`, "stdout");
-            result = await executeViaSsm(session, finalPayload);
-          }
-        } else {
-          LogStreamer.sendRunLog(runId, `⚠️ Direct HTTP unreachable (local mode). Executing script via AWS SSM...`, "stdout");
-          result = await executeViaSsm(session, finalPayload);
+          markHttpUnreachable(session.sessionId, directErr.message);
+          result = await runSsm(`HTTP execution failed: ${directErr.message}`);
         }
       }
+
+      console.log(`[ExecuteCommand] [TIMING] Session: ${session.sessionId} | via=${via} | ${Date.now() - t0}ms`);
 
       if (result.output && !result.plotHtml && result.output.includes("<!-- VLAB_PLOT_START -->")) {
         const plotMatch = result.output.match(/<!-- VLAB_PLOT_START -->([\s\S]*?)<!-- VLAB_PLOT_END -->/);
